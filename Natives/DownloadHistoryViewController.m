@@ -101,11 +101,11 @@ static NSString * const kHistoryCellReuseIdentifier = @"DownloadHistoryCell";
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             dateFormatter = [[NSDateFormatter alloc] init];
-            dateFormatter.dateStyle = NSDateFormatterStyleMedium;
-            dateFormatter.timeStyle = NSDateFormatterStyleNone;
+            dateFormatter.dateStyle = NSDateFormatterMediumStyle;
+            dateFormatter.timeStyle = NSDateFormatterNoStyle;
             timeFormatter = [[NSDateFormatter alloc] init];
-            timeFormatter.dateStyle = NSDateFormatterStyleNone;
-            timeFormatter.timeStyle = NSDateFormatterStyleShort;
+            timeFormatter.dateStyle = NSDateFormatterNoStyle;
+            timeFormatter.timeStyle = NSDateFormatterShortStyle;
         });
         self.timeLabel.text = [NSString stringWithFormat:@"%@\n%@",
                                [dateFormatter stringFromDate:date],
