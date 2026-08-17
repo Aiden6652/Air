@@ -10,6 +10,10 @@ NSString * const DownloadTaskManagerTaskKey                             = @"Down
 /// 全局并发下载上限（同时 Downloading 的任务数）
 NSInteger const PLDownloadMaxConcurrentTasks = 3;
 
+/// NSURLSession 断点续传失效错误码（即文档中的 NSURLErrorCannotResume，
+/// iOS SDK 头文件未导出该符号，此处按系统取值本地定义）
+static NSInteger const PLNSURLErrorCannotResume = -3004;
+
 /// 快照持久化 debounce 间隔（秒）：状态变化后合并写
 static const NSTimeInterval kSnapshotDebounceInterval = 0.5;
 /// 进度上报触发落盘的最小间隔（秒）：高频进度下节流，保证长下载期间快照也能定期落盘
@@ -88,7 +92,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
 }
 
 - (NSString *)resumeDataPathForTaskId:(NSString *)taskId {
-    return [[self.resumeDataDirectoryPath]
+    return [self.resumeDataDirectoryPath
         stringByAppendingPathComponent:[taskId stringByAppendingPathExtension:@"resume"]];
 }
 
@@ -903,7 +907,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         // 成功完成：写一条下载历史
         [self.historyStore recordEntryWithDictionary:[item historyDictionary]];
         [self deleteResumeDataForItem:item];
-    } else if ([error.domain isEqualToString:NSURLErrorDomain] && error.code == NSURLErrorCannotResume) {
+    } else if ([error.domain isEqualToString:NSURLErrorDomain] && error.code == PLNSURLErrorCannotResume) {
         // 断点续传失效：自动清除断点数据并回退 retryHandler 从头下载
         [self deleteResumeDataForItem:item];
         if (item.retryHandler) {
@@ -959,7 +963,8 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     if (!rawTask || !item) return;
 
     if ([rawTask isKindOfClass:[NSURLSessionDownloadTask class]]) {
-        NSURLSessionTask *task = (NSURLSessionTask *)rawTask;
+        // cancelByProducingResumeData: 声明在 NSURLSessionDownloadTask 上，需按该类型调用
+        NSURLSessionDownloadTask *task = (NSURLSessionDownloadTask *)rawTask;
         if (task.state == NSURLSessionTaskStateRunning || task.state == NSURLSessionTaskStateSuspended) {
             NSString *taskId = [item.taskId copy];
             [task cancelByProducingResumeData:^(NSData *resumeData) {
