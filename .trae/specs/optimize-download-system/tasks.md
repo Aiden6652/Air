@@ -49,7 +49,7 @@
 - [x] Task 6.3: 全语言本地化文案（zh-Hans/zh-Hant/en 等，新增键：速率、历史、镜像策略、失败重试等）
 
 ## 验证
-- [ ] Task 7.1: 提交到 GitHub 远程分支触发 Actions 构建（macOS 14 / Xcode 15.4），确认无编译错误
+- [x] Task 7.1: 提交到 GitHub 远程分支触发 Actions 构建（macOS 14 / Xcode 15.4），确认无编译错误（run #1619 成功，产物 ipa/tipa/dSYM 已上传）
 - [ ] Task 7.2: 按 checklist.md 逐项自检并在真机/TrollStore 流程验证关键场景
 
 # Task Dependencies
