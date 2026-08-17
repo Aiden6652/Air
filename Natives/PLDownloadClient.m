@@ -248,6 +248,28 @@ static NSError *_Nullable PLDownloadValidateFile(NSString *path, PLDownloadReque
 
 @end
 
+#pragma mark - 会话回调转发声明
+
+/// NSURLSession delegate 回调经独立 delegate 对象转发回 client（实现在 @implementation 内）。
+/// delegate 类定义于下方、早于类扩展与实现，故在此提前声明保证编译可见。
+@interface PLDownloadClient (SessionDelegateForwarding)
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(nullable NSError *)error;
+- (void)URLSession:(NSURLSession *)session
+       downloadTask:(NSURLSessionDownloadTask *)downloadTask
+didFinishDownloadingToURL:(NSURL *)location;
+- (void)URLSession:(NSURLSession *)session
+       downloadTask:(NSURLSessionDownloadTask *)downloadTask
+      didWriteData:(int64_t)bytesWritten
+ totalBytesWritten:(int64_t)totalBytesWritten
+totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite;
+- (void)URLSession:(NSURLSession *)session
+       downloadTask:(NSURLSessionDownloadTask *)downloadTask
+ didResumeAtOffset:(int64_t)fileOffset
+expectedTotalBytes:(int64_t)expectedTotalBytes;
+@end
+
 #pragma mark - 会话 delegate（独立对象打破 session → client 强引用循环）
 
 /// NSURLSession 的 delegate 对象被会话强持有；若直接用 client 做 delegate，
@@ -895,6 +917,7 @@ didCompleteWithError:(nullable NSError *)error {
                             withItemAtURL:partURL
                            backupItemName:nil
                                       options:0
+                         resultingItemURL:NULL
                                        error:&error];
     } else {
         ok = [fileManager moveItemAtURL:partURL toURL:destinationURL error:&error];
