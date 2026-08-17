@@ -145,6 +145,13 @@ static NSError *_Nullable PLDownloadValidateFile(NSString *path, PLDownloadReque
     return nil;
 }
 
+#pragma mark - PLDownloadRequest
+
+@implementation PLDownloadRequest
+// 纯数据模型：五个属性均由编译器自动合成（nonatomic/copy/assign），
+// 初始化默认值由调用方按需赋值（allowZipFallbackCheck 默认 NO）
+@end
+
 #pragma mark - PLDownloadOperation（内部）
 
 @interface PLDownloadOperation ()
