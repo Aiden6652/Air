@@ -8,6 +8,7 @@
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
+#import "PLMirrorCenter.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
 #import "ios_uikit_bridge.h"
@@ -78,90 +79,50 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
     return [self replaceURLWithDownloadSource:originalURL forceSource:nil];
 }
 
-/// 镜像源替换核心实现。
+/// 生成游戏文件的镜像候选列表（接入 PLMirrorCenter 镜像中心）
+/// 候选包含原始（官方）URL 与 BMCLAPI 镜像 URL，已去重并按当前镜像策略排序；
+/// 无法识别的主机仅返回原始 URL。镜像前缀映射统一收敛在 PLMirrorCenter，
+/// 本类不再硬编码镜像根 URL。
+- (NSArray<NSURL *> *)mirrorCandidatesForOriginalURL:(NSString *)originalURL {
+    NSURL *url = [NSURL URLWithString:originalURL];
+    if (!url) return @[];
+    return [PLMirrorCenter candidateURLsForOriginalURL:url
+                                          resourceType:PLMirrorResourceTypeGameFile];
+}
+
+/// 镜像源替换核心实现（接入 PLMirrorCenter，spec Task 4.2）。
 /// 参考 FCL（FoldCraftLauncher）和 ZalithLauncher2：支持多镜像源 fallback。
 /// @param originalURL 原始 URL
-/// @param forceSource 强制使用的源（nil=用用户偏好；@"official"=不替换；@"bmclapi"=强制 BMCLAPI）。
-///                    在下载失败重试时，调用方传入对端源以触发镜像源切换，
-///                    避免单一镜像源故障导致整批下载卡死。
+/// @param forceSource 强制使用的源（保留旧参数语义）：
+///                    nil=按 PLMirrorCenter 当前策略取首选（策略内部含旧键回退）；
+///                    @"official"=锁定官方原始 URL；
+///                    @"bmclapi"=锁定 BMCLAPI 镜像候选（无镜像候选时回退原始 URL）；
+///                    @"mcim"=沿用旧行为：MCIM 不覆盖 Mojang 系游戏文件，原样返回。
 - (NSString *)replaceURLWithDownloadSource:(NSString *)originalURL forceSource:(nullable NSString *)forceSource {
     if (!originalURL) return originalURL;
 
-    NSString *downloadSource = forceSource ?: getPrefObject(@"general.download_source");
-    if (!downloadSource || [downloadSource isEqualToString:@"official"]) {
+    NSArray<NSURL *> *candidates = [self mirrorCandidatesForOriginalURL:originalURL];
+    if (candidates.count == 0) return originalURL;
+
+    if (forceSource.length == 0) {
+        // nil → 按 PLMirrorCenter 策略取首选候选
+        return candidates.firstObject.absoluteString ?: originalURL;
+    }
+    if ([forceSource isEqualToString:@"official"] || [forceSource isEqualToString:@"mcim"]) {
+        // 官方源直连；mcim 沿用旧行为（游戏文件不走 MCIM 改写）
         return originalURL;
     }
-
-    // BMCLAPI镜像源
-    if ([downloadSource isEqualToString:@"bmclapi"]) {
-        // piston-meta.mojang.com：Mojang 新版版本清单和版本 JSON 域名（1.19+ 起使用）
-        // 修复：原版安装时 version.json 直连此域名，国内超时导致转圈不下载
-        if ([originalURL containsString:@"piston-meta.mojang.com"]) {
-            originalURL = [originalURL stringByReplacingOccurrencesOfString:@"https://piston-meta.mojang.com"
-                                                                withString:@"https://bmclapi2.bangbang93.com"];
+    if ([forceSource isEqualToString:@"bmclapi"]) {
+        // 锁定 BMCLAPI 镜像候选（候选中与原始 URL 不同的那一项）
+        for (NSURL *candidate in candidates) {
+            if (![candidate.absoluteString isEqualToString:originalURL]) {
+                return candidate.absoluteString;
+            }
         }
-        // piston-data.mojang.com：Mojang 新版 client.jar 和资源下载域名
-        if ([originalURL containsString:@"piston-data.mojang.com"]) {
-            originalURL = [originalURL stringByReplacingOccurrencesOfString:@"https://piston-data.mojang.com"
-                                                                withString:@"https://bmclapi2.bangbang93.com"];
-        }
-
-        // 版本清单和版本JSON（旧域名，向后兼容）
-        if ([originalURL containsString:@"launchermeta.mojang.com"] ||
-            [originalURL containsString:@"launcher.mojang.com"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://launchermeta.mojang.com"
-                                                           withString:@"https://bmclapi2.bangbang93.com"];
-        }
-
-        // Assets资源
-        if ([originalURL containsString:@"resources.download.minecraft.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"http://resources.download.minecraft.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/assets"];
-        }
-
-        // Libraries库文件
-        if ([originalURL containsString:@"libraries.minecraft.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://libraries.minecraft.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-
-        // Forge
-        if ([originalURL containsString:@"files.minecraftforge.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://files.minecraftforge.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com"];
-        }
-
-        // Fabric
-        if ([originalURL containsString:@"meta.fabricmc.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://meta.fabricmc.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/fabric-meta"];
-        }
-
-        if ([originalURL containsString:@"maven.fabricmc.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://maven.fabricmc.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-
-        // NeoForge
-        if ([originalURL containsString:@"maven.neoforged.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://maven.neoforged.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-
-        // authlib-injector
-        if ([originalURL containsString:@"authlib-injector.yushi.moe"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://authlib-injector.yushi.moe"
-                                                           withString:@"https://bmclapi2.bangbang93.com/mirrors/authlib-injector"];
-        }
-
-        // Mojang Java运行时
-        if ([originalURL containsString:@"launchermeta.mojang.com/v1/products/java-runtime"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://launchermeta.mojang.com"
-                                                           withString:@"https://bmclapi2.bangbang93.com"];
-        }
+        return originalURL;
     }
-
-    return originalURL;
+    // 未知源值：按策略取首选
+    return candidates.firstObject.absoluteString ?: originalURL;
 }
 
 // Add file to the queue
@@ -180,16 +141,32 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
     }
 
     NSString *name = altName ?: path.lastPathComponent;
-    // 根据配置选择下载源并替换URL
-    // 参考 FCL（FoldCraftLauncher）和 ZalithLauncher2：重试时切换到对端镜像源，
-    // 避免单一镜像源故障导致整批下载卡死。SHA1 校验仍照常进行，不破坏下载完整性。
-    NSString *forceSource = nil;
-    if (retryCount > 0) {
-        NSString *currentSource = getPrefObject(@"general.download_source") ?: @"bmclapi";
-        forceSource = [currentSource isEqualToString:@"bmclapi"] ? @"official" : @"bmclapi";
-        NSLog(@"[MCDL] Retry %@ with fallback source: %@", name, forceSource);
+    // 镜像候选与故障转移（接入 PLMirrorCenter，spec Task 4.2）：
+    // 候选列表按当前镜像策略排序（如 [官方, BMCLAPI 镜像]）。重试时同一候选耗尽
+    // 单候选重试预算后轮换到下一候选继续重试，全部候选耗尽才最终失败，
+    // 避免单一镜像源故障导致整批下载卡死（参考 FCL / ZalithLauncher2 的多源 fallback）。
+    // SHA1 校验仍照常进行，不破坏下载完整性。
+    NSArray<NSURL *> *mirrorCandidates = [self mirrorCandidatesForOriginalURL:url];
+    if (mirrorCandidates.count == 0) {
+        // URL 无法解析的极端情况：退化为仅含原始 URL 的单候选，保持旧行为
+        NSURL *fallbackURL = [NSURL URLWithString:url];
+        mirrorCandidates = fallbackURL ? @[fallbackURL] : @[];
     }
-    NSString *replacedURL = [self replaceURLWithDownloadSource:url forceSource:forceSource];
+    NSInteger maxRetry = self.maxRetryCount > 0 ? self.maxRetryCount : 3;
+    // 总尝试次数 = 单候选重试预算 × 候选数（全部候选耗尽才最终失败）
+    NSInteger attemptCount = MAX((NSInteger)mirrorCandidates.count, 1) * maxRetry;
+    // 当前尝试对应的候选索引：第 0~(maxRetry-1) 次尝试用候选 0，耗尽后轮换下一候选
+    NSUInteger candidateIndex = mirrorCandidates.count > 0
+        ? MIN((NSUInteger)(MAX(retryCount, 0) / MAX(maxRetry, 1)), mirrorCandidates.count - 1)
+        : 0;
+    NSString *replacedURL = mirrorCandidates.count > 0
+        ? (mirrorCandidates[candidateIndex].absoluteString ?: url)
+        : url;
+    if (retryCount > 0) {
+        NSLog(@"[MCDL] Retry %@ (attempt %ld/%ld, mirror candidate %lu/%lu)",
+              name, (long)(retryCount + 1), (long)attemptCount,
+              (unsigned long)(candidateIndex + 1), (unsigned long)mirrorCandidates.count);
+    }
     NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:replacedURL]];
     __block NSProgress *progress;
     __weak MinecraftResourceDownloadTask *weakSelf = self;
@@ -213,15 +190,14 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
         if (self.progress.cancelled) {
             // Ignore any further errors
         } else if (error != nil) {
-            // 重试机制
-            NSInteger maxRetry = weakSelf.maxRetryCount > 0 ? weakSelf.maxRetryCount : 3;
-            if (retryCount < maxRetry) {
+            // 重试机制（候选轮换故障转移：同候选耗尽预算换下一候选，全部候选耗尽才最终失败）
+            if (retryCount + 1 < attemptCount) {
                 NSInteger nextRetry = retryCount + 1;
-                NSLog(@"[MCDL] Retrying %@ (attempt %ld/%ld)", name, (long)nextRetry, (long)maxRetry);
-                
+                NSLog(@"[MCDL] Retrying %@ (attempt %ld/%ld)", name, (long)(nextRetry + 1), (long)attemptCount);
+
                 if (weakSelf.retryCallback) {
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        weakSelf.retryCallback(nextRetry, maxRetry);
+                        weakSelf.retryCallback(nextRetry, attemptCount);
                     });
                 }
                 
@@ -252,11 +228,10 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
                 }
             }
         } else if (![self checkSHA:sha forFile:path altName:altName]) {
-            // SHA1 校验失败也尝试重试
-            NSInteger maxRetry = weakSelf.maxRetryCount > 0 ? weakSelf.maxRetryCount : 3;
-            if (retryCount < maxRetry) {
+            // SHA1 校验失败也尝试重试（同样按候选列表轮换故障转移）
+            if (retryCount + 1 < attemptCount) {
                 NSInteger nextRetry = retryCount + 1;
-                NSLog(@"[MCDL] SHA1 mismatch, retrying %@ (attempt %ld/%ld)", name, (long)nextRetry, (long)maxRetry);
+                NSLog(@"[MCDL] SHA1 mismatch, retrying %@ (attempt %ld/%ld)", name, (long)(nextRetry + 1), (long)attemptCount);
 
                 // 删除损坏的文件
                 [NSFileManager.defaultManager removeItemAtPath:path error:nil];

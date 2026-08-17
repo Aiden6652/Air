@@ -71,6 +71,12 @@ FOUNDATION_EXPORT NSInteger const PLDownloadMaxConcurrentTasks;
                    speed:(double)speed
   estimatedTimeRemaining:(NSTimeInterval)estimatedTimeRemaining;
 
+/// 多文件任务（如整合包按文件推进）上报文件级进度（Phase 6 Task 6.1 双维度进度）。
+/// totalFileCount <= 0 表示清除文件计数维度（回到单文件展示）。
+- (void)updateTaskWithId:(NSString *)taskId
+      completedFileCount:(NSInteger)completedFileCount
+          totalFileCount:(NSInteger)totalFileCount;
+
 - (void)setTaskWithId:(NSString *)taskId state:(DownloadTaskState)state;
 
 /// 标记任务完成或失败；error 为 nil 表示成功

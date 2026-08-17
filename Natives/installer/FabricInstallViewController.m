@@ -7,7 +7,7 @@
 #import "PickTextField.h"
 #import "PLProfiles.h"
 #import "BackgroundManager.h"
-#import "MCIMMirror.h"
+#import "PLMirrorCenter.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
 #include <objc/runtime.h>
@@ -269,8 +269,10 @@ extern NSMutableArray *localVersionList;
 - (void)installFabricAPIWithCompletion:(void (^)(BOOL success, NSError *error))completion {
     NSString *gameVersion = self.localKVO[@"gameVersion"];
     
-    // Fabric API download URL from Modrinth（应用 MCIM 镜像）
-    NSString *apiUrl = [MCIMMirror applyToURL:[NSString stringWithFormat:@"https://api.modrinth.com/v2/project/fabric-api/version?game_versions=[\"%@\"]&loaders=[\"fabric\"]", gameVersion]];
+    // Fabric API download URL from Modrinth（经 PLMirrorCenter 按资源搜索策略应用镜像）
+    NSString *originalAPIURL = [NSString stringWithFormat:@"https://api.modrinth.com/v2/project/fabric-api/version?game_versions=[\"%@\"]&loaders=[\"fabric\"]", gameVersion];
+    NSString *apiUrl = [PLMirrorCenter preferredURLForOriginalURL:[NSURL URLWithString:originalAPIURL]
+                                                     resourceType:PLMirrorResourceTypeAssetSearch].absoluteString ?: originalAPIURL;
     
     AFHTTPSessionManager *manager = [AFHTTPSessionManager manager];
     [manager GET:apiUrl parameters:nil headers:nil progress:nil success:^(NSURLSessionTask *task, NSArray *response) {

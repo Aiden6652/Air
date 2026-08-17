@@ -26,6 +26,11 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
 @property (nonatomic, strong) NSMutableArray<NSString *> *waitQueue;
 /// manager 对 NSURLSessionTask 施加的额外 suspend 次数（出队时平衡 resume）
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *holdCounts;
+/// 当前实际占用并发槽位的 taskId 集合。
+/// 信号量的 wait/signal 必须与集合的添加/移除严格配对：
+/// rawTask=nil 的任务（整合包聚合卡片等）不占用槽位，离开 Downloading 时
+/// 依据此集合判断是否需要释放，防止信号量超发导致并发上限失效。
+@property (nonatomic, strong) NSMutableSet<NSString *> *slotOwningTaskIds;
 
 /// 磁盘 IO 专用串行队列（快照持久化 / resumeData 落盘）
 @property (nonatomic, strong) dispatch_queue_t ioQueue;
@@ -58,6 +63,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         _concurrencySemaphore = dispatch_semaphore_create(PLDownloadMaxConcurrentTasks);
         _waitQueue = [NSMutableArray array];
         _holdCounts = [NSMutableDictionary dictionary];
+        _slotOwningTaskIds = [NSMutableSet set];
         _ioQueue = dispatch_queue_create("com.amethyst.downloadtaskmanager.io", DISPATCH_QUEUE_SERIAL);
         _historyStore = [DownloadHistoryStore sharedStore];
         [self restoreTasksFromDisk];
@@ -123,19 +129,22 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     self.holdCounts[taskId] = nil;
     [self.tasks removeObjectForKey:taskId];
     if (wasDownloading) {
-        // 释放并发槽位（保持现有语义：remove 不取消底层 rawTask，由业务方管理生命周期）
-        [self releaseSlotLocked];
+        // 释放并发槽位（幂等：rawTask=nil 任务未持槽位则跳过；remove 不取消底层 rawTask，由业务方管理生命周期）
+        BOOL didReleaseSlot = [self taskOwnsSlotLocked:taskId];
+        [self releaseSlotForTaskLocked:taskId];
+        [self.lock unlock];
+
+        if (didReleaseSlot) {
+            [self.lock lock];
+            [self dequeueNextTasksLocked];
+            [self.lock unlock];
+        }
+    } else {
+        [self.lock unlock];
     }
-    [self.lock unlock];
 
     // 清理该任务的持久化断点数据
     [self deleteResumeDataForItem:item];
-
-    if (wasDownloading) {
-        [self.lock lock];
-        [self dequeueNextTasksLocked];
-        [self.lock unlock];
-    }
 
     [self postUpdateForTask:item];
     [self checkAggregateStateChange];
@@ -250,14 +259,28 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
 
 #pragma mark - 并发槽位辅助（以下方法除说明外均需持 self.lock 调用）
 
-/// 尝试占用一个下载槽位（非阻塞）。成功返回 YES。
-- (BOOL)tryAcquireSlotLocked {
-    return dispatch_semaphore_wait(self.concurrencySemaphore, DISPATCH_TIME_NOW) == 0;
+/// 尝试为任务占用一个下载槽位（非阻塞）。成功返回 YES 并记录所有权。
+- (BOOL)acquireSlotForTaskLocked:(NSString *)taskId {
+    if (!taskId) return NO;
+    if (dispatch_semaphore_wait(self.concurrencySemaphore, DISPATCH_TIME_NOW) != 0) {
+        return NO;
+    }
+    [self.slotOwningTaskIds addObject:taskId];
+    return YES;
 }
 
-/// 释放一个下载槽位（任务离开 Downloading 状态时调用）
-- (void)releaseSlotLocked {
+/// 释放任务占用的下载槽位（幂等：仅当任务确实持有槽位时才 signal，
+/// rawTask=nil 的任务从未占用槽位，此处安全跳过，防止信号量超发）
+- (void)releaseSlotForTaskLocked:(NSString *)taskId {
+    if (!taskId) return;
+    if (![self.slotOwningTaskIds containsObject:taskId]) return;
+    [self.slotOwningTaskIds removeObject:taskId];
     dispatch_semaphore_signal(self.concurrencySemaphore);
+}
+
+/// 任务当前是否持有并发槽位
+- (BOOL)taskOwnsSlotLocked:(NSString *)taskId {
+    return taskId ? [self.slotOwningTaskIds containsObject:taskId] : NO;
 }
 
 /// 当前 Downloading 任务数（诊断/日志用）
@@ -368,7 +391,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         }
 
         // 占用一个槽位；无槽位则停止出队
-        if (![self tryAcquireSlotLocked]) break;
+        if (![self acquireSlotForTaskLocked:taskId]) break;
 
         [self.waitQueue removeObjectAtIndex:0];
         item.state = DownloadTaskStateDownloading;
@@ -388,7 +411,22 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         return; // 已占用槽位，幂等返回
     }
 
-    if ([self tryAcquireSlotLocked]) {
+    // rawTask=nil（如整合包每文件卡片/聚合卡片）：底层传输由 PLDownloadClient 自身
+    // 的连接数上限限流，manager 无可挂起的底层任务，不消耗并发槽位，直接进入
+    // Downloading——避免 12 路并发下载在卡片上被误显示为 Pending 排队。
+    if (item.rawTask == nil) {
+        [self removeFromWaitQueueLocked:item.taskId];
+        item.state = DownloadTaskStateDownloading;
+        // 防御：清除可能存在的陈旧槽位所有权（正常流程 rawTask=nil 从不占槽位）
+        [self releaseSlotForTaskLocked:item.taskId];
+        [self.lock unlock];
+        [self postUpdateForTask:item];
+        [self checkAggregateStateChange];
+        [self schedulePersistSnapshot];
+        return;
+    }
+
+    if ([self acquireSlotForTaskLocked:item.taskId]) {
         [self removeFromWaitQueueLocked:item.taskId];
         item.state = DownloadTaskStateDownloading;
         [self.lock unlock];
@@ -412,6 +450,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     DownloadTaskItem *item = nil;
     id rawTaskToPause = nil;
     BOOL needDequeue = NO;
+    BOOL didReleaseSlot = NO;
 
     [self.lock lock];
     item = self.tasks[taskId];
@@ -431,9 +470,10 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     if (wasQueued) {
         // 排队中的任务：底层任务已被 hold 挂起，保持 holdCount（下次 resume/出队时平衡释放）
     } else if (state == DownloadTaskStateDownloading) {
-        // 真正下载中：释放槽位并暂停底层任务（真断点续传）
-        [self releaseSlotLocked];
-        needDequeue = YES;
+        // 真正下载中：释放槽位（幂等：rawTask=nil 任务未持槽位则跳过）并暂停底层任务（真断点续传）
+        didReleaseSlot = [self taskOwnsSlotLocked:taskId];
+        [self releaseSlotForTaskLocked:taskId];
+        needDequeue = didReleaseSlot;
         id rawTask = item.rawTask;
         if ([rawTask isKindOfClass:[NSURLSessionDownloadTask class]]) {
             // downloadTask 走 cancelByProducingResumeData（锁外异步，resumeData 落盘）
@@ -503,8 +543,8 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         return;
     }
 
-    // 尝试占用槽位；满则排队等待自动启动
-    if (![self tryAcquireSlotLocked]) {
+    // 尝试占用槽位；满则排队等待自动启动（rawTask=nil 任务无底层传输可控，同样排队以保持语义一致）
+    if (![self acquireSlotForTaskLocked:taskId]) {
         item.state = DownloadTaskStatePending;
         [self holdRawTaskLocked:item];
         [self enqueueItemLocked:item];
@@ -532,6 +572,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
 - (void)cancelTaskWithId:(NSString *)taskId {
     if (!taskId) return;
 
+    BOOL didReleaseSlot = NO;
     [self.lock lock];
     DownloadTaskItem *item = self.tasks[taskId];
     if (!item) { [self.lock unlock]; return; }
@@ -552,7 +593,9 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     self.holdCounts[taskId] = nil; // 任务即将取消，挂起计数不再需要平衡
 
     if (wasDownloading && !wasQueued) {
-        [self releaseSlotLocked];
+        // 幂等释放：rawTask=nil 任务未持槽位则跳过，避免信号量超发
+        didReleaseSlot = [self taskOwnsSlotLocked:taskId];
+        [self releaseSlotForTaskLocked:taskId];
     }
     [self.lock unlock];
 
@@ -562,7 +605,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     // 清理持久化断点数据
     [self deleteResumeDataForItem:item];
 
-    if (wasDownloading && !wasQueued) {
+    if (didReleaseSlot) {
         [self.lock lock];
         [self dequeueNextTasksLocked];
         [self.lock unlock];
@@ -614,8 +657,9 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     item.needsRecreate = NO;
 
     if (wasDownloading) {
-        // 先释放旧任务占用的槽位（retryHandler 重建后的 setTaskWithId:Downloading 可立即占用）
-        [self releaseSlotLocked];
+        // 先释放旧任务占用的槽位（幂等：rawTask=nil 任务未持槽位则跳过；
+        // retryHandler 重建后的 setTaskWithId:Downloading 可立即占用）
+        [self releaseSlotForTaskLocked:taskId];
     }
     [self.lock unlock];
 
@@ -707,7 +751,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         item.downloadedSize = downloadedBytes;
         if (item.state == DownloadTaskStatePending && ![self isQueuedLocked:taskId]) {
             // 首次进度上报：尝试进入 Downloading（占用槽位；满则排队并挂起底层任务）
-            if ([self tryAcquireSlotLocked]) {
+            if ([self acquireSlotForTaskLocked:taskId]) {
                 item.state = DownloadTaskStateDownloading;
             } else {
                 [self holdRawTaskLocked:item];
@@ -738,6 +782,24 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     [self.lock unlock];
 
     if (item) [self postUpdateForTask:item];
+}
+
+- (void)updateTaskWithId:(NSString *)taskId
+      completedFileCount:(NSInteger)completedFileCount
+          totalFileCount:(NSInteger)totalFileCount {
+    if (!taskId) return;
+    [self.lock lock];
+    DownloadTaskItem *item = self.tasks[taskId];
+    if (item) {
+        item.completedFileCount = MAX(0, completedFileCount);
+        item.totalFileCount = MAX(0, totalFileCount);
+    }
+    [self.lock unlock];
+
+    if (item) {
+        [self postUpdateForTask:item];
+        [self schedulePersistSnapshotForProgress];
+    }
 }
 
 - (void)setTaskWithId:(NSString *)taskId state:(DownloadTaskState)state {
@@ -773,8 +835,9 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     BOOL needDequeue = NO;
     if (oldState == DownloadTaskStateDownloading && state != DownloadTaskStateDownloading) {
         item.speed = 0.0;
-        [self releaseSlotLocked];
-        needDequeue = YES;
+        // 幂等释放：rawTask=nil 任务未持槽位则跳过，避免信号量超发
+        needDequeue = [self taskOwnsSlotLocked:taskId];
+        [self releaseSlotForTaskLocked:taskId];
     }
     [self.lock unlock];
 
@@ -822,12 +885,15 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         item.estimatedTimeRemaining = 0.0;
     }
 
+    BOOL didReleaseSlot = NO;
     if (wasDownloading) {
-        [self releaseSlotLocked];
+        // 幂等释放：rawTask=nil 任务未持槽位则跳过，避免信号量超发
+        didReleaseSlot = [self taskOwnsSlotLocked:taskId];
+        [self releaseSlotForTaskLocked:taskId];
     }
     [self.lock unlock];
 
-    if (wasDownloading) {
+    if (didReleaseSlot) {
         [self.lock lock];
         [self dequeueNextTasksLocked];
         [self.lock unlock];

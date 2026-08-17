@@ -39,6 +39,8 @@ static NSString *PLSnapshotString(id value, NSString *fallback) {
         _downloadedSize = 0;
         _speed = 0.0;
         _estimatedTimeRemaining = 0.0;
+        _completedFileCount = 0;
+        _totalFileCount = 0;
         _iconURL = [iconURL copy];
         _supportsResume = supportsResume;
         _createdDate = [NSDate date];
@@ -70,6 +72,8 @@ static NSString *PLSnapshotString(id value, NSString *fallback) {
         @"resumeDataPath": self.resumeDataPath ?: @"",
         @"supportsResume": @(self.supportsResume),
         @"retryCount": @(self.retryCount),
+        @"completedFileCount": @(self.completedFileCount),
+        @"totalFileCount": @(self.totalFileCount),
         @"timestamp": @([self.createdDate timeIntervalSince1970]),
     };
 }
@@ -96,6 +100,8 @@ static NSString *PLSnapshotString(id value, NSString *fallback) {
     _totalSize = [snapshot[@"totalBytes"] longLongValue];
     _downloadedSize = [snapshot[@"receivedBytes"] longLongValue];
     _retryCount = [snapshot[@"retryCount"] integerValue];
+    _completedFileCount = [snapshot[@"completedFileCount"] integerValue];
+    _totalFileCount = [snapshot[@"totalFileCount"] integerValue];
 
     NSString *downloadURL = snapshot[@"downloadURL"];
     if ([downloadURL isKindOfClass:[NSString class]] && downloadURL.length > 0) {

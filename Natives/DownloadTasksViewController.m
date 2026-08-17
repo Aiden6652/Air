@@ -5,6 +5,7 @@
 #import "BackgroundManager.h"
 #import "IconLoader.h"
 #import "ModLoaderIconHelper.h"
+#import "DownloadHistoryViewController.h"
 
 static NSString * const kTaskCellReuseIdentifier = @"DownloadTaskCell";
 static NSString * const kEmptyStateReuseIdentifier = @"DownloadTaskEmptyCell";
@@ -250,7 +251,21 @@ static const CGFloat kSectionInset = 16.0;
             self.progressView.hidden = NO;
             break;
         case DownloadTaskStateDownloading:
-            self.speedLabel.text = [self formattedSpeed:task.speed];
+            // Phase 6 Task 6.1：多文件任务显示 "42/100 · 2.1MB/s"（文件计数 + 速率）
+            if (task.totalFileCount > 0) {
+                NSString *speedText = [self compactSpeedText:task.speed];
+                if (speedText.length > 0) {
+                    self.speedLabel.text = [NSString
+                        stringWithFormat:NSLocalizedString(@"download.progress.file_count_short",
+                                                           @"%1$ld/%2$ld · %3$@"),
+                        (long)task.completedFileCount, (long)task.totalFileCount, speedText];
+                } else {
+                    self.speedLabel.text = [NSString stringWithFormat:@"%ld/%ld",
+                                            (long)task.completedFileCount, (long)task.totalFileCount];
+                }
+            } else {
+                self.speedLabel.text = [self formattedSpeed:task.speed];
+            }
             self.progressLabel.text = [self formattedProgress:task.progress];
             self.progressView.progress = task.progress >= 0.0 ? (float)task.progress : 0.0;
             self.progressView.hidden = NO;
@@ -464,6 +479,20 @@ static const CGFloat kSectionInset = 16.0;
     }
 }
 
+/// 紧凑速率文本（Phase 6 Task 6.1：B/KB/MB/GB 1 位小数）；速率为 0 时返回空串（隐藏速率维度）
+- (NSString *)compactSpeedText:(double)speed {
+    if (speed <= 0) return @"";
+    if (speed >= 1024.0 * 1024.0 * 1024.0) {
+        return [NSString stringWithFormat:@"%.1fGB/s", speed / (1024.0 * 1024.0 * 1024.0)];
+    } else if (speed >= 1024.0 * 1024.0) {
+        return [NSString stringWithFormat:@"%.1fMB/s", speed / (1024.0 * 1024.0)];
+    } else if (speed >= 1024.0) {
+        return [NSString stringWithFormat:@"%.1fKB/s", speed / 1024.0];
+    } else {
+        return [NSString stringWithFormat:@"%.0fB/s", speed];
+    }
+}
+
 - (NSString *)formattedProgress:(double)progress {
     if (progress < 0.0) return @"--";
     return [NSString stringWithFormat:@"%.1f%%", progress * 100.0];
@@ -535,6 +564,7 @@ static const CGFloat kSectionInset = 16.0;
 @property (nonatomic, strong) UIView *headerView;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UIButton *closeButton;
+@property (nonatomic, strong) UIButton *historyButton;
 @property (nonatomic, strong) UISegmentedControl *stateSegmentedControl;
 @property (nonatomic, strong) UIScrollView *typeScrollView;
 @property (nonatomic, strong) UIStackView *typeStackView;
@@ -639,6 +669,15 @@ static const CGFloat kSectionInset = 16.0;
     [self.closeButton addTarget:self action:@selector(closeTapped:) forControlEvents:UIControlEventTouchUpInside];
     [self.headerView addSubview:self.closeButton];
 
+    // Phase 6 Task 6.2：历史入口（关闭按钮左侧，时钟图标）
+    self.historyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.historyButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.historyButton setImage:[UIImage systemImageNamed:@"clock.arrow.circlepath"] forState:UIControlStateNormal];
+    self.historyButton.tintColor = [UIColor labelColor];
+    self.historyButton.accessibilityLabel = NSLocalizedString(@"download.history.entry", @"历史");
+    [self.historyButton addTarget:self action:@selector(historyTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [self.headerView addSubview:self.historyButton];
+
     [NSLayoutConstraint activateConstraints:@[
         [self.headerView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:12],
         [self.headerView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:kSectionInset],
@@ -651,7 +690,12 @@ static const CGFloat kSectionInset = 16.0;
         [self.closeButton.trailingAnchor constraintEqualToAnchor:self.headerView.trailingAnchor constant:-12],
         [self.closeButton.centerYAnchor constraintEqualToAnchor:self.headerView.centerYAnchor],
         [self.closeButton.widthAnchor constraintEqualToConstant:36],
-        [self.closeButton.heightAnchor constraintEqualToConstant:36]
+        [self.closeButton.heightAnchor constraintEqualToConstant:36],
+
+        [self.historyButton.trailingAnchor constraintEqualToAnchor:self.closeButton.leadingAnchor constant:-8],
+        [self.historyButton.centerYAnchor constraintEqualToAnchor:self.headerView.centerYAnchor],
+        [self.historyButton.widthAnchor constraintEqualToConstant:36],
+        [self.historyButton.heightAnchor constraintEqualToConstant:36]
     ]];
 }
 
@@ -892,6 +936,16 @@ static const CGFloat kSectionInset = 16.0;
                                                       object:nil
                                                     userInfo:nil];
     [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+/// Phase 6 Task 6.2：打开下载历史页。
+/// 下载中心本身是无导航栏的 FormSheet 弹窗，历史页以 PageSheet + UINavigationController
+/// 模态弹出（风格与现有弹窗层级一致，iOS 14 兼容，下滑即可关闭）。
+- (void)historyTapped:(UIButton *)sender {
+    DownloadHistoryViewController *historyVC = [[DownloadHistoryViewController alloc] init];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:historyVC];
+    nav.modalPresentationStyle = UIModalPresentationPageSheet;
+    [self presentViewController:nav animated:YES completion:nil];
 }
 
 - (void)stateFilterChanged:(UISegmentedControl *)sender {

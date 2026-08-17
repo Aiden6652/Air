@@ -59,6 +59,11 @@ typedef id _Nullable (^DownloadRetryHandler)(DownloadTaskItem *item);
 @property (nonatomic, assign) double speed;                    // bytes/s
 @property (nonatomic, assign) NSTimeInterval estimatedTimeRemaining;
 
+/// 多文件任务（如整合包）的文件级进度（Phase 6 Task 6.1 双维度进度）；
+/// totalFileCount <= 0 表示单文件任务（不展示文件计数维度）
+@property (nonatomic, assign) NSInteger completedFileCount;
+@property (nonatomic, assign) NSInteger totalFileCount;
+
 @property (nonatomic, copy, nullable) NSString *iconURL;
 @property (nonatomic, assign) BOOL supportsResume;
 @property (nonatomic, strong) NSDate *createdDate;

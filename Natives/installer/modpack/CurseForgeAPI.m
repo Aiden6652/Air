@@ -8,7 +8,7 @@
 #import "UZKArchive.h"
 #import "installer/ForgeDirectInstaller.h"
 #import "installer/NeoForgeDirectInstaller.h"
-#import "MCIMMirror.h"
+#import "PLMirrorCenter.h"
 
 // CurseForge 静态常量
 static const NSInteger kCurseForgeGameIDMinecraft = 432;
@@ -61,12 +61,21 @@ static NSString *CFACompiledAPIKey(void) {
 - (NSString *)printableStringFromData:(NSData *)data maxLen:(NSUInteger)maxLen;
 @end
 
+/// 经 PLMirrorCenter 按资源下载（AssetDownload）策略应用镜像
+/// （CurseForge Edge/Media CDN 文件 → MCIM 镜像），URL 为空或无法解析时回退原始字符串
+static NSString *CFAMirrorResolvedURL(NSString *urlString) {
+    if (![urlString isKindOfClass:[NSString class]] || urlString.length == 0) return urlString;
+    NSURL *resolved = [PLMirrorCenter preferredURLForOriginalURL:[NSURL URLWithString:urlString]
+                                                    resourceType:PLMirrorResourceTypeAssetDownload];
+    return resolved.absoluteString ?: urlString;
+}
+
 @implementation CurseForgeAPI
 
-/// 重写 baseURL getter，根据 MCIMMirror 偏好动态返回官方或镜像 URL
-/// 这样所有使用 self.baseURL 的请求都会自动走镜像
+/// 重写 baseURL getter，根据 PLMirrorCenter 的资源搜索（AssetSearch）策略
+/// 动态返回官方或 MCIM 镜像 URL，这样所有使用 self.baseURL 的请求都会自动走镜像
 - (NSString *)baseURL {
-    return [MCIMMirror curseForgeAPIBaseURL];
+    return [PLMirrorCenter curseForgeAPIBaseURL];
 }
 
 + (instancetype)sharedInstance {
@@ -418,9 +427,9 @@ static NSString *CFACompiledAPIKey(void) {
 - (NSString *)downloadURLForFile:(NSDictionary *)file {
     NSString *url = file[@"downloadUrl"];
     if ([url isKindOfClass:NSString.class] && url.length > 0) {
-        return [MCIMMirror applyToURL:url];
+        return CFAMirrorResolvedURL(url);
     }
-    
+
     NSString *modId = [file[@"modId"] description];
     NSString *fileId = [file[@"id"] description];
     if (modId.length == 0 || fileId.length == 0) {
@@ -429,9 +438,9 @@ static NSString *CFACompiledAPIKey(void) {
     NSDictionary *response = [self getEndpoint:[NSString stringWithFormat:@"mods/%@/files/%@/download-url", modId, fileId] params:nil];
     NSString *fallback = [response isKindOfClass:NSDictionary.class] ? response[@"data"] : nil;
     if ([fallback isKindOfClass:NSString.class] && fallback.length > 0) {
-        return [MCIMMirror applyToURL:fallback];
+        return CFAMirrorResolvedURL(fallback);
     }
-    
+
     // 最终 fallback：Edge CDN
     NSString *fileName = [file[@"fileName"] isKindOfClass:NSString.class] ? file[@"fileName"] : @"";
     NSInteger numericFileId = fileId.integerValue;
@@ -443,7 +452,7 @@ static NSString *CFACompiledAPIKey(void) {
             (long)(numericFileId / 1000),
             (long)(numericFileId % 1000),
             encodedName ?: fileName];
-    return [MCIMMirror applyToURL:cdnURL];
+    return CFAMirrorResolvedURL(cdnURL);
 }
 
 - (NSString *)gameVersionSummaryForFile:(NSDictionary *)file {

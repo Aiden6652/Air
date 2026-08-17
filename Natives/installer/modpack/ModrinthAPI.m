@@ -5,16 +5,25 @@
 #import "UZKArchive.h"
 #import "installer/ForgeDirectInstaller.h"
 #import "installer/NeoForgeDirectInstaller.h"
-#import "MCIMMirror.h"
+#import "PLMirrorCenter.h"
+
+/// 经 PLMirrorCenter 按资源下载（AssetDownload）策略应用镜像
+/// （Modrinth CDN 文件 → MCIM 镜像），URL 为空或无法解析时回退原始字符串
+static NSString *MRAMirrorResolvedURL(NSString *urlString) {
+    if (![urlString isKindOfClass:[NSString class]] || urlString.length == 0) return urlString;
+    NSURL *resolved = [PLMirrorCenter preferredURLForOriginalURL:[NSURL URLWithString:urlString]
+                                                    resourceType:PLMirrorResourceTypeAssetDownload];
+    return resolved.absoluteString ?: urlString;
+}
 
 @implementation ModrinthAPI
 
 @dynamic reachedLastPage, lastError;
 
-/// 重写 baseURL getter，根据 MCIMMirror 偏好动态返回官方或镜像 URL
-/// 这样所有使用 self.baseURL 的请求（搜索/版本列表/详情）都会自动走镜像
+/// 重写 baseURL getter，根据 PLMirrorCenter 的资源搜索（AssetSearch）策略
+/// 动态返回官方或 MCIM 镜像 URL，这样所有使用 self.baseURL 的请求（搜索/版本列表/详情）都会自动走镜像
 - (NSString *)baseURL {
-    return [MCIMMirror modrinthAPIBaseURL];
+    return [PLMirrorCenter modrinthAPIBaseURL];
 }
 
 + (instancetype)sharedInstance {
@@ -201,7 +210,7 @@
             [names addObject:version[@"name"] ?: @"Unknown"];
             NSArray *gameVersions = version[@"game_versions"];
             [mcNames addObject:[gameVersions isKindOfClass:[NSArray class]] ? gameVersions.firstObject : @""];
-            [urls addObject:[MCIMMirror applyToURL:file[@"url"] ?: @""]];
+            [urls addObject:MRAMirrorResolvedURL(file[@"url"] ?: @"")];
             NSDictionary *hashesMap = file[@"hashes"];
             [hashes addObject:hashesMap[@"sha1"] ?: @""];
             [sizes addObject:file[@"size"] ?: @0];
@@ -229,7 +238,7 @@
     if ([file isKindOfClass:[NSDictionary class]]) {
         NSString *url = file[@"url"];
         if ([url isKindOfClass:[NSString class]] && url.length > 0) {
-            return [MCIMMirror applyToURL:url];
+            return MRAMirrorResolvedURL(url);
         }
     }
     return @"";
@@ -265,7 +274,7 @@
     result[@"projectType"] = projectType ?: @"mod";
     result[@"version"] = response[@"version_number"] ?: @"";
     result[@"fileName"] = response[@"filename"] ?: @"";
-    result[@"downloadUrl"] = [MCIMMirror applyToURL:[response[@"files"] firstObject][@"url"]] ?: @"";
+    result[@"downloadUrl"] = MRAMirrorResolvedURL([response[@"files"] firstObject][@"url"]) ?: @"";
     return result;
 }
 
@@ -644,8 +653,8 @@ submitDownloadTasksFromPackage:(NSString *)packagePath
             continue;
         }
         NSString *rawUrl = [indexFile[@"downloads"] isKindOfClass:[NSArray class]] ? [indexFile[@"downloads"] firstObject] : nil;
-        // 应用 MCIM 镜像（如果启用），加速国内整合包文件下载
-        NSString *url = [MCIMMirror applyToURL:rawUrl];
+        // 经 PLMirrorCenter 按资源下载策略应用镜像（如果启用），加速国内整合包文件下载
+        NSString *url = MRAMirrorResolvedURL(rawUrl);
         NSString *sha = indexFile[@"hashes"][@"sha1"];
         NSString *path = [destPath stringByAppendingPathComponent:indexFile[@"path"]];
         NSUInteger size = [indexFile[@"fileSize"] unsignedLongLongValue];

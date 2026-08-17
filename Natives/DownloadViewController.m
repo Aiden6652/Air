@@ -5609,6 +5609,16 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 
 #pragma mark - ModVersionViewControllerDelegate
 
+/// 从版本模型 primaryFile 提取 SHA1（Modrinth files[].hashes.sha1 / CurseForge 构造的同等结构）。
+/// 结构异常或缺失时返回 nil（保持无校验行为，靠 zip EOCD 兜底）。
+static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
+    NSDictionary *hashes = primaryFile[@"hashes"];
+    if (![hashes isKindOfClass:[NSDictionary class]]) return nil;
+    NSString *sha1 = hashes[@"sha1"];
+    if ([sha1 isKindOfClass:[NSString class]] && sha1.length > 0) return sha1;
+    return nil;
+}
+
 - (void)modVersionViewController:(ModVersionViewController *)viewController didSelectVersion:(ModVersion *)version {
     NSDictionary *primaryFile = version.primaryFile;
     if (!primaryFile || ![primaryFile[@"url"] isKindOfClass:[NSString class]]) {
@@ -5630,6 +5640,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     ModItem *itemToDownload = viewController.modItem;
     itemToDownload.selectedVersionDownloadURL = primaryFile[@"url"];
     itemToDownload.fileName = primaryFile[@"filename"] ?: [NSString stringWithFormat:@"%@.jar", itemToDownload.displayName];
+    // spec Task 5.1 收尾：版本模型 files[0].hashes.sha1 接到下载调用，启用 SHA1 校验
+    itemToDownload.fileSHA1 = PLSha1FromPrimaryFile(primaryFile);
 
     // 模组下载走 ModService（resourcepack/datapack/world 已改走 AssetVersionViewController）
     self.pendingDownloadType = nil;
@@ -5660,6 +5672,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         if (!item) return;
         item.selectedVersionDownloadURL = primaryFile[@"url"];
         item.fileName = primaryFile[@"filename"] ?: [NSString stringWithFormat:@"%@.zip", item.displayName];
+        // spec Task 5.1 收尾：资源包版本模型（复用 ModVersion）的 sha1 接到下载调用
+        item.fileSHA1 = PLSha1FromPrimaryFile(primaryFile);
         [self startDownloadForResourcePackItem:item];
     } else if ([downloadType isEqualToString:@"datapack"]) {
         DataPackItem *item = self.pendingDataPackItem;
@@ -5667,6 +5681,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         if (!item) return;
         item.selectedVersionDownloadURL = primaryFile[@"url"];
         item.fileName = primaryFile[@"filename"] ?: [NSString stringWithFormat:@"%@.zip", item.displayName];
+        // spec Task 5.1 收尾：数据包版本模型（复用 ModVersion）的 sha1 接到下载调用
+        item.fileSHA1 = PLSha1FromPrimaryFile(primaryFile);
         [self startDownloadForDataPackItem:item];
     } else if ([downloadType isEqualToString:@"world"]) {
         WorldItem *item = self.pendingWorldItem;
@@ -5700,7 +5716,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     __weak DownloadProgressCardView *weakCard = self.progressCardView;
     [[ModService sharedService] downloadMod:item
                                   toProfile:profileName
-                                    progress:^(NSProgress * _Nullable downloadProgress) {
+                               expectedSHA1:item.fileSHA1
+                                   progress:^(NSProgress * _Nullable downloadProgress) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf || !weakCard) return;
@@ -5759,6 +5776,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     __weak InstallerProgressViewController *weakProgressVC = progressVC;
     [[ResourcePackService sharedService] downloadResourcePack:item
                                                     toProfile:profileName
+                                                 expectedSHA1:item.fileSHA1
                                                      progress:^(NSProgress * _Nullable downloadProgress) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (downloadProgress && weakProgressVC) {
@@ -5795,6 +5813,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     __weak InstallerProgressViewController *weakProgressVC = progressVC;
     [[DataPackService sharedService] downloadDataPack:item
                                             toProfile:profileName
+                                            worldName:nil
+                                         expectedSHA1:item.fileSHA1
                                              progress:^(NSProgress * _Nullable downloadProgress) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (downloadProgress && weakProgressVC) {
@@ -5864,6 +5884,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     
     itemToDownload.selectedVersionDownloadURL = primaryFile[@"url"];
     itemToDownload.fileName = primaryFile[@"filename"] ?: [NSString stringWithFormat:@"%@.zip", itemToDownload.displayName];
+    // spec Task 5.1 收尾：光影包版本模型 primaryFile 的 sha1 接到下载调用
+    itemToDownload.fileSHA1 = PLSha1FromPrimaryFile(primaryFile);
 
     // 子页面已 push 到导航栈，选完版本后 pop 回下载列表
     [self.navigationController popViewControllerAnimated:YES];
@@ -5892,7 +5914,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     __weak DownloadProgressCardView *weakCard = self.progressCardView;
     [[ShaderService sharedService] downloadShader:item
                                          toProfile:profileName
-                                           progress:^(NSProgress * _Nullable downloadProgress) {
+                                      expectedSHA1:item.fileSHA1
+                                          progress:^(NSProgress * _Nullable downloadProgress) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf || !weakCard) return;

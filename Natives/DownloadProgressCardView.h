@@ -45,6 +45,12 @@ NS_ASSUME_NONNULL_BEGIN
                    eta:(NSInteger)etaSeconds
            currentFile:(nullable NSString *)currentFile;
 
+/// 更新多文件任务的文件级进度（Phase 6 Task 6.1 双维度进度）。
+/// totalFileCount > 0 时，大小文本切换为 "42/100 个文件 · 18.3MB/96MB"（本地化格式）；
+/// totalFileCount <= 0 时恢复单文件字节展示。字节进度仍经 updateProgress... 上报。
+- (void)updateFileProgress:(NSInteger)completedFileCount
+             totalFileCount:(NSInteger)totalFileCount;
+
 /// 下载完成
 /// @param title 完成标题（如 "下载完成"）
 - (void)completeWithTitle:(NSString *)title;

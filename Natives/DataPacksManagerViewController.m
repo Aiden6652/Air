@@ -579,6 +579,10 @@
     }
     item.selectedVersionDownloadURL = primaryFile[@"url"];
     item.fileName = primaryFile[@"filename"];
+    // spec Task 5.1 收尾：版本模型（复用 ModVersion）primaryFile hashes.sha1 接到下载调用
+    NSDictionary *hashes = [primaryFile[@"hashes"] isKindOfClass:[NSDictionary class]] ? primaryFile[@"hashes"] : nil;
+    NSString *sha1 = [hashes[@"sha1"] isKindOfClass:[NSString class]] ? hashes[@"sha1"] : nil;
+    item.fileSHA1 = (sha1.length > 0) ? sha1 : nil;
 
     [self startDownloadForItem:item];
 }
@@ -602,8 +606,11 @@
         [self presentViewController:downloadingAlert animated:YES completion:nil];
     }
 
+    // expectedSHA1 来自版本代理处记录的 fileSHA1（spec Task 5.1）；取不到时传 nil 保持原行为
     [[DataPackService sharedService] downloadDataPack:item
                                             toProfile:self.profileName
+                                            worldName:nil
+                                         expectedSHA1:item.fileSHA1
                                              progress:nil
                                            completion:^(BOOL success, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{

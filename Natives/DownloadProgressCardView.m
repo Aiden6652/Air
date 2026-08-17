@@ -256,6 +256,13 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
 @property (nonatomic, copy, nullable) NSString *currentTitle;
 @property (nonatomic, copy, nullable) NSString *currentSubtitle;
 
+// 多文件任务的文件级进度（Phase 6 Task 6.1 双维度进度；totalFileCount <= 0 表示单文件任务）
+@property (nonatomic, assign) NSInteger fileCompletedCount;
+@property (nonatomic, assign) NSInteger fileTotalCount;
+// 最近一次字节进度（文件计数更新时重绘大小文本用）
+@property (nonatomic, assign) long long lastDownloadedBytes;
+@property (nonatomic, assign) long long lastTotalBytes;
+
 // 字节计数格式化器（复用）
 @property (nonatomic, strong) NSByteCountFormatter *byteFormatter;
 
@@ -294,6 +301,10 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
     _progress = -1.0; // 默认不确定模式
     _state = DownloadCardStateIdle;
     _isShown = NO;
+    _fileCompletedCount = 0;
+    _fileTotalCount = 0;
+    _lastDownloadedBytes = 0;
+    _lastTotalBytes = -1;
 
     _byteFormatter = [[NSByteCountFormatter alloc] init];
     _byteFormatter.allowedUnits = NSByteCountFormatterUseAll;
@@ -642,6 +653,12 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
     [self.autoDismissTimer invalidate];
     self.autoDismissTimer = nil;
 
+    // 重置文件级进度与最近字节进度（Phase 6 Task 6.1）
+    self.fileCompletedCount = 0;
+    self.fileTotalCount = 0;
+    self.lastDownloadedBytes = 0;
+    self.lastTotalBytes = -1;
+
     if (self.isShown) {
         [self setNeedsLayout];
     }
@@ -696,7 +713,56 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
         [self.progressBar setProgress:0.0 animated:NO];
     }
 
-    // 已下载/总大小
+    // 已下载/总大小（多文件任务叠加文件计数维度，Phase 6 Task 6.1）
+    self.lastDownloadedBytes = downloadedBytes;
+    self.lastTotalBytes = totalBytes;
+    [self renderSizeText];
+
+    // 速度：0 或暂停/不确定阶段隐藏（完成/失败/取消态显示状态文案）
+    if (speedBytesPerSec > 0) {
+        self.speedLabel.hidden = NO;
+        self.speedLabel.text = [self formatSpeed:speedBytesPerSec];
+    } else {
+        self.speedLabel.text = @"";
+        self.speedLabel.hidden = YES;
+    }
+
+    // ETA
+    self.etaLabel.text = [self formatETA:etaSeconds];
+
+    // 当前文件名
+    self.currentFileLabel.text = currentFile ?: @"";
+}
+
+- (void)updateFileProgress:(NSInteger)completedFileCount
+             totalFileCount:(NSInteger)totalFileCount {
+    // 限制在主线程执行（UI 更新）
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.fileCompletedCount = MAX(0, completedFileCount);
+        self.fileTotalCount = MAX(0, totalFileCount);
+        [self renderSizeText];
+    });
+}
+
+/// 渲染大小文本：
+/// - 多文件任务（fileTotalCount > 0）："42/100 个文件 · 18.3MB/96MB"（本地化格式）
+/// - 单文件任务：保持原有 "18.3 MB / 96 MB" 展示
+- (void)renderSizeText {
+    long long downloadedBytes = self.lastDownloadedBytes;
+    long long totalBytes = self.lastTotalBytes;
+
+    if (self.fileTotalCount > 0) {
+        NSString *downloadedCompact = [self compactBytes:downloadedBytes];
+        NSString *totalCompact = (totalBytes > 0) ? [self compactBytes:totalBytes]
+                                                  : [self compactBytes:downloadedBytes];
+        self.downloadedLabel.text = [NSString
+            stringWithFormat:NSLocalizedString(@"download.progress.file_count",
+                                               @"%1$ld/%2$ld 个文件 · %3$@/%4$@"),
+            (long)self.fileCompletedCount, (long)self.fileTotalCount,
+            downloadedCompact, totalCompact];
+        return;
+    }
+
     NSString *downloadedStr = [self formatBytes:downloadedBytes];
     if (totalBytes > 0) {
         NSString *totalStr = [self formatBytes:totalBytes];
@@ -709,15 +775,6 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
     } else {
         self.downloadedLabel.text = downloadedStr;
     }
-
-    // 速度
-    self.speedLabel.text = [self formatSpeed:speedBytesPerSec];
-
-    // ETA
-    self.etaLabel.text = [self formatETA:etaSeconds];
-
-    // 当前文件名
-    self.currentFileLabel.text = currentFile ?: @"";
 }
 
 - (void)completeWithTitle:(NSString *)title {
@@ -735,7 +792,8 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
         // 停止转圈
         [self.spinnerView stopAnimating];
 
-        // 清空速度/ETA
+        // 清空速度/ETA（速度标签此前可能因 0 速率隐藏，这里展示状态文案需恢复可见）
+        self.speedLabel.hidden = NO;
         self.speedLabel.text = @"完成";
         self.etaLabel.text = @"";
 
@@ -757,6 +815,7 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
         [self applyState:DownloadCardStateFailed];
         [self.spinnerView stopAnimating];
 
+        self.speedLabel.hidden = NO;
         self.speedLabel.text = @"失败";
         self.etaLabel.text = @"";
 
@@ -773,6 +832,7 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
         [self applyState:DownloadCardStateCancelled];
         [self.spinnerView stopAnimating];
 
+        self.speedLabel.hidden = NO;
         self.speedLabel.text = @"已取消";
         self.etaLabel.text = @"";
 
@@ -987,21 +1047,27 @@ typedef NS_ENUM(NSInteger, DownloadCardState) {
     return [self.byteFormatter stringFromByteCount:bytes];
 }
 
-/// 格式化下载速度
-/// 规则：>1MB 显示 MB/s，>1KB 显示 KB/s，否则 B/s
+/// 格式化下载速度（Phase 6 Task 6.1：B/KB/MB/GB 统一 1 位小数，经本地化 "%@/s" 拼接）
 - (NSString *)formatSpeed:(long long)speedBytesPerSec {
-    if (speedBytesPerSec <= 0) return @"0 B/s";
+    if (speedBytesPerSec <= 0) return @"";
 
-    double speed = (double)speedBytesPerSec;
-    if (speed >= 1024.0 * 1024.0) {
-        // MB/s
-        return [NSString stringWithFormat:@"%.2f MB/s", speed / (1024.0 * 1024.0)];
-    } else if (speed >= 1024.0) {
-        // KB/s
-        return [NSString stringWithFormat:@"%.1f KB/s", speed / 1024.0];
+    return [NSString stringWithFormat:NSLocalizedString(@"download.speed.format", @"%@/s"),
+                                       [self compactBytes:speedBytesPerSec]];
+}
+
+/// 紧凑字节格式化：B/KB/MB/GB，1 位小数（如 "742B"、"512.0KB"、"2.1MB"、"1.0GB"）。
+/// 用于速率与多文件进度文案，与 NSByteCountFormatter 的常规展示互补。
+- (NSString *)compactBytes:(long long)bytes {
+    if (bytes < 0) bytes = 0;
+    double value = (double)bytes;
+    if (value >= 1024.0 * 1024.0 * 1024.0) {
+        return [NSString stringWithFormat:@"%.1fGB", value / (1024.0 * 1024.0 * 1024.0)];
+    } else if (value >= 1024.0 * 1024.0) {
+        return [NSString stringWithFormat:@"%.1fMB", value / (1024.0 * 1024.0)];
+    } else if (value >= 1024.0) {
+        return [NSString stringWithFormat:@"%.1fKB", value / 1024.0];
     } else {
-        // B/s
-        return [NSString stringWithFormat:@"%lld B/s", (long long)speed];
+        return [NSString stringWithFormat:@"%.0fB", value];
     }
 }
 

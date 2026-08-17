@@ -998,6 +998,32 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         @"bytes": @(0),
     } mutableCopy];
 
+    // Task 6.1：整合包聚合任务卡片（双维度进度：文件数 + 字节），与每文件卡片并存，
+    // 让下载中心可一眼看到整体进度（"42/100 个文件 · 18.3MB"）。
+    // rawTask=nil / supportsResume=NO：整体进度由各文件驱动，不提供暂停/恢复语义。
+    NSString *aggregateDisplayName = modpackInfo[@"name"];
+    if (![aggregateDisplayName isKindOfClass:[NSString class]] || aggregateDisplayName.length == 0) {
+        aggregateDisplayName = @"整合包依赖文件";
+    }
+    NSString *aggregateResourceId = modpackInfo[@"id"];
+    if (![aggregateResourceId isKindOfClass:[NSString class]] || aggregateResourceId.length == 0) {
+        aggregateResourceId = aggregateDisplayName;
+    }
+    DownloadTaskItem *aggregateTask = [[DownloadTaskManager sharedManager]
+        registerTaskWithResourceType:DownloadTaskResourceTypeModpack
+                        resourceName:[NSString stringWithFormat:@"%@-dependencies", aggregateResourceId]
+                         displayName:aggregateDisplayName
+                      downloadSource:downloadSource
+                             rawTask:nil
+                      supportsResume:NO
+                             iconURL:nil];
+    [[DownloadTaskManager sharedManager] setTaskWithId:aggregateTask.taskId state:DownloadTaskStateDownloading];
+    if (total > 0) {
+        [[DownloadTaskManager sharedManager] updateTaskWithId:aggregateTask.taskId
+                                          completedFileCount:0
+                                              totalFileCount:(NSInteger)total];
+    }
+
     for (NSDictionary *fileInfo in pendingFiles) {
         // 取消检查点：停止提交新任务；已在途任务等待其自然收尾后由 group_wait 返回
         if ([self checkCancelledWithError:error]) {
@@ -1155,6 +1181,10 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                              [NSString stringWithFormat:@"下载 mod %lu/%lu: %@",
                               (unsigned long)completedNow, (unsigned long)total, fileName]);
                 }
+                // Task 6.1：同步推进整合包聚合卡片（无有效链接同样计入完成数）
+                [[DownloadTaskManager sharedManager] updateTaskWithId:aggregateTask.taskId
+                                                  completedFileCount:(NSInteger)completedNow
+                                                      totalFileCount:(NSInteger)total];
                 dispatch_semaphore_signal(slotSemaphore);
                 dispatch_group_leave(group);
                 return;
@@ -1254,6 +1284,15 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                               (unsigned long)completedNow, (unsigned long)total, fileName]);
                 }
 
+                // Task 6.1：同步推进整合包聚合卡片（文件计数 + 累计字节双维度）
+                [[DownloadTaskManager sharedManager] updateTaskWithId:aggregateTask.taskId
+                                                  completedFileCount:(NSInteger)completedNow
+                                                      totalFileCount:(NSInteger)total];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:aggregateTask.taskId
+                                                              progress:MIN(MAX((double)completedNow / MAX((double)total, 1.0), 0.0), 1.0)
+                                                            totalBytes:0
+                                                       downloadedBytes:[aggregate[@"bytes"] longLongValue]];
+
                 // 释放并发槽位并离开 group（与提交侧的 wait/enter 配对）
                 dispatch_semaphore_signal(slotSemaphore);
                 dispatch_group_leave(group);
@@ -1278,6 +1317,8 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
           (unsigned long)skipped404Count, (double)transferredBytes / (1024.0 * 1024.0));
 
     if ([self checkCancelledWithError:error]) {
+        // Task 6.1：取消时同步收尾聚合卡片状态
+        [[DownloadTaskManager sharedManager] setTaskWithId:aggregateTask.taskId state:DownloadTaskStateCancelled];
         return NO;
     }
     // 阶段5修复（参照 FCL DownloadList.finishAll）：任何失败都返回 NO，让上层用
@@ -1286,6 +1327,8 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     //   - 全部成功（或仅存在 404 跳过，跳过为警告非失败）：返回 YES
     //   - 有失败：返回 NO，error 中带失败文件名（最多 5 个），完整列表经 failedDownloadFiles 访问
     if (total == 0 || failedCount == 0) {
+        // Task 6.1：全部收尾，聚合卡片标记完成
+        [[DownloadTaskManager sharedManager] setTaskWithId:aggregateTask.taskId completedWithError:nil];
         return YES;
     }
 
@@ -1312,14 +1355,18 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         }
     }
     NSLog(@"[ModpackImport] Warning: %@", msg);
+    NSError *aggregateError = [NSError errorWithDomain:@"ModpackImportError"
+                                                  code:5004
+                                              userInfo:@{
+                                                  NSLocalizedDescriptionKey: [msg copy],
+                                                  @"failedFiles": failedSnapshot
+                                              }];
     if (error) {
-        *error = [NSError errorWithDomain:@"ModpackImportError"
-                                     code:5004
-                                 userInfo:@{
-                                     NSLocalizedDescriptionKey: [msg copy],
-                                     @"failedFiles": failedSnapshot
-                                 }];
+        *error = aggregateError;
     }
+    // Task 6.1：存在失败文件，聚合卡片标记失败（错误信息与返回给调用方的一致）
+    [[DownloadTaskManager sharedManager] setTaskWithId:aggregateTask.taskId
+                                     completedWithError:aggregateError];
     return NO;
 }
 

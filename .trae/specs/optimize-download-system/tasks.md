@@ -34,19 +34,19 @@
 - [x] Task 3.3: CurseForge 整合包链接延迟获取（下载前并发解析 projectID/fileID → URL）
 
 ## Phase 4：镜像源策略统一与迁移
-- [ ] Task 4.1: 偏好设置拆分（fileDownloadSource/assetSearchSource/assetDownloadSource/fetchModLoaderSource，值：official_first/mirror_first）+ 旧 `general.download_source` 自动迁移
-- [ ] Task 4.2: 业务方切换到 PLMirrorCenter/PLDownloadClient：MinecraftResourceDownloadTask、ModService、ShaderService、ResourcePackService、DataPackService、ModpackImportService、FabricUtils、ForgeDirectInstaller、NeoForgeVersionFetcher；删除 MCIMMirror
-- [ ] Task 4.3: 修正不一致：`download_source=mcim`（迁移后 mirror_first）时 Forge 父 JSON 的镜像走向；Fabric/Quilt 补 BMCLAPI 镜像
-- [ ] Task 4.4: 设置页 UI 增加分类镜像策略选择（本地化全语言）
+- [x] Task 4.1: 偏好设置拆分（fileDownloadSource/assetSearchSource/assetDownloadSource/fetchModLoaderSource，值：official_first/mirror_first）+ 旧 `general.download_source` 自动迁移
+- [x] Task 4.2: 业务方切换到 PLMirrorCenter/PLDownloadClient：MinecraftResourceDownloadTask、ModService、ShaderService、ResourcePackService、DataPackService、ModpackImportService、FabricUtils、ForgeDirectInstaller、NeoForgeVersionFetcher；删除 MCIMMirror
+- [x] Task 4.3: 修正不一致：`download_source=mcim`（迁移后 mirror_first）时 Forge 父 JSON 的镜像走向；Fabric/Quilt 补 BMCLAPI 镜像（fabric-meta/quilt-meta/maven）
+- [x] Task 4.4: 设置页 UI 增加分类镜像策略选择（本地化全语言）
 
 ## Phase 5：校验与增量下载全覆盖
-- [ ] Task 5.1: Mod/Shader/ResourcePack/DataPack 下载启用 sha1 校验（Modrinth API 已返回 hashes）
-- [ ] Task 5.2: 下载前检查已存在文件（sha1 或 zip 完整性），通过即跳过
+- [x] Task 5.1: Mod/Shader/ResourcePack/DataPack 下载启用 sha1 校验（Modrinth API 已返回 hashes；下载入口 `PLSha1FromPrimaryFile` 提取 files[0].hashes.sha1 透传）
+- [x] Task 5.2: 下载前检查已存在文件（PLDownloadClient 增量命中：sha1 或 zip 完整性通过即跳过，失败旧文件原子替换保护）
 
 ## Phase 6：UI/UX 增强
-- [ ] Task 6.1: DownloadProgressCardView 显示实时速率；多文件任务双维度进度文案（"42/100 个文件 · 18.3MB/96MB"）
-- [ ] Task 6.2: 下载历史页（基于 Task 2.2 持久化，支持清空）
-- [ ] Task 6.3: 全语言本地化文案（zh-Hans/zh-Hant/en 等，新增键：速率、历史、镜像策略、失败重试等）
+- [x] Task 6.1: DownloadProgressCardView 显示实时速率；多文件任务双维度进度文案（"42/100 个文件 · 18.3MB/96MB"）；整合包聚合卡片（rawTask=nil 不占并发槽位）
+- [x] Task 6.2: 下载历史页（DownloadHistoryViewController，基于 DownloadHistoryStore 持久化，支持清空）
+- [x] Task 6.3: 全语言本地化文案（zh-Hans/zh-Hant/en 等，新增键：速率、历史、镜像策略、失败重试等）
 
 ## 验证
 - [ ] Task 7.1: 提交到 GitHub 远程分支触发 Actions 构建（macOS 14 / Xcode 15.4），确认无编译错误

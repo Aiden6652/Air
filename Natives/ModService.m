@@ -574,7 +574,7 @@
 
     PLDownloadRequest *request = [[PLDownloadRequest alloc] init];
     // 镜像候选列表：原始 CDN URL（cdn.modrinth.com / edge.forgecdn.net 等）+ MCIM 镜像，
-    // 按 download.assetDownloadSource 策略排序（PLMirrorCenter 统一收敛，替代 MCIMMirror）
+    // 按 download.assetDownloadSource 策略排序（PLMirrorCenter 统一收敛，替代旧版独立镜像工具类）
     request.candidateURLs = [PLMirrorCenter candidateURLsForOriginalURL:url
                                                           resourceType:PLMirrorResourceTypeAssetDownload];
     // Task 5.1：expectedSHA1（版本模型 files[].hashes.sha1）传入即启用 SHA1 校验，

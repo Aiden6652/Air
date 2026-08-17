@@ -715,3 +715,18 @@
 // 内存限制帮助弹窗
 "mem_help.title" = "关于内存限制";
 "mem_help.message" = "iOS 18 / iOS 26 单实例内存上限约为 1440MB，玩大型整合包时可能因内存不足崩溃。\n\n解决方法：\n使用 GetMoreRam (LiveContainer 插件) 解除内存限制。\nGetMoreRam 仓库：github.com/hugeBlack/GetMoreRam\n\n安装后重启启动器即可生效。\n\n如果不使用 LiveContainer，可尝试降低内存分配（设置 > Java > 内存分配），但部分整合包在内存限制下可能无法正常运行。";
+
+// 下载进度与速率（Phase 6 Task 6.1）
+"download.speed.format" = "%@/s";
+"download.progress.file_count" = "%1$ld/%2$ld 个文件 · %3$@/%4$@";
+"download.progress.file_count_short" = "%1$ld/%2$ld · %3$@";
+
+// 下载历史（Phase 6 Task 6.2）
+"download.history.title" = "下载历史";
+"download.history.entry" = "历史";
+"download.history.clear" = "清空";
+"download.history.clear_confirm" = "确定清空全部下载历史？此操作不可恢复。";
+"download.history.cancel" = "取消";
+"download.history.empty" = "暂无下载历史";
+"download.history.result.success" = "成功";
+"download.history.result.failed" = "失败";

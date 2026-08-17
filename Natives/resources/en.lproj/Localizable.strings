@@ -693,3 +693,18 @@
 // Memory limit help dialog
 "mem_help.title" = "About Memory Limit";
 "mem_help.message" = "iOS 18 / iOS 26 single-instance memory limit is about 1440MB. Large modpacks may crash due to insufficient memory.\n\nSolution:\nUse GetMoreRam (a LiveContainer plugin) to lift the memory limit.\nGetMoreRam repo: github.com/hugeBlack/GetMoreRam\n\nRestart the launcher after installation to take effect.\n\nIf you don't use LiveContainer, try lowering the memory allocation (Settings > Java > Memory Allocation), but some modpacks may not run under the memory limit.";
+
+// Download progress & speed (Phase 6 Task 6.1)
+"download.speed.format" = "%@/s";
+"download.progress.file_count" = "%1$ld/%2$ld files · %3$@/%4$@";
+"download.progress.file_count_short" = "%1$ld/%2$ld · %3$@";
+
+// Download history (Phase 6 Task 6.2)
+"download.history.title" = "Download History";
+"download.history.entry" = "History";
+"download.history.clear" = "Clear";
+"download.history.clear_confirm" = "Clear all download history? This cannot be undone.";
+"download.history.cancel" = "Cancel";
+"download.history.empty" = "No download history yet";
+"download.history.result.success" = "Success";
+"download.history.result.failed" = "Failed";
