@@ -534,7 +534,7 @@
     if (lastSpeed > 0) {
         downloadProgress.throughput = @(lastSpeed);
         if (totalStored > accumulated) {
-            downloadProgress.estimatedTimeRemaining = (double)(totalStored - accumulated) / lastSpeed;
+            downloadProgress.estimatedTimeRemaining = @((double)(totalStored - accumulated) / lastSpeed);
         }
     }
     // progress 回调在主线程执行（UI 更新安全）

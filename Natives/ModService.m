@@ -689,7 +689,7 @@
     if (lastSpeed > 0) {
         downloadProgress.throughput = @(lastSpeed);
         if (totalStored > accumulated) {
-            downloadProgress.estimatedTimeRemaining = (double)(totalStored - accumulated) / lastSpeed;
+            downloadProgress.estimatedTimeRemaining = @((double)(totalStored - accumulated) / lastSpeed);
         }
     }
     dispatch_async(dispatch_get_main_queue(), ^{
