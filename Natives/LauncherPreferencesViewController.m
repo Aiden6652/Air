@@ -270,7 +270,7 @@
     self.hasDetail = YES;
     self.prefDetailVisible = self.navigationController == nil;
     
-    self.prefSections = @[@"general", @"video", @"mobileglues", @"control", @"java", @"debug"];
+    self.prefSections = @[@"general", @"download", @"video", @"mobileglues", @"control", @"java", @"debug"];
 
     self.rendererKeys = getRendererKeys(NO);
     self.rendererList = getRendererNames(NO);
@@ -313,20 +313,8 @@
               @"type": self.typeSwitch,
               @"enableCondition": whenNotInGame
             },
-            @{@"key": @"download_source",
-              @"hasDetail": @YES,
-              @"icon": @"arrow.down.circle",
-              @"type": self.typePickField,
-              @"enableCondition": whenNotInGame,
-              @"pickKeys": @[
-                  @"official",
-                  @"bmclapi"
-              ],
-              @"pickList": @[
-                  localize(@"preference.title.download_source-official", nil),
-                  localize(@"preference.title.download_source-bmclapi", nil)
-              ]
-            },
+            // 旧"下载源"行已移除：general.download_source 已由启动时的
+            // migrateDownloadSourcePreferences 迁移到下方"下载镜像策略"分组的 4 个分类键
             @{@"key": @"mod_mirror",
               @"hasDetail": @YES,
               @"icon": @"network",
@@ -610,6 +598,65 @@
               @"action": ^void(){
                   [self checkForUpdateFromSettings];
               }
+            }
+        ], @[
+            // Download mirror policy settings（分类镜像策略，由 PLMirrorCenter 统一读取）
+            @{@"icon": @"arrow.down.circle"},
+            @{@"key": @"fileSource",
+              @"hasDetail": @YES,
+              @"icon": @"arrow.down.circle",
+              @"type": self.typePickField,
+              @"enableCondition": whenNotInGame,
+              @"pickKeys": @[
+                  @"official_first",
+                  @"mirror_first"
+              ],
+              @"pickList": @[
+                  localize(@"preference.title.mirror_policy-official_first", nil),
+                  localize(@"preference.title.mirror_policy-mirror_first", nil)
+              ]
+            },
+            @{@"key": @"assetSearchSource",
+              @"hasDetail": @YES,
+              @"icon": @"magnifyingglass",
+              @"type": self.typePickField,
+              @"enableCondition": whenNotInGame,
+              @"pickKeys": @[
+                  @"official_first",
+                  @"mirror_first"
+              ],
+              @"pickList": @[
+                  localize(@"preference.title.mirror_policy-official_first", nil),
+                  localize(@"preference.title.mirror_policy-mirror_first", nil)
+              ]
+            },
+            @{@"key": @"assetDownloadSource",
+              @"hasDetail": @YES,
+              @"icon": @"square.and.arrow.down",
+              @"type": self.typePickField,
+              @"enableCondition": whenNotInGame,
+              @"pickKeys": @[
+                  @"official_first",
+                  @"mirror_first"
+              ],
+              @"pickList": @[
+                  localize(@"preference.title.mirror_policy-official_first", nil),
+                  localize(@"preference.title.mirror_policy-mirror_first", nil)
+              ]
+            },
+            @{@"key": @"modLoaderSource",
+              @"hasDetail": @YES,
+              @"icon": @"wrench.and.screwdriver",
+              @"type": self.typePickField,
+              @"enableCondition": whenNotInGame,
+              @"pickKeys": @[
+                  @"official_first",
+                  @"mirror_first"
+              ],
+              @"pickList": @[
+                  localize(@"preference.title.mirror_policy-official_first", nil),
+                  localize(@"preference.title.mirror_policy-mirror_first", nil)
+              ]
             }
         ], @[
             // Video and renderer settings

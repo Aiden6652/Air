@@ -9,6 +9,14 @@ NSString * const DownloadTaskResourceTypeDataPack     = @"datapack";
 NSString * const DownloadTaskResourceTypeModpack      = @"modpack";
 NSString * const DownloadTaskResourceTypeWorld        = @"world";
 
+/// 快照取值辅助：仅接受非空 NSString，否则返回兜底值（快照内容不可信，需类型清洗）
+static NSString *PLSnapshotString(id value, NSString *fallback) {
+    if ([value isKindOfClass:[NSString class]] && [(NSString *)value length] > 0) {
+        return value;
+    }
+    return fallback;
+}
+
 @implementation DownloadTaskItem
 
 - (instancetype)initWithResourceType:(NSString *)resourceType
@@ -39,8 +47,84 @@ NSString * const DownloadTaskResourceTypeWorld        = @"world";
         _userInfo = [NSMutableDictionary dictionary];
         _retryCount = 0;
         _maxRetryCount = 3;
+        _needsRecreate = NO;
     }
     return self;
+}
+
+#pragma mark - 快照序列化
+
+- (NSDictionary *)snapshotDictionary {
+    return @{
+        @"taskId": self.taskId ?: @"",
+        @"resourceType": self.resourceType ?: @"",
+        @"resourceName": self.resourceName ?: @"",
+        @"displayName": self.displayName ?: @"",
+        @"downloadSource": self.downloadSource ?: @"",
+        @"state": @(self.state),
+        @"progress": @(self.progress),
+        @"totalBytes": @(self.totalSize),
+        @"receivedBytes": @(self.downloadedSize),
+        @"iconURL": self.iconURL ?: @"",
+        @"downloadURL": self.downloadURL ?: @"",
+        @"resumeDataPath": self.resumeDataPath ?: @"",
+        @"supportsResume": @(self.supportsResume),
+        @"retryCount": @(self.retryCount),
+        @"timestamp": @([self.createdDate timeIntervalSince1970]),
+    };
+}
+
+- (instancetype)initWithSnapshotDictionary:(NSDictionary *)snapshot {
+    if (![snapshot isKindOfClass:[NSDictionary class]]) return nil;
+    NSString *taskId = snapshot[@"taskId"];
+    if (![taskId isKindOfClass:[NSString class]] || taskId.length == 0) return nil;
+
+    NSString *iconURL = snapshot[@"iconURL"];
+    self = [self initWithResourceType:PLSnapshotString(snapshot[@"resourceType"], @"")
+                          resourceName:PLSnapshotString(snapshot[@"resourceName"], @"")
+                           displayName:PLSnapshotString(snapshot[@"displayName"], @"")
+                        downloadSource:PLSnapshotString(snapshot[@"downloadSource"], @"official")
+                               rawTask:nil
+                        supportsResume:[snapshot[@"supportsResume"] boolValue]
+                               iconURL:PLSnapshotString(iconURL, nil)];
+    if (!self) return nil;
+
+    // 沿用原 taskId（保持与持久化快照/断点数据文件的对应关系）
+    _taskId = [taskId copy];
+    _state = [snapshot[@"state"] integerValue];
+    _progress = [snapshot[@"progress"] doubleValue];
+    _totalSize = [snapshot[@"totalBytes"] longLongValue];
+    _downloadedSize = [snapshot[@"receivedBytes"] longLongValue];
+    _retryCount = [snapshot[@"retryCount"] integerValue];
+
+    NSString *downloadURL = snapshot[@"downloadURL"];
+    if ([downloadURL isKindOfClass:[NSString class]] && downloadURL.length > 0) {
+        _downloadURL = [downloadURL copy];
+    }
+    NSString *resumeDataPath = snapshot[@"resumeDataPath"];
+    if ([resumeDataPath isKindOfClass:[NSString class]] && resumeDataPath.length > 0) {
+        _resumeDataPath = [resumeDataPath copy];
+    }
+
+    NSNumber *timestamp = snapshot[@"timestamp"];
+    if ([timestamp isKindOfClass:[NSNumber class]]) {
+        _createdDate = [NSDate dateWithTimeIntervalSince1970:timestamp.doubleValue];
+    }
+    return self;
+}
+
+- (NSDictionary *)historyDictionary {
+    NSString *name = self.displayName.length > 0 ? self.displayName : self.resourceName;
+    return @{
+        @"taskId": self.taskId ?: @"",
+        @"name": name ?: @"",
+        @"type": self.resourceType ?: @"",
+        @"size": @(self.totalSize),
+        @"received": @(self.downloadedSize),
+        @"result": @"success",
+        @"source": self.downloadSource ?: @"",
+        @"time": @([[NSDate date] timeIntervalSince1970]),
+    };
 }
 
 @end

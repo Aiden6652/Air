@@ -325,6 +325,9 @@ add_executable(AngelAuraAmethyst
   DownloadTaskItem.m
   DownloadTaskManager.m
   DownloadTasksViewController.m
+  DownloadHistoryStore.m
+  PLDownloadClient.m
+  PLMirrorCenter.m
   AppDelegate.m
   CustomControlsViewController.m
   CustomControlsViewController+UndoManager.m

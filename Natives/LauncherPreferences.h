@@ -3,6 +3,11 @@
 void loadPreferences(BOOL reset);
 void toggleIsolatedPref(BOOL forceEnable);
 
+/// 一次性迁移：旧键 general.download_source → 新版分类镜像策略键
+/// （download.fileSource / assetSearchSource / assetDownloadSource / modLoaderSource）。
+/// 在 AppDelegate 启动早期调用，幂等（哨兵键 download.sourceMigrated 保证只执行一次）。
+void migrateDownloadSourcePreferences(void);
+
 id getPrefObject(NSString *key);
 BOOL getPrefBool(NSString *key);
 float getPrefFloat(NSString *key);

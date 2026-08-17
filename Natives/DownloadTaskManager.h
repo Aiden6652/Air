@@ -8,6 +8,9 @@ extern NSString * const DownloadTaskManagerAggregateStateDidChangeNotification;
 extern NSString * const DownloadTaskManagerTaskCompletedNotification;
 extern NSString * const DownloadTaskManagerTaskKey;
 
+/// 全局并发下载上限（同时处于 Downloading 状态的任务数，信号量控制）
+FOUNDATION_EXPORT NSInteger const PLDownloadMaxConcurrentTasks;
+
 /**
  * 统一下载任务管理器（单例）。
  * 负责集中管理所有下载任务的生命周期、状态聚合与操作。
@@ -75,6 +78,15 @@ extern NSString * const DownloadTaskManagerTaskKey;
 
 /// 更新任务错误信息（不修改状态）
 - (void)updateTaskWithId:(NSString *)taskId error:(nullable NSError *)error;
+
+#pragma mark - 并发 / 断点查询（Phase 2 新增）
+
+/// 当前排队等待下载槽位的任务数（并发上限触发后 Pending 排队）
+- (NSInteger)pendingQueueCount;
+
+/// 读取任务的持久化断点数据（pause 时落盘；供业务方 retryHandler 内用
+/// downloadTaskWithResumeData: 重建断点续传；不存在时返回 nil）
+- (nullable NSData *)storedResumeDataForTaskId:(NSString *)taskId;
 
 @end
 

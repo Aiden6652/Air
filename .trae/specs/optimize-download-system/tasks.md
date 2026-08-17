@@ -4,34 +4,34 @@
 - [x] Task 0.1: 创建 ThirdParty 目录并将 ZalithLauncher2 以 git 子模块形式克隆（`ThirdParty/ZalithLauncher2`，浅克隆 depth=1，.gitmodules + gitlink 提交到索引）
 
 ## Phase 1：统一下载客户端（基础设施）
-- [ ] Task 1.1: 新建 `PLMirrorCenter` 镜像配置中心
-  - [ ] 收敛 BMCLAPI/MCIM/官方根 URL 常量到一处（消除 4+ 处硬编码）
-  - [ ] 实现 `URLsForOriginal:resourceType:`：按资源类型（gameFile/assetSearch/assetDownload/modLoader）与用户策略返回按优先级排序的候选 URL 列表
-  - [ ] BMCLAPI 映射覆盖 Mojang 全系 + Forge/NeoForge/Fabric/Quilt maven（参考 ZL2 `BMCLAPI.kt` 的 REPLACE_MIRROR_HOLDERS）
-  - [ ] MCIM 映射覆盖 Modrinth/CurseForge API 与 CDN（参考 ZL2 `MCIMMirror.kt`）
-- [ ] Task 1.2: 新建 `PLDownloadClient` 统一下载器
-  - [ ] 镜像列表顺序尝试；单镜像内指数退避重试（默认 3 次，1s/2s/4s）
-  - [ ] SHA1 校验 + 无 sha1 时 zip 完整性校验兜底；失败删除残留文件
-  - [ ] 速率统计器（每秒采样）与跨镜像/重试的进度回退（参考 ZL2 `withSpeedReport`/`sizeCallback(-bytes)`）
-  - [ ] 全部候选失败返回聚合 NSError（suppressErrors 附加）
+- [x] Task 1.1: 新建 `PLMirrorCenter` 镜像配置中心
+  - [x] 收敛 BMCLAPI/MCIM/官方根 URL 常量到一处（消除 4+ 处硬编码）
+  - [x] 实现 `URLsForOriginal:resourceType:`：按资源类型（gameFile/assetSearch/assetDownload/modLoader）与用户策略返回按优先级排序的候选 URL 列表
+  - [x] BMCLAPI 映射覆盖 Mojang 全系 + Forge/NeoForge/Fabric/Quilt maven（参考 ZL2 `BMCLAPI.kt` 的 REPLACE_MIRROR_HOLDERS）
+  - [x] MCIM 映射覆盖 Modrinth/CurseForge API 与 CDN（参考 ZL2 `MCIMMirror.kt`）
+- [x] Task 1.2: 新建 `PLDownloadClient` 统一下载器
+  - [x] 镜像列表顺序尝试；单镜像内指数退避重试（默认 3 次，1s/2s/4s）
+  - [x] SHA1 校验 + 无 sha1 时 zip 完整性校验兜底；失败删除残留文件
+  - [x] 速率统计器（每秒采样）与跨镜像/重试的进度回退（参考 ZL2 `withSpeedReport`/`sizeCallback(-bytes)`）
+  - [x] 全部候选失败返回聚合 NSError（suppressErrors 附加）
 
 ## Phase 2：下载任务系统增强
-- [ ] Task 2.1: 真断点续传
-  - [ ] 暂停改用 `cancelByProducingResumeData:`，resumeData 写入磁盘缓存目录
-  - [ ] 恢复改用 `downloadTaskWithResumeData:`；落实/修正 `supportsResume` 语义
-- [ ] Task 2.2: 任务持久化与历史
-  - [ ] 进行中任务序列化到 JSON，启动时恢复为"已暂停"状态
-  - [ ] 已完成任务写入下载历史（上限 200 条，LRU 清理）
-- [ ] Task 2.3: 全局并发上限（任务级信号量，默认 3，可后续做成偏好项）
+- [x] Task 2.1: 真断点续传
+  - [x] 暂停改用 `cancelByProducingResumeData:`，resumeData 写入磁盘缓存目录
+  - [x] 恢复改用 `downloadTaskWithResumeData:`；落实/修正 `supportsResume` 语义
+- [x] Task 2.2: 任务持久化与历史
+  - [x] 进行中任务序列化到 JSON，启动时恢复为"已暂停"状态
+  - [x] 已完成任务写入下载历史（上限 200 条，LRU 清理）
+- [x] Task 2.3: 全局并发上限（任务级信号量，默认 3，可后续做成偏好项）
 
 ## Phase 3：整合包并发下载改造
-- [ ] Task 3.1: `ModpackImportService` 下载并发化
-  - [ ] `downloadModFiles:` 改 dispatch_group + 信号量限流（默认 12），移除同步信号量等待与 `NSThread sleep`
-  - [ ] `downloadFileFromURL:` 改异步或迁移到 PLDownloadClient
-- [ ] Task 3.2: 校验与容错
-  - [ ] 启用 Modrinth `files[].hashes.sha1` 校验
-  - [ ] 404/NotFound 跳过计入警告；失败文件列表支持完成后单独重试下载
-- [ ] Task 3.3: CurseForge 整合包链接延迟获取（下载前并发解析 projectID/fileID → URL）
+- [x] Task 3.1: `ModpackImportService` 下载并发化
+  - [x] `downloadModFiles:` 改 dispatch_group + 信号量限流（默认 12），移除同步信号量等待与 `NSThread sleep`
+  - [x] `downloadFileFromURL:` 改异步或迁移到 PLDownloadClient
+- [x] Task 3.2: 校验与容错
+  - [x] 启用 Modrinth `files[].hashes.sha1` 校验
+  - [x] 404/NotFound 跳过计入警告；失败文件列表支持完成后单独重试下载
+- [x] Task 3.3: CurseForge 整合包链接延迟获取（下载前并发解析 projectID/fileID → URL）
 
 ## Phase 4：镜像源策略统一与迁移
 - [ ] Task 4.1: 偏好设置拆分（fileDownloadSource/assetSearchSource/assetDownloadSource/fetchModLoaderSource，值：official_first/mirror_first）+ 旧 `general.download_source` 自动迁移

@@ -4,6 +4,7 @@
 #import "utils.h"
 #import "AFNetworking.h"
 #import "MinecraftResourceDownloadTask.h"
+#import "LauncherPreferences.h"
 
 // SurfaceViewController
 extern dispatch_group_t fatalExitGroup;
@@ -17,6 +18,8 @@ extern dispatch_group_t fatalExitGroup;
 #pragma mark - UISceneSession lifecycle
 
 - (UISceneConfiguration *)application:(UIApplication *)application configurationForConnectingSceneSession:(UISceneSession *)connectingSceneSession options:(UISceneConnectionOptions *)options {
+    // 一次性迁移旧版全局下载源偏好到分类镜像策略键（幂等，早于任何 UI 读取偏好）
+    migrateDownloadSourcePreferences();
     // Called when a new scene session is being created.
     return [[UISceneConfiguration alloc] initWithName:@"Default Configuration" sessionRole:connectingSceneSession.role];
 }

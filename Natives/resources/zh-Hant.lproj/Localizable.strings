@@ -115,6 +115,18 @@
 "preference.section.java" = "Java 選項";
 //"preference.section.footer.java" = "";
 
+"preference.section.download" = "下載鏡像策略";
+"preference.title.fileSource" = "檔案下載源";
+"preference.detail.fileSource" = "遊戲本體、庫與資源檔案的下載策略（Mojang 分發體系）。鏡像優先使用 BMCLAPI 鏡像。";
+"preference.title.assetSearchSource" = "資源搜尋源";
+"preference.detail.assetSearchSource" = "Modrinth / CurseForge 的 API 查詢策略。鏡像優先使用 MCIM 鏡像。";
+"preference.title.assetDownloadSource" = "資源下載源";
+"preference.detail.assetDownloadSource" = "模組、光影、資源包等檔案的 CDN 下載策略。鏡像優先使用 MCIM 鏡像。";
+"preference.title.modLoaderSource" = "載入器源";
+"preference.detail.modLoaderSource" = "Fabric / Forge / NeoForge 的 meta、maven 與安裝器下載策略。鏡像優先使用 BMCLAPI 鏡像。";
+"preference.title.mirror_policy-official_first" = "官方優先";
+"preference.title.mirror_policy-mirror_first" = "鏡像優先";
+
 "preference.title.confirm" = "你確定嗎？";
 
 "preference.title.game_directory" = "遊戲資料夾";

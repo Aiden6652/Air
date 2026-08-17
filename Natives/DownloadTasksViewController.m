@@ -305,10 +305,18 @@ static const CGFloat kSectionInset = 16.0;
             break;
 
         case DownloadTaskStatePaused:
-            // 主操作：继续；次操作：取消
-            [self.primaryActionButton setTitle:@"继续" forState:UIControlStateNormal];
-            [self.primaryActionButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-            self.primaryActionButton.backgroundColor = primaryColor;
+            // 主操作：继续（不可续传时置灰，如 App 重启恢复的暂停任务）；次操作：取消
+            if (task.supportsResume) {
+                [self.primaryActionButton setTitle:@"继续" forState:UIControlStateNormal];
+                [self.primaryActionButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+                self.primaryActionButton.backgroundColor = primaryColor;
+                self.primaryActionButton.userInteractionEnabled = YES;
+            } else {
+                [self.primaryActionButton setTitle:@"不可继续" forState:UIControlStateNormal];
+                [self.primaryActionButton setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
+                self.primaryActionButton.backgroundColor = [UIColor tertiarySystemBackgroundColor];
+                self.primaryActionButton.userInteractionEnabled = NO;
+            }
             self.primaryActionButton.hidden = NO;
 
             [self.secondaryActionButton setTitle:@"取消" forState:UIControlStateNormal];

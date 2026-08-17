@@ -86,6 +86,16 @@ typedef id _Nullable (^DownloadRetryHandler)(DownloadTaskItem *item);
 /// 最大重试次数，默认 3。超过后 UI 不再显示"重试"按钮（仍可"移除"）
 @property (nonatomic, assign) NSInteger maxRetryCount;
 
+#pragma mark - 断点续传 / 持久化恢复支持（Phase 2）
+
+/// 断点续传数据文件路径（pause 时由 manager 落盘到
+/// <Home>/Library/Caches/PLDownloadResumeData/<taskId>.resume；从磁盘快照恢复时保留路径引用）
+@property (nonatomic, copy, nullable) NSString *resumeDataPath;
+
+/// 从磁盘快照恢复标记：底层 rawTask 与 retryHandler 闭包无法序列化，
+/// 恢复的任务需业务方重新注册才能真正续传/重试；恢复项的 supportsResume 会被置 NO。
+@property (nonatomic, assign) BOOL needsRecreate;
+
 - (instancetype)initWithResourceType:(NSString *)resourceType
                         resourceName:(NSString *)resourceName
                          displayName:(NSString *)displayName
@@ -93,6 +103,19 @@ typedef id _Nullable (^DownloadRetryHandler)(DownloadTaskItem *item);
                              rawTask:(nullable id)rawTask
                       supportsResume:(BOOL)supportsResume
                              iconURL:(nullable NSString *)iconURL;
+
+#pragma mark - 快照序列化（由 DownloadTaskManager 持久化/恢复时调用）
+
+/// 导出可 JSON 序列化的任务快照（taskId、resourceType、name、displayName、iconURL、state、
+/// totalBytes、receivedBytes、downloadSource、timestamp、downloadURL 等字段）
+- (NSDictionary *)snapshotDictionary;
+
+/// 从快照重建任务（沿用原 taskId；rawTask/retryHandler 不可恢复）。
+/// 快照非法（缺 taskId / 类型不符）时返回 nil。
+- (nullable instancetype)initWithSnapshotDictionary:(NSDictionary *)snapshot;
+
+/// 导出下载历史条目（名称/类型/大小/时间/结果，供 DownloadHistoryStore 记录）
+- (NSDictionary *)historyDictionary;
 
 @end
 
