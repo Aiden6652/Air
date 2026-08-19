@@ -4,8 +4,8 @@
 > 完整需求与验收标准以 `spec.md` / `tasks.md` / `checklist.md` 三份文件为准，本文件仅作进度快照，实施细节请以 `tasks.md` 为准。
 
 - **改动分支**: `feature/optimize-download-system`
-- **最近已推送 commit**: `d79c9881`（Phase 1+2）
-- **上次更新**: Phase 3 完成（待提交推送）
+- **最近已推送 commit**: `6c5b6d1c`（Phase 3 导入修复，CI 构建通过 ✅）
+- **上次更新**: Phase 3 完成且 CI 验证通过（run 32241768075，7m57s）
 - **注意**: 本沙箱为 Windows，无 iOS SDK，无法本地编译验证；需每次推送后由 GitHub Actions（macOS 14 / Xcode 15.4）构建验证。
 
 ---
@@ -56,13 +56,11 @@
 
 ## 三、当前进度
 
-**Phase 3 已完成，Phase 4/5 未开始。**
+**Phase 3 已完成并通过 CI 构建验证，Phase 4/5 未开始。**
 
-- Phase 1、2 已推送（commit `d79c9881`）。
-- Phase 3 代码已完成（含 Task 3.4 双启动器清理），待提交推送触发 CI 验证。
+- Phase 1、2 已推送（commit `d79c9881` + 修复 `1951a51c`，CI 通过）。
+- Phase 3 已推送（commit `a34d6029` + 导入修复 `6c5b6d1c`），CI 构建通过（run 32241768075，7m57s，ipa/tipa/dSYM 产物生成）。
 - Phase 4–7 均为未开始状态（tasks.md 中 `[ ]`）。
-
-> ⚠️ Phase 1/2/3 均未经 GitHub Actions 真实编译验证，应尽快推送触发构建，确认无编译错误再进入 Phase 4，避免错误向上游扩散。
 
 ---
 
