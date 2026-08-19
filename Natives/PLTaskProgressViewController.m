@@ -228,7 +228,7 @@ static NSString *PLFormatDuration(NSTimeInterval seconds) {
     // 进度行：进度条（确定）/ 流动动画（不确定）+ 百分比·速率
     self.progressView = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
     self.progressView.progressTintColor = accentColor();
-    self.progressView.trackTintColor = [UIColor tertiarySystemFill];
+    self.progressView.trackTintColor = [UIColor tertiarySystemFillColor];
     [self.progressView setContentHuggingPriority:251 forAxis:UILayoutConstraintAxisHorizontal];
 
     self.flowView = [[PLFlowIndicatorView alloc] init];
@@ -254,7 +254,7 @@ static NSString *PLFormatDuration(NSTimeInterval seconds) {
 
     // 双维度："12/38 个文件 · 45MB/180MB"
     self.dimsLabel = [[UILabel alloc] init];
-    self.dimsLabel.font = [UIFont monospacedDigitSystemFontOfSize:12];
+    self.dimsLabel.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightRegular];
     self.dimsLabel.textColor = [UIColor secondaryLabelColor];
     self.dimsLabel.numberOfLines = 1;
     self.dimsLabel.hidden = YES;
@@ -515,7 +515,7 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
     self.contentStack.alignment = UIStackViewAlignmentFill;
     self.contentStack.distribution = UIStackViewDistributionFill;
     self.contentStack.translatesAutoresizingMaskIntoConstraints = NO;
-    self.contentStack.isLayoutMarginsRelativeArrangement = YES;
+    self.contentStack.layoutMarginsRelativeArrangement = YES;
     self.contentStack.layoutMargins = UIEdgeInsetsMake(20, 20, 12, 20);
     [self.scrollView addSubview:self.contentStack];
 
@@ -612,7 +612,7 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
 
     self.errorDetailBodyLabel = [[UILabel alloc] init];
     self.errorDetailBodyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.errorDetailBodyLabel.font = [UIFont monospacedDigitSystemFontOfSize:12];
+    self.errorDetailBodyLabel.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightRegular];
     self.errorDetailBodyLabel.textColor = [UIColor secondaryLabelColor];
     self.errorDetailBodyLabel.numberOfLines = 0;
     [self.errorDetailContainer addSubview:self.errorDetailBodyLabel];
@@ -659,7 +659,7 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
     self.totalProgressView = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
     self.totalProgressView.translatesAutoresizingMaskIntoConstraints = NO;
     self.totalProgressView.progressTintColor = accentColor();
-    self.totalProgressView.trackTintColor = [UIColor tertiarySystemFill];
+    self.totalProgressView.trackTintColor = [UIColor tertiarySystemFillColor];
     [totalCard addSubview:self.totalProgressView];
 
     // 流动动画条与普通进度条同位置叠放（不确定进度时互斥显示）
