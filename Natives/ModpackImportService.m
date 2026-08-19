@@ -394,8 +394,10 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     if (javaArguments.count > 0) {
         NSMutableArray *argStrings = [NSMutableArray array];
         for (id a in javaArguments) {
-            if ([a isKindOfClass:[NSString class]] && [(NSString *)a length] > 0]) {
-                [argStrings addObject:a];
+            if (![a isKindOfClass:[NSString class]]) continue;
+            NSString *arg = (NSString *)a;
+            if (arg.length > 0) {
+                [argStrings addObject:arg];
             }
         }
         if (argStrings.count > 0) {
@@ -406,8 +408,10 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     if (launchArguments.count > 0) {
         NSMutableArray *argStrings = [NSMutableArray array];
         for (id a in launchArguments) {
-            if ([a isKindOfClass:[NSString class]] && [(NSString *)a length] > 0]) {
-                [argStrings addObject:a];
+            if (![a isKindOfClass:[NSString class]]) continue;
+            NSString *arg = (NSString *)a;
+            if (arg.length > 0) {
+                [argStrings addObject:arg];
             }
         }
         if (argStrings.count > 0) {
