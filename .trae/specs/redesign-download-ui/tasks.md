@@ -19,10 +19,10 @@
 - [x] Task 3.4: LauncherRightPanelViewController/LauncherNavigationController 清理：删除各自维护的 DownloadProgressViewController present 逻辑与重复通知代码，版本下载入口统一走"注册任务+自动弹出"
 
 ## Phase 4：资源下载接入（Mod/Shader/资源包/数据包/JRE）
-- [ ] Task 4.1: ModService/ShaderService/ResourcePackService/DataPackService 注册 DownloadTaskManager 任务（单阶段"下载文件"，含 SHA1/大小元数据），下载回调桥接阶段进度/速率；DownloadViewController 与各 Manager VC 的下载入口改为自动弹统一进度页；删除 DownloadProgressCardView 相关调用
-- [ ] Task 4.2: ForgeInstallViewController：删除 dlopen WFWorkflowProgressView 私有类代码，installer jar 下载注册为下载中心任务（卡片进度展示）
-- [ ] Task 4.3: LauncherPrefManageJREViewController JRE 下载：改注册下载中心任务，移除对 progressViewMain 的复用
-- [ ] Task 4.4: ProfileSettingsViewController Fabric API/OptiFine 安装：改注册任务+统一进度页，移除 DownloadProgressCardView 调用
+- [x] Task 4.1: ModService/ShaderService/ResourcePackService/DataPackService 注册 DownloadTaskManager 任务（单阶段"下载文件"，含 SHA1/大小元数据），下载回调桥接阶段进度/速率；DownloadViewController 与各 Manager VC 的下载入口改为自动弹统一进度页；删除 DownloadProgressCardView 相关调用
+- [x] Task 4.2: ForgeInstallViewController：删除 dlopen WFWorkflowProgressView 私有类代码，installer jar 下载注册为下载中心任务（卡片进度展示）
+- [x] Task 4.3: LauncherPrefManageJREViewController JRE 下载：改注册下载中心任务，移除对 progressViewMain 的复用
+- [x] Task 4.4: ProfileSettingsViewController Fabric API/OptiFine 安装：改注册任务+统一进度页，移除 DownloadProgressCardView 调用
 
 ## Phase 5：整合包导入重构与修复（参考 ZL2）
 - [ ] Task 5.1: ModpackImportService 接入阶段模型：导入全程按整合包 6 阶段（解析/解压/下载依赖/安装加载器/下载游戏文件/完成配置）上报 DownloadTaskManager（autoPresentDetail=YES）；ModpackImportViewController 删除自定义进度卡，改用统一进度页

@@ -49,7 +49,6 @@
 #import "ios_uikit_bridge.h"
 #import "ALTServerConnection.h"
 #import "ModLoaderIconHelper.h"
-#import "DownloadProgressCardView.h"
 
 #include <sys/time.h>
 #include <SystemConfiguration/SystemConfiguration.h>
@@ -496,8 +495,6 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 
 @property (nonatomic, strong) MinecraftResourceDownloadTask *downloadTask;
 @property (nonatomic, strong) InlineMessageView *downloadingAlert;
-// 参照 FCL/ZL2/HMCL 的下载进度卡片，替代转圈圈的 loadingIndicator
-@property (nonatomic, strong) DownloadProgressCardView *progressCardView;
 
 @property (nonatomic, assign) BOOL isObservingProgress;
 
@@ -2811,39 +2808,16 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         // 注意：ensureVanillaInstalled: 在 JSON 已存在时会直接跳过，避免重复下载；
         //   downloadVanillaVersion: 内部也会通过 createDownloadTask: 的 SHA1 校验跳过已下载文件。
         //
-        // 修复"点击安装按钮没反应"：
-        // 当 version JSON 不存在（首次安装）时，ensureVanillaInstalled: → ensureVanillaVersionJSONExists:
-        // 会在后台线程下载 version manifest + version JSON，期间可能需要数秒到 30 秒。
-        // 在此期间 ModLoaderInstallViewController 已被 pop，用户看到空白页面，感觉"没反应"。
-        // 修复：在调用 ensureVanillaInstalled: 之前先显示进度卡片，让用户立即看到反馈。
-        //      JSON 已存在时 ensureVanillaInstalled: 同步返回，progressCardView 会被
-        //      startVersionDownload: 中清理旧卡片的逻辑正确处理。
-        if (self.progressCardView) {
-            [self.progressCardView dismiss];
-            self.progressCardView = nil;
-        }
-        // 参照 ZL2：vanilla 分支也用"准备运行环境"文案，与加载器前置预装保持一致
-        NSString *vanillaTitle = [NSString stringWithFormat:@"正在准备运行环境 %@", versionId];
-        self.progressCardView = [DownloadProgressCardView showInParentView:self.view title:vanillaTitle];
-        [self.progressCardView startDownloadWithTitle:vanillaTitle
-                                              subtitle:@"Minecraft 原版"];
-        [self.progressCardView updateProgress:-1 downloaded:0 total:-1 speed:0 eta:-1 currentFile:@"正在获取版本信息..."];
-
+        // redesign-download-ui Phase 4：进度展示统一由 MinecraftResourceDownloadTask
+        // 内部注册的下载任务（autoPresentDetail=YES）自动弹出统一进度页，
+        // 此处不再创建底部悬浮进度卡片。
         __weak typeof(self) weakSelf = self;
         [self ensureVanillaInstalled:version completion:^(BOOL success) {
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
             if (success) {
-                // ensureVanillaInstalled: 完成后，startVersionDownload: 会清理旧卡片并创建新的
                 [strongSelf downloadVanillaVersion:version];
             } else {
-                // 失败时清理进度卡片并显示错误
-                if (strongSelf.progressCardView) {
-                    NSError *err = [NSError errorWithDomain:@"DownloadError" code:-1
-                                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法安装原版 %@，请检查网络后重试", versionId]}];
-                    [strongSelf.progressCardView failWithError:err];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showError:[NSString stringWithFormat:@"无法安装原版 %@，请检查网络后重试", versionId]];
             }
         }];
@@ -3175,27 +3149,14 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 - (void)startVersionDownload:(NSDictionary *)version {
     __weak DownloadViewController *weakSelf = self;
 
-    // 参照 FCL/ZL2/HMCL：使用下载进度卡片替代转圈圈和纯文字进度
-    // 清理旧的进度卡片（如果存在）
-    if (self.progressCardView) {
-        [self.progressCardView dismiss];
-        self.progressCardView = nil;
-    }
     if (self.downloadingAlert) {
         [self.downloadingAlert dismiss];
         self.downloadingAlert = nil;
     }
 
-    NSString *versionId = version[@"id"] ?: @"版本";
-    NSString *versionType = version[@"type"] ?: @"";
-    NSString *subtitle = [versionType isEqualToString:@"release"] ? @"Minecraft 正式版" :
-                         [versionType isEqualToString:@"snapshot"] ? @"Minecraft 测试版" : @"Minecraft";
-
-    // 创建并显示下载进度卡片
-    self.progressCardView = [DownloadProgressCardView showInParentView:self.view
-                                                                 title:[NSString stringWithFormat:@"正在下载 %@", versionId]];
-    [self.progressCardView startDownloadWithTitle:[NSString stringWithFormat:@"正在下载 %@", versionId]
-                                          subtitle:subtitle];
+    // redesign-download-ui Phase 4：进度展示统一由 MinecraftResourceDownloadTask
+    // 内部注册的下载任务（原版 6 阶段 + autoPresentDetail=YES）自动弹出统一进度页，
+    // 此处不再创建底部悬浮进度卡片，仅保留 KVO 完成收尾。
 
     // 重新赋值 downloadTask 前，先移除旧 task 的 KVO 观察者。
     // 否则 dealloc 时 self.downloadTask.progress 已是新对象，removeObserver 会抛
@@ -3212,20 +3173,6 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.downloadTask = [MinecraftResourceDownloadTask new];
     self.downloadTask.maxRetryCount = 3;
 
-    self.downloadTask.retryCallback = ^(NSInteger retryCount, NSInteger maxRetryCount) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (weakSelf.progressCardView) {
-                // 重试时显示不确定模式（转圈），提示用户正在重试
-                [weakSelf.progressCardView updateProgress:-1
-                                               downloaded:0
-                                                     total:-1
-                                                    speed:0
-                                                      eta:-1
-                                              currentFile:[NSString stringWithFormat:@"下载失败，正在重试 (%ld/%ld)...", (long)retryCount, (long)maxRetryCount]];
-            }
-        });
-    };
-
     self.downloadTask.handleError = ^{
         dispatch_async(dispatch_get_main_queue(), ^{
             if (weakSelf.isObservingProgress) {
@@ -3237,14 +3184,6 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                 weakSelf.isObservingProgress = NO;
             }
             weakSelf.view.userInteractionEnabled = YES;
-
-            // 使用进度卡片显示失败状态
-            if (weakSelf.progressCardView) {
-                NSError *error = [NSError errorWithDomain:@"DownloadError" code:-1
-                                                 userInfo:@{NSLocalizedDescriptionKey: @"版本下载失败，请检查网络连接"}];
-                [weakSelf.progressCardView failWithError:error];
-                weakSelf.progressCardView = nil;
-            }
             weakSelf.downloadTask = nil;
         });
     };
@@ -5193,67 +5132,22 @@ static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
     }
 }
 
+// 下载 Mod（redesign-download-ui Phase 4：进度由 Service 内部注册的下载任务 +
+// PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。）
 - (void)startDownloadForModItem:(ModItem *)item {
-    // 参照 FCL 风格：使用底部悬浮进度卡片（与 Minecraft 版本下载保持一致），
-    // 替代之前的不确定模式 InstallerProgressViewController。
-    // 之前调用 downloadMod:toProfile:completion: 不带 progress 版本，进度页一直转圈，
-    // 用户感知"卡住/无反应"。现在使用带 progress 的版本，并接 progress 回调到卡片。
-    if (self.progressCardView) {
-        [self.progressCardView dismiss];
-        self.progressCardView = nil;
-    }
-
-    NSString *modTitle = [NSString stringWithFormat:@"正在下载 %@", item.displayName ?: @""];
-    self.progressCardView = [DownloadProgressCardView showInParentView:self.view title:modTitle];
-    [self.progressCardView startDownloadWithTitle:modTitle
-                                          subtitle:@"Minecraft 模组"];
-    // 立即显示不确定模式，等首次 progress 回调后再更新具体百分比
-    [self.progressCardView updateProgress:-1 downloaded:0 total:-1 speed:0 eta:-1 currentFile:@"准备下载..."];
-
     NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
-
     __weak typeof(self) weakSelf = self;
-    __weak DownloadProgressCardView *weakCard = self.progressCardView;
     [[ModService sharedService] downloadMod:item
                                   toProfile:profileName
                                expectedSHA1:item.fileSHA1
-                                   progress:^(NSProgress * _Nullable downloadProgress) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (!strongSelf || !weakCard) return;
-            double fraction = downloadProgress.fractionCompleted;
-            long long total = downloadProgress.totalUnitCount;
-            long long downloaded = downloadProgress.completedUnitCount;
-            long long speed = 0;
-            NSInteger eta = -1;
-            if ([downloadProgress.throughput isKindOfClass:[NSNumber class]]) {
-                speed = [downloadProgress.throughput longLongValue];
-            }
-            if ([downloadProgress.estimatedTimeRemaining isKindOfClass:[NSNumber class]]) {
-                eta = [downloadProgress.estimatedTimeRemaining integerValue];
-            }
-            [weakCard updateProgress:fraction
-                         downloaded:downloaded
-                               total:total
-                              speed:speed
-                                eta:eta
-                        currentFile:item.fileName];
-        });
-    } completion:^(NSError * _Nullable error) {
+                                   progress:nil
+                                   completion:^(NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
             if (error) {
-                if (strongSelf.progressCardView) {
-                    [strongSelf.progressCardView failWithError:error];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showError:error.localizedDescription];
             } else {
-                if (strongSelf.progressCardView) {
-                    [strongSelf.progressCardView completeWithTitle:[NSString stringWithFormat:@"%@ 已安装", item.displayName]];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showSuccessMessage:[NSString stringWithFormat:@"%@ 已安装", item.displayName]];
             }
         });
@@ -5350,66 +5244,22 @@ static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
     [self startDownloadForShaderItem:itemToDownload];
 }
 
+// 下载光影包（redesign-download-ui Phase 4：进度由 Service 内部注册的下载任务 +
+// PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。）
 - (void)startDownloadForShaderItem:(ShaderItem *)item {
-    // 参照 FCL 风格：使用底部悬浮进度卡片（与 Minecraft 版本下载和 Mod 下载保持一致），
-    // 替代之前的不确定模式 InstallerProgressViewController。
-    // 之前调用 downloadShader:toProfile:completion: 不带 progress 版本，进度页一直转圈，
-    // 用户感知"卡住/无反应"。现在使用带 progress 的版本，并接 progress 回调到卡片。
-    if (self.progressCardView) {
-        [self.progressCardView dismiss];
-        self.progressCardView = nil;
-    }
-
-    NSString *shaderTitle = [NSString stringWithFormat:@"正在下载 %@", item.displayName ?: @""];
-    self.progressCardView = [DownloadProgressCardView showInParentView:self.view title:shaderTitle];
-    [self.progressCardView startDownloadWithTitle:shaderTitle
-                                          subtitle:@"Minecraft 光影包"];
-    [self.progressCardView updateProgress:-1 downloaded:0 total:-1 speed:0 eta:-1 currentFile:@"准备下载..."];
-
     NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
-
     __weak typeof(self) weakSelf = self;
-    __weak DownloadProgressCardView *weakCard = self.progressCardView;
     [[ShaderService sharedService] downloadShader:item
                                          toProfile:profileName
                                       expectedSHA1:item.fileSHA1
-                                          progress:^(NSProgress * _Nullable downloadProgress) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (!strongSelf || !weakCard) return;
-            double fraction = downloadProgress.fractionCompleted;
-            long long total = downloadProgress.totalUnitCount;
-            long long downloaded = downloadProgress.completedUnitCount;
-            long long speed = 0;
-            NSInteger eta = -1;
-            if ([downloadProgress.throughput isKindOfClass:[NSNumber class]]) {
-                speed = [downloadProgress.throughput longLongValue];
-            }
-            if ([downloadProgress.estimatedTimeRemaining isKindOfClass:[NSNumber class]]) {
-                eta = [downloadProgress.estimatedTimeRemaining integerValue];
-            }
-            [weakCard updateProgress:fraction
-                         downloaded:downloaded
-                               total:total
-                              speed:speed
-                                eta:eta
-                        currentFile:item.fileName];
-        });
-    } completion:^(NSError * _Nullable error) {
+                                          progress:nil
+                                          completion:^(NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
             if (error) {
-                if (strongSelf.progressCardView) {
-                    [strongSelf.progressCardView failWithError:error];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showError:error.localizedDescription];
             } else {
-                if (strongSelf.progressCardView) {
-                    [strongSelf.progressCardView completeWithTitle:[NSString stringWithFormat:@"%@ 已安装", item.displayName]];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showSuccessMessage:[NSString stringWithFormat:@"%@ 已安装", item.displayName]];
             }
         });
@@ -5446,96 +5296,31 @@ static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
     }
     
     NSProgress *progress = self.downloadTask.progress;
-    NSProgress *textProgress = self.downloadTask.textProgress;
-    if (!textProgress) return;
-    
-    NSInteger completedUnitCount = progress.totalUnitCount * progress.fractionCompleted;
-    textProgress.completedUnitCount = completedUnitCount;
-    
-    static CGFloat lastMsTime = 0;
-    static NSUInteger lastSecTime = 0;
-    static NSInteger lastCompletedUnitCount = 0;
-    
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    
-    if (lastSecTime < tv.tv_sec) {
-        CGFloat currentTime = tv.tv_sec + tv.tv_usec / 1000000.0;
-        if (lastMsTime > 0) {
-            NSInteger throughput = (completedUnitCount - lastCompletedUnitCount) / (currentTime - lastMsTime);
-            textProgress.throughput = @(throughput);
-            if (throughput > 0) {
-                NSInteger remaining = (progress.totalUnitCount - completedUnitCount) / throughput;
-                textProgress.estimatedTimeRemaining = @(remaining);
-            }
-        }
-        lastCompletedUnitCount = completedUnitCount;
-        lastSecTime = tv.tv_sec;
-        lastMsTime = currentTime;
-    }
-    
+    if (!progress) return;
+
+    // redesign-download-ui Phase 4：进度展示由任务内部阶段上报驱动统一进度页，
+    // 此处仅保留完成收尾（KVO 移除 + ReloadProfileList 通知）。
+    if (!progress.finished) return;
+
     dispatch_async(dispatch_get_main_queue(), ^{
-        // 参照 FCL/ZL2/HMCL：使用下载进度卡片显示进度
-        if (self.progressCardView) {
-            long long totalBytes = progress.totalUnitCount;
-            long long downloadedBytes = completedUnitCount;
-            long long speed = 0;
-            NSInteger eta = -1;
-
-            if (textProgress.throughput) {
-                speed = [textProgress.throughput integerValue];
+        if (self.isObservingProgress) {
+            @try {
+                [self.downloadTask.progress removeObserver:self forKeyPath:@"fractionCompleted"];
+            } @catch (NSException *exception) {
+                NSLog(@"[DownloadVC] progress.finished: removeObserver failed: %@", exception.reason);
             }
-            if (textProgress.estimatedTimeRemaining) {
-                eta = [textProgress.estimatedTimeRemaining integerValue];
-            }
-
-            // 获取当前下载文件名（从 textProgress 的 description 中提取）
-            NSString *currentFile = nil;
-            if (textProgress.localizedDescription && textProgress.localizedDescription.length > 0) {
-                currentFile = textProgress.localizedDescription;
-            }
-
-            [self.progressCardView updateProgress:progress.fractionCompleted
-                                      downloaded:downloadedBytes
-                                            total:totalBytes
-                                           speed:speed
-                                             eta:eta
-                                     currentFile:currentFile];
+            self.isObservingProgress = NO;
         }
 
-        if (progress.finished) {
-            if (self.isObservingProgress) {
-                @try {
-                    [self.downloadTask.progress removeObserver:self forKeyPath:@"fractionCompleted"];
-                } @catch (NSException *exception) {
-                    NSLog(@"[DownloadVC] progress.finished: removeObserver failed: %@", exception.reason);
-                }
-                self.isObservingProgress = NO;
-            }
+        self.view.userInteractionEnabled = YES;
+        self.downloadTask = nil;
 
-            lastMsTime = 0;
-            lastSecTime = 0;
-            lastCompletedUnitCount = 0;
-
-            self.view.userInteractionEnabled = YES;
-
-            // 使用进度卡片显示完成状态
-            if (self.progressCardView) {
-                NSString *completeTitle = [NSString stringWithFormat:@"%@ 下载完成",
-                                           self.downloadTask.metadata[@"id"] ?: @"版本"];
-                [self.progressCardView completeWithTitle:completeTitle];
-                self.progressCardView = nil;
-            }
-
-            self.downloadTask = nil;
-
-            // 关键修复（issue #61）：Vanilla 版本下载完成后未发送 ReloadProfileList 通知，
-            // 导致"已安装的版本"列表不刷新、新版本卡片不显示。
-            // downloadVanillaVersion: 中已 saveProfile + setSelectedProfileName（会发 SelectedProfileChanged），
-            // 但版本卡片列表（LauncherRootViewController/VersionManagerViewController）监听的是 ReloadProfileList，
-            // 不补发此通知则 UI 永远不刷新。
-            [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
-        }
+        // 关键修复（issue #61）：Vanilla 版本下载完成后未发送 ReloadProfileList 通知，
+        // 导致"已安装的版本"列表不刷新、新版本卡片不显示。
+        // downloadVanillaVersion: 中已 saveProfile + setSelectedProfileName（会发 SelectedProfileChanged），
+        // 但版本卡片列表（LauncherRootViewController/VersionManagerViewController）监听的是 ReloadProfileList，
+        // 不补发此通知则 UI 永远不刷新。
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
     });
 }
 

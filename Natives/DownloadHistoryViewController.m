@@ -265,7 +265,8 @@ static NSString * const kHistoryCellReuseIdentifier = @"DownloadHistoryCell";
         DownloadTaskResourceTypeResourcePack: @"资源包",
         DownloadTaskResourceTypeDataPack: @"数据包",
         DownloadTaskResourceTypeModpack: @"整合包",
-        DownloadTaskResourceTypeWorld: @"世界"
+        DownloadTaskResourceTypeWorld: @"世界",
+        DownloadTaskResourceTypeJavaRuntime: @"Java 运行时"
     };
     return map[type] ?: (type.length > 0 ? type : @"未知");
 }

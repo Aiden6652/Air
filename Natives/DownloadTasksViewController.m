@@ -454,7 +454,8 @@ static const CGFloat kSectionInset = 16.0;
         DownloadTaskResourceTypeShader: @"光影包",
         DownloadTaskResourceTypeResourcePack: @"资源包",
         DownloadTaskResourceTypeDataPack: @"数据包",
-        DownloadTaskResourceTypeModpack: @"整合包"
+        DownloadTaskResourceTypeModpack: @"整合包",
+        DownloadTaskResourceTypeJavaRuntime: @"Java 运行时"
     };
     return map[type] ?: type ?: @"未知";
 }
@@ -467,7 +468,8 @@ static const CGFloat kSectionInset = 16.0;
         DownloadTaskResourceTypeShader: @"sun.max",
         DownloadTaskResourceTypeResourcePack: @"photo",
         DownloadTaskResourceTypeDataPack: @"archivebox",
-        DownloadTaskResourceTypeModpack: @"shippingbox"
+        DownloadTaskResourceTypeModpack: @"shippingbox",
+        DownloadTaskResourceTypeJavaRuntime: @"cpu"
     };
     return map[type] ?: @"arrow.down.circle";
 }

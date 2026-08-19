@@ -13,7 +13,9 @@
 #import "ios_uikit_bridge.h" // for showDialog
 #import "utils.h"
 #import "BackgroundManager.h"
-#import "DownloadProgressCardView.h"
+#import "DownloadTaskManager.h"
+#import "DownloadTaskItem.h"
+#import "PLTaskStages.h"
 #import "ModpackExportService.h" // for parseVersionId:
 
 @interface ProfileSettingsViewController () <UITextFieldDelegate, UIPickerViewDataSource, UIPickerViewDelegate>
@@ -1437,10 +1439,30 @@
 }
 
 - (void)startInstallFabricAPIWithGameVersion:(NSString *)gameVersion {
-    // 使用统一下载进度卡片（DownloadProgressCardView），删除散落的 alert+spinner
-    UIView *hostView = self.view.window ?: self.view;
-    DownloadProgressCardView *progress = [DownloadProgressCardView showInParentView:hostView title:@"正在安装 Fabric API"];
-    [progress updateProgress:-1 downloaded:0 total:0 speed:0 eta:-1 currentFile:[NSString stringWithFormat:@"正在搜索适配 %@ 的 Fabric API...", gameVersion]];
+    // redesign-download-ui Phase 4 Task 4.4：Fabric API 安装注册为统一下载任务，
+    // PLTaskStagesSingleFile 单阶段 + autoPresentDetail 自动弹出统一进度页
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+    DownloadTaskItem *taskItem = [manager
+        registerTaskWithResourceType:DownloadTaskResourceTypeMod
+                        resourceName:[NSString stringWithFormat:@"fabric-api-%@", gameVersion]
+                         displayName:@"Fabric API"
+                      downloadSource:@"modrinth"
+                             rawTask:nil
+                      supportsResume:NO
+                             iconURL:nil];
+    NSString *taskId = taskItem.taskId;
+    if (taskItem) {
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskId stages:PLTaskStagesSingleFile()];
+        taskItem.autoPresentDetail = YES;
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateDownloading];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                 stageAtIndex:0
+                                                       status:PLTaskStageStatusRunning];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                 stageAtIndex:0
+                                                     progress:-1.0
+                                                      message:[NSString stringWithFormat:@"正在搜索适配 %@ 的 Fabric API...", gameVersion]];
+    }
 
     NSMutableDictionary *filters = [NSMutableDictionary dictionary];
     filters[@"query"] = @"fabric api";
@@ -1453,11 +1475,11 @@
             if (!strongSelf) return;
 
             if (error || results.count == 0) {
-                [progress failWithError:[NSError errorWithDomain:@"FabricAPI" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到 Fabric API：%@", error.localizedDescription ?: @"无搜索结果"]}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"未找到 Fabric API：%@", error.localizedDescription ?: @"无搜索结果"]];
-                });
+                NSError *failError = [NSError errorWithDomain:@"FabricAPI" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到 Fabric API：%@", error.localizedDescription ?: @"无搜索结果"]}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"未找到 Fabric API：%@", error.localizedDescription ?: @"无搜索结果"]];
                 return;
             }
 
@@ -1471,15 +1493,18 @@
                 }
             }
             if (!fabricAPI) {
-                [progress failWithError:[NSError errorWithDomain:@"FabricAPI" code:2 userInfo:@{NSLocalizedDescriptionKey: @"未找到合适的 Fabric API 项目"}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf showComponentAlert:@"安装失败" message:@"未找到合适的 Fabric API 项目"];
-                });
+                NSError *failError = [NSError errorWithDomain:@"FabricAPI" code:2 userInfo:@{NSLocalizedDescriptionKey: @"未找到合适的 Fabric API 项目"}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf showComponentAlert:@"安装失败" message:@"未找到合适的 Fabric API 项目"];
                 return;
             }
 
-            [progress updateProgress:-1 downloaded:0 total:0 speed:0 eta:-1 currentFile:@"正在获取 Fabric API 版本列表..."];
+            [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                     stageAtIndex:0
+                                                         progress:-1.0
+                                                          message:@"正在获取 Fabric API 版本列表..."];
 
             [[ModrinthAPI sharedInstance] getVersionsForModWithID:fabricAPI[@"id"] completion:^(NSArray<ModVersion *> *versions, NSError *versionError) {
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -1487,11 +1512,11 @@
                     if (!strongSelf2) return;
 
                     if (versionError || versions.count == 0) {
-                        [progress failWithError:[NSError errorWithDomain:@"FabricAPI" code:3 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"获取 Fabric API 版本失败：%@", versionError.localizedDescription ?: @"无版本"]}]];
-                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                            [progress dismiss];
-                            [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"获取 Fabric API 版本失败：%@", versionError.localizedDescription ?: @"无版本"]];
-                        });
+                        NSError *failError = [NSError errorWithDomain:@"FabricAPI" code:3 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"获取 Fabric API 版本失败：%@", versionError.localizedDescription ?: @"无版本"]}];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                        [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                        [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"获取 Fabric API 版本失败：%@", versionError.localizedDescription ?: @"无版本"]];
                         return;
                     }
 
@@ -1509,25 +1534,25 @@
 
                     NSDictionary *primaryFile = matchingVersion.primaryFile;
                     if (!primaryFile || ![primaryFile[@"url"] isKindOfClass:[NSString class]]) {
-                        [progress failWithError:[NSError errorWithDomain:@"FabricAPI" code:4 userInfo:@{NSLocalizedDescriptionKey: @"Fabric API 文件信息无效"}]];
-                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                            [progress dismiss];
-                            [strongSelf2 showComponentAlert:@"安装失败" message:@"Fabric API 文件信息无效"];
-                        });
+                        NSError *failError = [NSError errorWithDomain:@"FabricAPI" code:4 userInfo:@{NSLocalizedDescriptionKey: @"Fabric API 文件信息无效"}];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                        [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                        [strongSelf2 showComponentAlert:@"安装失败" message:@"Fabric API 文件信息无效"];
                         return;
                     }
 
                     [strongSelf2 downloadFabricAPIFile:primaryFile[@"url"]
                                                 filename:primaryFile[@"filename"]
-                                              progress:progress
-                                              modInfo:fabricAPI];
+                                                  taskId:taskId
+                                                 modInfo:fabricAPI];
                 });
             }];
         });
     }];
 }
 
-- (void)downloadFabricAPIFile:(NSString *)urlString filename:(NSString *)filename progress:(DownloadProgressCardView *)progress modInfo:(NSDictionary *)modInfo {
+- (void)downloadFabricAPIFile:(NSString *)urlString filename:(NSString *)filename taskId:(NSString *)taskId modInfo:(NSDictionary *)modInfo {
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         __strong typeof(weakSelf) strongSelf = weakSelf;
@@ -1542,11 +1567,11 @@
             if (!strongSelf2) return;
 
             if (!data || downloadError) {
-                [progress failWithError:downloadError ?: [NSError errorWithDomain:@"FabricAPI" code:5 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"下载 Fabric API 失败：%@", downloadError.localizedDescription ?: @"未知错误"]];
-                });
+                NSError *failError = downloadError ?: [NSError errorWithDomain:@"FabricAPI" code:5 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"下载 Fabric API 失败：%@", downloadError.localizedDescription ?: @"未知错误"]];
                 return;
             }
 
@@ -1558,27 +1583,49 @@
             BOOL success = [data writeToFile:savePath options:NSDataWritingAtomic error:&writeError];
 
             if (success) {
-                [progress completeWithTitle:@"Fabric API 安装完成"];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装成功" message:[NSString stringWithFormat:@"Fabric API 已安装到 mods 目录：\n%@", saveFilename]];
-                });
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                          stageAtIndex:0
+                                                               progress:1.0
+                                                               message:[NSString stringWithFormat:@"已保存：%@", saveFilename]];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusCompleted];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateCompleted];
+                [strongSelf2 showComponentAlert:@"安装成功" message:[NSString stringWithFormat:@"Fabric API 已安装到 mods 目录：\n%@", saveFilename]];
             } else {
-                [progress failWithError:writeError ?: [NSError errorWithDomain:@"FabricAPI" code:6 userInfo:@{NSLocalizedDescriptionKey: @"写入失败"}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"写入文件失败：%@", writeError.localizedDescription ?: @"未知错误"]];
-                });
+                NSError *failError = writeError ?: [NSError errorWithDomain:@"FabricAPI" code:6 userInfo:@{NSLocalizedDescriptionKey: @"写入失败"}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"写入文件失败：%@", writeError.localizedDescription ?: @"未知错误"]];
             }
         });
     });
 }
 
 - (void)startInstallOptiFineWithGameVersion:(NSString *)gameVersion {
-    // 使用统一下载进度卡片（DownloadProgressCardView），删除散落的 alert+spinner
-    UIView *hostView = self.view.window ?: self.view;
-    DownloadProgressCardView *progress = [DownloadProgressCardView showInParentView:hostView title:@"正在安装 OptiFine"];
-    [progress updateProgress:-1 downloaded:0 total:0 speed:0 eta:-1 currentFile:[NSString stringWithFormat:@"正在查询适配 %@ 的 OptiFine 版本...", gameVersion]];
+    // redesign-download-ui Phase 4 Task 4.4：OptiFine（mods 方式）注册为统一下载任务，
+    // PLTaskStagesSingleFile 单阶段 + autoPresentDetail 自动弹出统一进度页
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+    DownloadTaskItem *taskItem = [manager
+        registerTaskWithResourceType:DownloadTaskResourceTypeMod
+                        resourceName:[NSString stringWithFormat:@"optifine-%@", gameVersion]
+                         displayName:@"OptiFine"
+                      downloadSource:@"bmclapi"
+                             rawTask:nil
+                      supportsResume:NO
+                             iconURL:nil];
+    NSString *taskId = taskItem.taskId;
+    if (taskItem) {
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskId stages:PLTaskStagesSingleFile()];
+        taskItem.autoPresentDetail = YES;
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateDownloading];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                 stageAtIndex:0
+                                                       status:PLTaskStageStatusRunning];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                 stageAtIndex:0
+                                                     progress:-1.0
+                                                      message:[NSString stringWithFormat:@"正在查询适配 %@ 的 OptiFine 版本...", gameVersion]];
+    }
 
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -1612,17 +1659,20 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 __strong typeof(weakSelf) strongSelf2 = weakSelf;
                 if (!strongSelf2) return;
-                [progress failWithError:[NSError errorWithDomain:@"OptiFine" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到适配 Minecraft %@ 的 OptiFine 版本", gameVersion]}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"未找到适配 Minecraft %@ 的 OptiFine 版本", gameVersion]];
-                });
+                NSError *failError = [NSError errorWithDomain:@"OptiFine" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到适配 Minecraft %@ 的 OptiFine 版本", gameVersion]}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"未找到适配 Minecraft %@ 的 OptiFine 版本", gameVersion]];
             });
             return;
         }
 
         // 切换到下载阶段
-        [progress updateProgress:-1 downloaded:0 total:0 speed:0 eta:-1 currentFile:[NSString stringWithFormat:@"正在下载 OptiFine %@ %@", optiFineType, optiFinePatch]];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                 stageAtIndex:0
+                                                     progress:-1.0
+                                                      message:[NSString stringWithFormat:@"正在下载 OptiFine %@ %@", optiFineType, optiFinePatch]];
 
         // 下载 OptiFine
         NSString *downloadURL = [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/optifine/%@/%@/%@", gameVersion, optiFineType, optiFinePatch];
@@ -1647,11 +1697,11 @@
             if (!strongSelf2) return;
 
             if (!data || downloadError) {
-                [progress failWithError:downloadError ?: [NSError errorWithDomain:@"OptiFine" code:2 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"下载 OptiFine 失败：%@", downloadError.localizedDescription ?: @"未知错误"]];
-                });
+                NSError *failError = downloadError ?: [NSError errorWithDomain:@"OptiFine" code:2 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"下载 OptiFine 失败：%@", downloadError.localizedDescription ?: @"未知错误"]];
                 return;
             }
 
@@ -1663,17 +1713,19 @@
             BOOL success = [data writeToFile:savePath options:NSDataWritingAtomic error:&writeError];
 
             if (success) {
-                [progress completeWithTitle:@"OptiFine 安装完成"];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装成功" message:[NSString stringWithFormat:@"OptiFine %@ %@ 已安装到 mods 目录", optiFineType, optiFinePatch]];
-                });
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                          stageAtIndex:0
+                                                               progress:1.0
+                                                               message:[NSString stringWithFormat:@"已保存：%@", saveFilename]];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusCompleted];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateCompleted];
+                [strongSelf2 showComponentAlert:@"安装成功" message:[NSString stringWithFormat:@"OptiFine %@ %@ 已安装到 mods 目录", optiFineType, optiFinePatch]];
             } else {
-                [progress failWithError:writeError ?: [NSError errorWithDomain:@"OptiFine" code:3 userInfo:@{NSLocalizedDescriptionKey: @"写入失败"}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"写入文件失败：%@", writeError.localizedDescription ?: @"未知错误"]];
-                });
+                NSError *failError = writeError ?: [NSError errorWithDomain:@"OptiFine" code:3 userInfo:@{NSLocalizedDescriptionKey: @"写入失败"}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"写入文件失败：%@", writeError.localizedDescription ?: @"未知错误"]];
             }
         });
     });
@@ -1689,9 +1741,30 @@
 ///   3. inheritsFrom 指向原版版本（vanilla parent 必须已存在）
 ///   4. 创建新 profile 并切换为当前 profile
 - (void)startInstallOptiFineAsPatch:(NSString *)gameVersion {
-    UIView *hostView = self.view.window ?: self.view;
-    DownloadProgressCardView *progress = [DownloadProgressCardView showInParentView:hostView title:@"正在安装 OptiFine"];
-    [progress updateProgress:-1 downloaded:0 total:0 speed:0 eta:-1 currentFile:[NSString stringWithFormat:@"正在查询适配 %@ 的 OptiFine 版本...", gameVersion]];
+    // redesign-download-ui Phase 4 Task 4.4：OptiFine 版本补丁安装注册为统一下载任务，
+    // PLTaskStagesSingleFile 单阶段 + autoPresentDetail 自动弹出统一进度页
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+    DownloadTaskItem *taskItem = [manager
+        registerTaskWithResourceType:DownloadTaskResourceTypeModloader
+                        resourceName:[NSString stringWithFormat:@"optifine-patch-%@", gameVersion]
+                         displayName:[NSString stringWithFormat:@"OptiFine (%@)", gameVersion]
+                      downloadSource:@"bmclapi"
+                             rawTask:nil
+                      supportsResume:NO
+                             iconURL:nil];
+    NSString *taskId = taskItem.taskId;
+    if (taskItem) {
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskId stages:PLTaskStagesSingleFile()];
+        taskItem.autoPresentDetail = YES;
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateDownloading];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                 stageAtIndex:0
+                                                       status:PLTaskStageStatusRunning];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                 stageAtIndex:0
+                                                     progress:-1.0
+                                                      message:[NSString stringWithFormat:@"正在查询适配 %@ 的 OptiFine 版本...", gameVersion]];
+    }
 
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -1725,17 +1798,20 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 __strong typeof(weakSelf) strongSelf2 = weakSelf;
                 if (!strongSelf2) return;
-                [progress failWithError:[NSError errorWithDomain:@"OptiFine" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到适配 Minecraft %@ 的 OptiFine 版本", gameVersion]}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"未找到适配 Minecraft %@ 的 OptiFine 版本", gameVersion]];
-                });
+                NSError *failError = [NSError errorWithDomain:@"OptiFine" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到适配 Minecraft %@ 的 OptiFine 版本", gameVersion]}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"未找到适配 Minecraft %@ 的 OptiFine 版本", gameVersion]];
             });
             return;
         }
 
         // 2. 下载 OptiFine jar
-        [progress updateProgress:-1 downloaded:0 total:0 speed:0 eta:-1 currentFile:[NSString stringWithFormat:@"正在下载 OptiFine %@ %@", optiFineType, optiFinePatch]];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                 stageAtIndex:0
+                                                     progress:-1.0
+                                                      message:[NSString stringWithFormat:@"正在下载 OptiFine %@ %@", optiFineType, optiFinePatch]];
         NSString *downloadURL = [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/optifine/%@/%@/%@", gameVersion, optiFineType, optiFinePatch];
         NSURL *dlURL = [NSURL URLWithString:downloadURL];
         NSError *downloadError = nil;
@@ -1757,11 +1833,11 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 __strong typeof(weakSelf) strongSelf2 = weakSelf;
                 if (!strongSelf2) return;
-                [progress failWithError:downloadError ?: [NSError errorWithDomain:@"OptiFine" code:2 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"下载 OptiFine 失败：%@", downloadError.localizedDescription ?: @"未知错误"]];
-                });
+                NSError *failError = downloadError ?: [NSError errorWithDomain:@"OptiFine" code:2 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"下载 OptiFine 失败：%@", downloadError.localizedDescription ?: @"未知错误"]];
             });
             return;
         }
@@ -1775,11 +1851,11 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 __strong typeof(weakSelf) strongSelf2 = weakSelf;
                 if (!strongSelf2) return;
-                [progress failWithError:[NSError errorWithDomain:@"OptiFine" code:4 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到原版 %@ 的版本信息", gameVersion]}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"未找到原版 %@ 的版本信息。\n\n请先在下载页面安装原版 %@，然后再安装 OptiFine。", gameVersion, gameVersion]];
-                });
+                NSError *failError = [NSError errorWithDomain:@"OptiFine" code:4 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到原版 %@ 的版本信息", gameVersion]}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"未找到原版 %@ 的版本信息。\n\n请先在下载页面安装原版 %@，然后再安装 OptiFine。", gameVersion, gameVersion]];
             });
             return;
         }
@@ -1798,11 +1874,11 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 __strong typeof(weakSelf) strongSelf2 = weakSelf;
                 if (!strongSelf2) return;
-                [progress failWithError:writeJarError ?: [NSError errorWithDomain:@"OptiFine" code:5 userInfo:@{NSLocalizedDescriptionKey: @"写入 jar 失败"}]];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"写入 OptiFine jar 失败：%@", writeJarError.localizedDescription ?: @"未知错误"]];
-                });
+                NSError *failError = writeJarError ?: [NSError errorWithDomain:@"OptiFine" code:5 userInfo:@{NSLocalizedDescriptionKey: @"写入 jar 失败"}];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:failError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"写入 OptiFine jar 失败：%@", writeJarError.localizedDescription ?: @"未知错误"]];
             });
             return;
         }
@@ -1841,11 +1917,10 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 __strong typeof(weakSelf) strongSelf2 = weakSelf;
                 if (!strongSelf2) return;
-                [progress failWithError:writeJsonError];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [progress dismiss];
-                    [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"写入版本 JSON 失败：%@", writeJsonError.localizedDescription ?: @"未知错误"]];
-                });
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskId error:writeJsonError];
+                [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateFailed];
+                [strongSelf2 showComponentAlert:@"安装失败" message:[NSString stringWithFormat:@"写入版本 JSON 失败：%@", writeJsonError.localizedDescription ?: @"未知错误"]];
             });
             return;
         }
@@ -1866,14 +1941,16 @@
 
             [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
 
-            [progress completeWithTitle:@"OptiFine 安装完成"];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [progress dismiss];
-                [strongSelf2 showComponentAlert:@"安装成功"
-                                         message:[NSString stringWithFormat:
-                                                  @"OptiFine %@ %@ 已安装为独立版本\n\n版本 ID：%@\n\n已自动切换到该版本，可直接启动游戏。",
-                                                  optiFineType, optiFinePatch, versionId]];
-            });
+            [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                                      stageAtIndex:0
+                                                           progress:1.0
+                                                           message:[NSString stringWithFormat:@"版本 ID：%@", versionId]];
+            [[DownloadTaskManager sharedManager] updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusCompleted];
+            [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateCompleted];
+            [strongSelf2 showComponentAlert:@"安装成功"
+                                     message:[NSString stringWithFormat:
+                                              @"OptiFine %@ %@ 已安装为独立版本\n\n版本 ID：%@\n\n已自动切换到该版本，可直接启动游戏。",
+                                              optiFineType, optiFinePatch, versionId]];
         });
     });
 }
