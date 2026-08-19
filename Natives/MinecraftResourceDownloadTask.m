@@ -8,6 +8,7 @@
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
+#import "ModpackImportService.h"
 #import "PLMirrorCenter.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
@@ -41,6 +42,9 @@ static const NSUInteger kMCStageIndexVerify = 5;
 @property (nonatomic, assign) NSInteger libCompletedFileCount;
 @property (nonatomic, assign) NSInteger assetTotalFileCount;
 @property (nonatomic, assign) NSInteger assetCompletedFileCount;
+
+// Task 5.10：在线整合包 zip 下载完成后的统一导入入口（复用 ModpackImportService）
+- (void)importDownloadedModpackPackage:(NSString *)packagePath;
 @end
 
 @implementation MinecraftResourceDownloadTask
@@ -566,7 +570,16 @@ static const NSUInteger kMCStageIndexVerify = 5;
 
 - (void)downloadModpackFromAPI:(ModpackAPI *)api detail:(NSDictionary *)modDetail atIndex:(NSUInteger)selectedVersion {
     self.stageReportingEnabled = NO; // 整合包阶段上报由 ModpackImportService 负责（Phase 5）
+    // Task 5.10：zip 下载阶段以整合包身份展示（显示名/类型/图标），
+    // 导入阶段由 ModpackImportService 注册 6 阶段整合包主任务承接。
+    NSString *title = [modDetail[@"title"] isKindOfClass:[NSString class]] ? modDetail[@"title"] : nil;
+    self.currentVersionId = title.length > 0 ? title : @"整合包";
     [self prepareForDownload];
+    if (self.currentDownloadTaskItem) {
+        self.currentDownloadTaskItem.resourceType = DownloadTaskResourceTypeModpack;
+        NSString *iconURL = [modDetail[@"imageUrl"] isKindOfClass:[NSString class]] ? modDetail[@"imageUrl"] : nil;
+        self.currentDownloadTaskItem.iconURL = iconURL.length > 0 ? iconURL : nil;
+    }
 
     NSString *url = modDetail[@"versionUrls"][selectedVersion];
     NSUInteger size = [modDetail[@"versionSizes"][selectedVersion] unsignedLongLongValue];
@@ -576,10 +589,68 @@ static const NSUInteger kMCStageIndexVerify = 5;
     NSString *packagePath = [NSTemporaryDirectory() stringByAppendingFormat:@"/%@.zip", name];
 
     NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:nil toPath:packagePath success:^{
-        NSString *path = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("POJAV_GAME_DIR"), name];
-        [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
+        // Task 5.10：在线整合包下载路径统一——zip 下载完成后复用 ModpackImportService
+        // 统一导入流程（解析 → 6 阶段主任务 → 解压/依赖下载/加载器/游戏文件/profile），
+        // 消除 ModrinthAPI/CurseForgeAPI submitDownloadTasksFromPackage: 双轨逻辑。
+        [self importDownloadedModpackPackage:packagePath];
     }];
     [task resume];
+}
+
+/// Task 5.10：在线整合包 zip 下载完成后的统一导入入口。
+///   1. 用 ModpackImportService 解析 zip（Modrinth/CurseForge/MMC/MCBBS/Plain ZIP 均可识别）；
+///   2. 解析失败走 finishDownloadWithErrorString:（任务标失败 + 弹窗 + 恢复 UI）；
+///   3. 解析成功后收口 zip 下载任务（推满父 progress → KVO 标记任务完成 →
+///      LauncherNavigationController 移除观察并恢复交互），再后台执行 importModpack:，
+///      由 service 注册 6 阶段整合包主任务（autoPresentDetail 自动弹统一进度页）。
+- (void)importDownloadedModpackPackage:(NSString *)packagePath {
+    ModpackImportService *service = [[ModpackImportService alloc] init];
+    [service resetCancelState];
+
+    NSError *parseError = nil;
+    NSDictionary *modpackInfo = [service parseModpackAtURL:[NSURL fileURLWithPath:packagePath] error:&parseError];
+    if (!modpackInfo) {
+        [self finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to parse modpack package: %@",
+                                             parseError.localizedDescription ?: @"unknown error"]];
+        return;
+    }
+
+    // 在线整合包补充 API 图标：zip 内无 icon 时回退列表图标
+    // （ModpackInstallViewController 触发下载前已写入 tmp icon.png）
+    NSMutableDictionary *info = [modpackInfo mutableCopy];
+    NSString *archiveIcon = info[@"iconBase64"];
+    if (![archiveIcon isKindOfClass:[NSString class]] || archiveIcon.length == 0) {
+        NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
+        NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
+        if (iconData.length > 0) {
+            info[@"iconBase64"] = [NSString stringWithFormat:@"data:image/png;base64,%@",
+                                   [iconData base64EncodedStringWithOptions:0]];
+        }
+    }
+
+    // 收口 zip 下载任务：推满父 progress（清掉 prepareForDownload 预留的 1 字节单位），
+    // KVO 完成分支将 DownloadTaskItem 标记为完成，LauncherNavigationController 同步恢复交互；
+    // 后续导入进度全部由 service 的整合包主任务（统一进度页）承接。
+    if (self.progress.totalUnitCount > self.progress.completedUnitCount) {
+        self.progress.completedUnitCount = self.progress.totalUnitCount;
+    }
+
+    // 后台执行统一导入（6 阶段进度上报 + autoPresentDetail 统一进度页）
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSError *importError = nil;
+        BOOL success = [service importModpack:info progress:nil error:&importError];
+        if (success) {
+            NSLog(@"[ModpackImport] Online modpack '%@' imported", info[@"name"]);
+        } else {
+            NSLog(@"[ModpackImport] Online modpack import failed: %@", importError.localizedDescription);
+        }
+        // 导入结束（成功/失败/取消）后清理 zip 临时文件
+        [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
+        // 成功后刷新 profile 列表（与 Fabric/Forge 安装完成后的 ReloadProfileList 通知一致）
+        if (success) {
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
+        }
+    });
 }
 
 #pragma mark - Utilities

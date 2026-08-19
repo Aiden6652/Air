@@ -25,16 +25,16 @@
 - [x] Task 4.4: ProfileSettingsViewController Fabric API/OptiFine 安装：改注册任务+统一进度页，移除 DownloadProgressCardView 调用
 
 ## Phase 5：整合包导入重构与修复（参考 ZL2）
-- [ ] Task 5.1: ModpackImportService 接入阶段模型：导入全程按整合包 6 阶段（解析/解压/下载依赖/安装加载器/下载游戏文件/完成配置）上报 DownloadTaskManager（autoPresentDetail=YES）；ModpackImportViewController 删除自定义进度卡，改用统一进度页
-- [ ] Task 5.2: P0-1 修复：downloadModFiles 失败不再静默——非 404 失败导致 importModpack 返回 NO 并携带失败文件详情；404/server-only 跳过文件在成功结果中明确列出（成功页展示跳过清单）
-- [ ] Task 5.3: P0-2 修复：CurseForge 依赖文件补 SHA1 校验（BMCLAPI 指纹/filesByFileID 可用时；不可用回退 zip EOCD 兜底）
-- [ ] Task 5.4: P0-3 修复：CurseForge 按项目类型分发目录（shaderpacks/resourcepacks/datapacks 类文件路由到对应目录，不全塞 mods/）
-- [ ] Task 5.5: P1 修复：Modrinth 非标准前缀嵌套子目录路径重复 bug（else 分支 relativeUnder 取 lastPathComponent）
-- [ ] Task 5.6: P1 修复：versionId 唯一化（自动生成追加 modpack 短 hash 后缀，profile lastVersionId 同步指向）
-- [ ] Task 5.7: P1 功能：MCBBS 格式支持（mcbbs.packmeta/MCBBS manifest.json 解析：addons 识别加载器、launchInfo 提取 minMemory/javaArguments/launchArguments 写入 profile）
-- [ ] Task 5.8: P1 功能：instance.cfg 完整解析（jvmArgs/maxMemory/minMemory/joinServerOnLaunch 写入 profile，替代仅取 name）
-- [ ] Task 5.9: P2 修复：取消清理（主 versions 目录本次创建的 version JSON、tmpInstallerPath 临时 jar、进行中的 MinecraftResourceDownloadTask 取消）
-- [ ] Task 5.10: P2 统一：在线整合包下载路径（ModrinthAPI/CurseForgeAPI downloader:submitDownloadTasksFromPackage:）改为下载 zip 后复用 ModpackImportService 统一导入流程，消除双轨
+- [x] Task 5.1: ModpackImportService 接入阶段模型：导入全程按整合包 6 阶段（解析/解压/下载依赖/安装加载器/下载游戏文件/完成配置）上报 DownloadTaskManager（autoPresentDetail=YES）；ModpackImportViewController 删除自定义进度卡，改用统一进度页
+- [x] Task 5.2: P0-1 修复：downloadModFiles 失败不再静默——非 404 失败导致 importModpack 返回 NO 并携带失败文件详情；404/server-only 跳过文件在成功结果中明确列出（成功页展示跳过清单）
+- [x] Task 5.3: P0-2 修复：CurseForge 依赖文件补 SHA1 校验（BMCLAPI 指纹/filesByFileID 可用时；不可用回退 zip EOCD 兜底）
+- [x] Task 5.4: P0-3 修复：CurseForge 按项目类型分发目录（shaderpacks/resourcepacks/datapacks 类文件路由到对应目录，不全塞 mods/）
+- [x] Task 5.5: P1 修复：Modrinth 非标准前缀嵌套子目录路径重复 bug（else 分支 relativeUnder 取 lastPathComponent）
+- [x] Task 5.6: P1 修复：versionId 唯一化（自动生成追加 modpack 短 hash 后缀，profile lastVersionId 同步指向）
+- [x] Task 5.7: P1 功能：MCBBS 格式支持（mcbbs.packmeta/MCBBS manifest.json 解析：addons 识别加载器、launchInfo 提取 minMemory/javaArguments/launchArguments 写入 profile）
+- [x] Task 5.8: P1 功能：instance.cfg 完整解析（jvmArgs/maxMemory/minMemory/joinServerOnLaunch 写入 profile，替代仅取 name）
+- [x] Task 5.9: P2 修复：取消清理（主 versions 目录本次创建的 version JSON、tmpInstallerPath 临时 jar、进行中的 MinecraftResourceDownloadTask 取消）
+- [x] Task 5.10: P2 统一：在线整合包下载路径（ModrinthAPI/CurseForgeAPI downloader:submitDownloadTasksFromPackage:）改为下载 zip 后复用 ModpackImportService 统一导入流程，消除双轨
 
 ## Phase 6：旧 UI 清理与双端打磨
 - [ ] Task 6.1: 删除 DownloadProgressCardView.{h,m} 与 DownloadProgressViewController.{h,m} 文件及 CMakeLists 条目；全局搜索确认无残留引用

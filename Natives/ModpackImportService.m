@@ -24,6 +24,7 @@
 #import "UnzipKit.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
+#import "PLTaskStages.h"
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
@@ -39,6 +40,12 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *failedFilesInternal;
 /// Phase 3（Task 3.2）：跟踪本次导入过程中因 404/资源不存在被跳过的文件（警告，非失败）
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *skippedFilesInternal;
+/// redesign-download-ui Phase 5 Task 5.1：整合包导入主任务（6 阶段 + autoPresentDetail 统一进度页）
+@property (nonatomic, copy, nullable) NSString *currentImportTaskId;
+/// Task 5.9：本次导入写入主 versions 目录的 version JSON 路径（取消时清理）
+@property (nonatomic, copy, nullable) NSString *createdVersionJsonDir;
+/// Task 5.9：本次导入下载的临时 installer jar 路径（取消时清理）
+@property (nonatomic, copy, nullable) NSString *currentTmpInstallerPath;
 
 // 前向声明：将 modpackInfo 中的 iconBase64 解析为可用的文件 URL 字符串
 - (nullable NSString *)resolveIconURLFromModpackInfo:(NSDictionary *)modpackInfo;
@@ -103,7 +110,17 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
 }
 
 /// 内部使用：抛出取消错误
+/// Task 5.9：同时感知统一进度页"取消"按钮（DownloadTaskManager 置主任务 Cancelled，
+/// rawTask=nil 的整合包主任务无底层任务可取消，轮询任务状态同步取消信号）
 - (BOOL)checkCancelledWithError:(NSError **)error {
+    if (self.currentImportTaskId.length > 0) {
+        DownloadTaskItem *mainItem = [[DownloadTaskManager sharedManager] taskWithId:self.currentImportTaskId];
+        if (mainItem && mainItem.state == DownloadTaskStateCancelled) {
+            @synchronized(self) {
+                _cancelled = YES;
+            }
+        }
+    }
     @synchronized(self) {
         if (_cancelled) {
             if (error) {
@@ -264,8 +281,24 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         return [self parseMMCPack:archive mmcPackData:mmcPackData filePath:filePath error:error];
     }
 
+    // Task 5.7：MCBBS 格式检测（中国社区标准）——两种标志：
+    //   1) mcbbs.packmeta 文件
+    //   2) manifest.json 含 addons 数组（区别于 CurseForge 的 minecraft 对象结构）
+    NSData *mcbbsPackmetaData = [archive extractDataFromFile:@"mcbbs.packmeta" error:&archiveError];
+    if (mcbbsPackmetaData) {
+        NSLog(@"[ModpackImport] Detected MCBBS modpack (mcbbs.packmeta)");
+        return [self parseMCBBSPack:archive manifestData:mcbbsPackmetaData filePath:filePath error:error];
+    }
+
     NSData *manifestData = [archive extractDataFromFile:@"manifest.json" error:&archiveError];
     if (manifestData) {
+        // manifest.json 可能是 CurseForge 或 MCBBS 风格——含 addons 数组即 MCBBS
+        NSDictionary *manifestProbe = [NSJSONSerialization JSONObjectWithData:manifestData options:0 error:nil];
+        if ([manifestProbe isKindOfClass:[NSDictionary class]] &&
+            [manifestProbe[@"addons"] isKindOfClass:[NSArray class]]) {
+            NSLog(@"[ModpackImport] Detected MCBBS modpack (manifest.json with addons)");
+            return [self parseMCBBSPack:archive manifestData:manifestData filePath:filePath error:error];
+        }
         return [self parseManifestModpack:archive manifestData:manifestData filePath:filePath error:error];
     }
 
@@ -286,6 +319,124 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                                  userInfo:@{NSLocalizedDescriptionKey: @"无效的整合包格式。缺少 modrinth.index.json、mmc-pack.json、manifest.json 或 .minecraft 目录结构"}];
     }
     return nil;
+}
+
+/// Task 5.7：解析 MCBBS 格式整合包（中国社区标准，参考 ZL2 MCBBSPack.kt）
+/// mcbbs.packmeta / MCBBS 风格 manifest.json 结构：
+///   {
+///     "addons": [
+///       {"id": "game", "version": "1.20.1"},
+///       {"id": "forge", "version": "47.2.0"},   // 或 fabric/neoforge/quilt/optifine
+///       ...
+///     ],
+///     "launchInfo": {
+///       "minMemory": 4096,
+///       "javaArguments": ["-Dfml.ignoreInvalidMinecraftCertificates=true"],
+///       "launchArguments": ["--fullscreen"]
+///     }
+///   }
+/// 文件均在 overrides/ 中（与 CurseForge 一致），无远程文件清单。
+/// launchInfo 中的 javaArguments/minMemory/launchArguments 由 createProfileForModpack 写入 profile。
+- (nullable NSDictionary *)parseMCBBSPack:(UZKArchive *)archive
+                              manifestData:(NSData *)manifestData
+                                  filePath:(NSString *)filePath
+                                     error:(NSError **)error {
+    NSError *jsonError = nil;
+    NSDictionary *manifest = [NSJSONSerialization JSONObjectWithData:manifestData options:0 error:&jsonError];
+    if (jsonError || ![manifest isKindOfClass:[NSDictionary class]]) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"ModpackImportError"
+                                         code:1008
+                                     userInfo:@{NSLocalizedDescriptionKey: @"无法解析 MCBBS packmeta/manifest"}];
+        }
+        return nil;
+    }
+
+    // addons：game → MC 版本；forge/fabric/neoforge/quilt → 加载器；optifine 记录版本
+    NSString *minecraftVersion = nil;
+    NSString *loader = @"Vanilla";
+    NSString *loaderVersion = @"";
+    NSString *optifineVersion = nil;
+    NSArray *addons = [manifest[@"addons"] isKindOfClass:[NSArray class]] ? manifest[@"addons"] : @[];
+    for (NSDictionary *addon in addons) {
+        if (![addon isKindOfClass:[NSDictionary class]]) continue;
+        NSString *aid = addon[@"id"];
+        NSString *ver = addon[@"version"];
+        if (![aid isKindOfClass:[NSString class]] || ![ver isKindOfClass:[NSString class]]) continue;
+        if ([aid isEqualToString:@"game"]) {
+            minecraftVersion = ver;
+        } else if ([aid isEqualToString:@"forge"]) {
+            loader = @"Forge";
+            loaderVersion = ver;
+        } else if ([aid isEqualToString:@"fabric"]) {
+            loader = @"Fabric";
+            loaderVersion = ver;
+        } else if ([aid isEqualToString:@"neoforge"]) {
+            loader = @"NeoForge";
+            loaderVersion = ver;
+        } else if ([aid isEqualToString:@"quilt"]) {
+            loader = @"Quilt";
+            loaderVersion = ver;
+        } else if ([aid isEqualToString:@"optifine"]) {
+            optifineVersion = ver;
+        }
+    }
+
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+
+    // launchInfo：minMemory / javaArguments / launchArguments
+    NSDictionary *launchInfo = [manifest[@"launchInfo"] isKindOfClass:[NSDictionary class]] ? manifest[@"launchInfo"] : @{};
+    NSNumber *minMemory = launchInfo[@"minMemory"];
+    if ([minMemory respondsToSelector:@selector(integerValue)] && minMemory.integerValue > 0) {
+        result[@"minMemory"] = minMemory;
+    }
+    NSArray *javaArguments = [launchInfo[@"javaArguments"] isKindOfClass:[NSArray class]] ? launchInfo[@"javaArguments"] : nil;
+    if (javaArguments.count > 0) {
+        NSMutableArray *argStrings = [NSMutableArray array];
+        for (id a in javaArguments) {
+            if ([a isKindOfClass:[NSString class]] && [(NSString *)a length] > 0]) {
+                [argStrings addObject:a];
+            }
+        }
+        if (argStrings.count > 0) {
+            result[@"javaArguments"] = [argStrings componentsJoinedByString:@" "];
+        }
+    }
+    NSArray *launchArguments = [launchInfo[@"launchArguments"] isKindOfClass:[NSArray class]] ? launchInfo[@"launchArguments"] : nil;
+    if (launchArguments.count > 0) {
+        NSMutableArray *argStrings = [NSMutableArray array];
+        for (id a in launchArguments) {
+            if ([a isKindOfClass:[NSString class]] && [(NSString *)a length] > 0]) {
+                [argStrings addObject:a];
+            }
+        }
+        if (argStrings.count > 0) {
+            result[@"launchArguments"] = [argStrings componentsJoinedByString:@" "];
+        }
+    }
+    if (optifineVersion.length > 0) {
+        result[@"optifineVersion"] = optifineVersion;
+    }
+
+    NSString *name = manifest[@"name"];
+    if (![name isKindOfClass:[NSString class]] || name.length == 0) {
+        name = [filePath.lastPathComponent stringByDeletingPathExtension];
+    }
+
+    NSLog(@"[ModpackImport] MCBBS modpack: name=%@, MC=%@, loader=%@ %@", name, minecraftVersion, loader, loaderVersion);
+
+    result[@"id"] = [NSString stringWithFormat:@"mcbbs_%@", [[NSUUID UUID] UUIDString]];
+    result[@"name"] = name;
+    result[@"version"] = @"1.0.0";
+    result[@"minecraftVersion"] = minecraftVersion ?: @"unknown";
+    result[@"loader"] = loader;
+    result[@"loaderVersion"] = loaderVersion;
+    result[@"filePath"] = filePath;
+    result[@"format"] = @"mcbbs";
+    result[@"files"] = @[];
+    NSString *iconBase64 = [self extractIconFromArchive:archive];
+    result[@"iconBase64"] = iconBase64 ?: @"";
+    return result;
 }
 
 /// 解析 MMC (MultiMC / Prism Launcher) 格式整合包
@@ -353,21 +504,46 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         }
     }
 
-    // 从 instance.cfg 读取 name（可选）
+    // Task 5.8：instance.cfg 完整解析——name / JVMArgs / MaxMem / MinMem /
+    // JoinServerOnLaunch(+Address)，替代此前仅取 name 的行为；
+    // 启动类字段由 createProfileForModpack 写入 profile（javaArgs/serverIp 生效，
+    // 内存记录供 UI 展示——iOS 端内存统一由全局 java.allocated_memory 管理）。
+    // key 大小写不敏感（MMC 导出为 JVMArgs/MaxMem/MinMem，name 小写）。
     NSString *name = [filePath.lastPathComponent stringByDeletingPathExtension];
+    NSString *cfgJVMArgs = nil;
+    NSString *cfgJoinServerAddress = nil;
+    NSString *cfgJoinServerEnabled = nil;
+    NSInteger cfgMaxMemory = 0;
+    NSInteger cfgMinMemory = 0;
     NSError *cfgError = nil;
     NSData *cfgData = [archive extractDataFromFile:@"instance.cfg" error:&cfgError];
     if (cfgData) {
         NSString *cfgContent = [[NSString alloc] initWithData:cfgData encoding:NSUTF8StringEncoding];
-        for (NSString *line in [cfgContent componentsSeparatedByString:@"\n"]) {
-            if ([line hasPrefix:@"name="]) {
-                NSString *parsedName = [line substringFromIndex:@"name=".length];
-                parsedName = [parsedName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-                if (parsedName.length > 0) {
-                    name = parsedName;
-                }
-                break;
+        for (NSString *rawLine in [cfgContent componentsSeparatedByString:@"\n"]) {
+            NSString *line = [rawLine stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            NSRange eqRange = [line rangeOfString:@"="];
+            if (eqRange.location == NSNotFound || eqRange.location == 0) continue;
+            NSString *key = [[line substringToIndex:eqRange.location] lowercaseString];
+            NSString *value = [line substringFromIndex:eqRange.location + 1];
+            if (value.length == 0) continue;
+            if ([key isEqualToString:@"name"]) {
+                name = value;
+            } else if ([key isEqualToString:@"jvmargs"]) {
+                cfgJVMArgs = value;
+            } else if ([key isEqualToString:@"maxmem"]) {
+                cfgMaxMemory = value.integerValue;
+            } else if ([key isEqualToString:@"minmem"]) {
+                cfgMinMemory = value.integerValue;
+            } else if ([key isEqualToString:@"joinserveronlaunch"]) {
+                cfgJoinServerEnabled = value;
+            } else if ([key isEqualToString:@"joinserveronlaunchaddress"]) {
+                cfgJoinServerAddress = value;
             }
+        }
+        // JoinServerOnLaunch=false/0 时不自动加入服务器
+        NSString *enabledLower = cfgJoinServerEnabled.lowercaseString;
+        if ([enabledLower isEqualToString:@"false"] || [enabledLower isEqualToString:@"0"]) {
+            cfgJoinServerAddress = nil;
         }
     }
 
@@ -376,7 +552,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
 
     NSLog(@"[ModpackImport] MMC modpack: name=%@, MC=%@, loader=%@ %@", name, minecraftVersion, loader, loaderVersion);
 
-    return @{
+    NSMutableDictionary *mmcResult = [@{
         @"id": modpackId,
         @"name": name,
         @"version": @"1.0.0",
@@ -387,7 +563,21 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         @"format": @"mmc",
         @"files": @[],
         @"iconBase64": iconBase64 ?: @""
-    };
+    } mutableCopy];
+    // Task 5.8：instance.cfg 启动配置透传给 createProfileForModpack
+    if (cfgJVMArgs.length > 0) {
+        mmcResult[@"javaArguments"] = cfgJVMArgs;
+    }
+    if (cfgMinMemory > 0) {
+        mmcResult[@"minMemory"] = @(cfgMinMemory);
+    }
+    if (cfgMaxMemory > 0) {
+        mmcResult[@"maxMemory"] = @(cfgMaxMemory);
+    }
+    if (cfgJoinServerAddress.length > 0) {
+        mmcResult[@"joinServerAddress"] = cfgJoinServerAddress;
+    }
+    return mmcResult;
 }
 
 /// 检测 zip 是否是 Plain ZIP 整合包（无 manifest，直接含 .minecraft 目录结构）
@@ -597,6 +787,9 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         [self.failedFilesInternal removeAllObjects];
         [self.skippedFilesInternal removeAllObjects];
     }
+    // Task 5.9：重置取消清理跟踪状态
+    self.createdVersionJsonDir = nil;
+    self.currentTmpInstallerPath = nil;
 
     NSString *filePath = modpackInfo[@"filePath"];
     NSString *format = modpackInfo[@"format"];
@@ -611,13 +804,38 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         return NO;
     }
 
+    // ---------- Task 5.1：注册整合包导入主任务（6 阶段 + autoPresentDetail 统一进度页） ----------
+    NSString *modpackId = modpackInfo[@"id"];
+    NSString *displayName = modpackInfo[@"name"];
+    if (![displayName isKindOfClass:[NSString class]] || displayName.length == 0) {
+        displayName = modpackId ?: @"整合包";
+    }
+    NSString *iconURL = [self resolveIconURLFromModpackInfo:modpackInfo];
+    NSString *downloadSource = getPrefObject(@"general.download_source") ?: @"official";
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+    DownloadTaskItem *mainTask = [manager registerTaskWithResourceType:DownloadTaskResourceTypeModpack
+                                                          resourceName:modpackId ?: displayName
+                                                           displayName:displayName
+                                                        downloadSource:downloadSource
+                                                               rawTask:nil
+                                                        supportsResume:NO
+                                                               iconURL:iconURL];
+    NSString *taskId = mainTask.taskId;
+    self.currentImportTaskId = taskId;
+    [manager setTaskWithId:taskId stages:PLTaskStagesModpack()];
+    mainTask.autoPresentDetail = YES;
+    [manager setTaskWithId:taskId state:DownloadTaskStateDownloading];
+    [manager updateTaskWithId:taskId currentStageIndex:0];
+    [manager updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusRunning];
+    [manager updateTaskWithId:taskId progress:0.0 totalBytes:0 downloadedBytes:0];
+
     if ([self checkCancelledWithError:error]) {
+        [self cleanupAbortedImportWithGameDir:nil mainTaskFailed:NO];
         return NO;
     }
 
     if (progress) progress(0.05, @"准备整合包目录");
 
-    NSString *modpackId = modpackInfo[@"id"];
     NSString *gameDirAbsolute = [self absoluteGameDirForModpackId:modpackId];
     NSString *gameDirRelative = [self relativeGameDirForModpackId:modpackId];
 
@@ -631,6 +849,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                         attributes:nil
                              error:&dirError]) {
         if (error) *error = dirError;
+        [self cleanupAbortedImportWithGameDir:nil mainTaskFailed:YES];
         return NO;
     }
 
@@ -644,25 +863,37 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
 
     // 取消检查点
     if ([self checkCancelledWithError:error]) {
-        [fm removeItemAtPath:gameDirAbsolute error:nil];
+        [self cleanupAbortedImportWithGameDir:gameDirAbsolute mainTaskFailed:NO];
         return NO;
     }
+
+    // 阶段0（解析整合包）完成 → 阶段1（解压文件）进行中
+    [manager updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusCompleted];
+    [manager updateTaskWithId:taskId currentStageIndex:1];
+    [manager updateTaskWithId:taskId stageAtIndex:1 status:PLTaskStageStatusRunning];
 
     // 第 1 步: 解压 overrides/client-overrides (Modrinth) 或 overrides (CurseForge/MMC) 到 gameDir
     if (progress) progress(0.10, @"正在解压 overrides");
     NSError *extractError = nil;
     BOOL extractSuccess = [self extractOverrides:filePath format:format toDirectory:gameDirAbsolute error:&extractError];
     if (!extractSuccess) {
-        [fm removeItemAtPath:gameDirAbsolute error:nil];
         if (error) *error = extractError;
+        [manager updateTaskWithId:taskId stageAtIndex:1 status:PLTaskStageStatusFailed];
+        [manager updateTaskWithId:taskId error:extractError];
+        [self cleanupAbortedImportWithGameDir:gameDirAbsolute mainTaskFailed:YES];
         return NO;
     }
 
     // 取消检查点
     if ([self checkCancelledWithError:error]) {
-        [fm removeItemAtPath:gameDirAbsolute error:nil];
+        [self cleanupAbortedImportWithGameDir:gameDirAbsolute mainTaskFailed:NO];
         return NO;
     }
+
+    // 阶段1 完成 → 阶段2（下载依赖文件）进行中
+    [manager updateTaskWithId:taskId stageAtIndex:1 status:PLTaskStageStatusCompleted];
+    [manager updateTaskWithId:taskId currentStageIndex:2];
+    [manager updateTaskWithId:taskId stageAtIndex:2 status:PLTaskStageStatusRunning];
 
     // 第 2 步: 下载 mod 文件列表
     NSArray *modFiles = modpackInfo[@"files"];
@@ -671,16 +902,29 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         NSError *downloadError = nil;
         BOOL downloadSuccess = [self downloadModFiles:modpackInfo toModsDirectory:modsDir progress:progress error:&downloadError];
         if (!downloadSuccess) {
-            // mod 下载失败不阻断导入，只记录警告
-            NSLog(@"[ModpackImport] Mod download partially failed: %@", downloadError.localizedDescription);
+            // Task 5.2（P0-1）：mod 下载失败不再静默——非取消失败导致导入失败并携带失败文件详情，
+            // 让用户明确感知"导入不完整"（旧实现仅 NSLog 警告，用户看到"导入成功"但 mods 缺失）。
+            BOOL wasCancelled = [downloadError.domain isEqualToString:@"ModpackImportError"] && downloadError.code == 9999;
+            if (!wasCancelled) {
+                if (error) *error = downloadError; // 已含 failedFiles 快照（code=5004）
+                [manager updateTaskWithId:taskId stageAtIndex:2 status:PLTaskStageStatusFailed];
+                [manager updateTaskWithId:taskId error:downloadError];
+                [self cleanupAbortedImportWithGameDir:gameDirAbsolute mainTaskFailed:YES];
+                return NO;
+            }
         }
     }
 
     // 取消检查点
     if ([self checkCancelledWithError:error]) {
-        [fm removeItemAtPath:gameDirAbsolute error:nil];
+        [self cleanupAbortedImportWithGameDir:gameDirAbsolute mainTaskFailed:NO];
         return NO;
     }
+
+    // 阶段2 完成 → 阶段3（安装加载器）进行中
+    [manager updateTaskWithId:taskId stageAtIndex:2 status:PLTaskStageStatusCompleted];
+    [manager updateTaskWithId:taskId currentStageIndex:3];
+    [manager updateTaskWithId:taskId stageAtIndex:3 status:PLTaskStageStatusRunning];
 
     // 第 3 步: 安装模组加载器
     if (progress) progress(0.85, @"正在安装模组加载器");
@@ -699,7 +943,15 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     if (!loaderSuccess) {
         // 加载器安装失败不阻断 (用户可能已经手动安装)
         NSLog(@"[ModpackImport] Loader installation failed (user may have already installed): %@", loaderError.localizedDescription);
+        [manager updateTaskWithId:taskId stageAtIndex:3 status:PLTaskStageStatusFailed];
+        [manager updateTaskWithId:taskId stageAtIndex:3 progress:0.0 message:loaderError.localizedDescription];
+    } else {
+        [manager updateTaskWithId:taskId stageAtIndex:3 status:PLTaskStageStatusCompleted];
     }
+
+    // 阶段3 完成 → 阶段4（下载游戏文件）进行中
+    [manager updateTaskWithId:taskId currentStageIndex:4];
+    [manager updateTaskWithId:taskId stageAtIndex:4 status:PLTaskStageStatusRunning];
 
     // 阶段5修复（参照 FCL ModpackHelper.ensureCompleteVersion）：
     // installModLoader 只写入了 loader 的 version.json，但父版本（原版 MC）的
@@ -724,13 +976,21 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                 @"format": @"version"
             }];
         }
+        [manager updateTaskWithId:taskId stageAtIndex:4 status:PLTaskStageStatusFailed];
+        [manager updateTaskWithId:taskId stageAtIndex:4 progress:0.0 message:versionDLError.localizedDescription];
+    } else {
+        [manager updateTaskWithId:taskId stageAtIndex:4 status:PLTaskStageStatusCompleted];
     }
 
     // 取消检查点
     if ([self checkCancelledWithError:error]) {
-        [fm removeItemAtPath:gameDirAbsolute error:nil];
+        [self cleanupAbortedImportWithGameDir:gameDirAbsolute mainTaskFailed:NO];
         return NO;
     }
+
+    // 阶段4 完成 → 阶段5（完成配置）进行中
+    [manager updateTaskWithId:taskId currentStageIndex:5];
+    [manager updateTaskWithId:taskId stageAtIndex:5 status:PLTaskStageStatusRunning];
 
     // 第 4 步: 写 profile
     if (progress) progress(0.95, @"正在写入配置文件");
@@ -739,7 +999,8 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                                                 versionId:versionId
                                                     error:error];
     if (!profileName) {
-        [fm removeItemAtPath:gameDirAbsolute error:nil];
+        [manager updateTaskWithId:taskId stageAtIndex:5 status:PLTaskStageStatusFailed];
+        [self cleanupAbortedImportWithGameDir:gameDirAbsolute mainTaskFailed:YES];
         return NO;
     }
 
@@ -748,32 +1009,90 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     savedModpack[@"gameDirAbsolute"] = gameDirAbsolute;
     savedModpack[@"gameDirRelative"] = gameDirRelative;
     savedModpack[@"profileName"] = profileName;
+    savedModpack[@"versionId"] = versionId;
     savedModpack[@"importDate"] = [self iso8601StringFromDate:[NSDate date]];
     [self saveImportedModpack:savedModpack];
+
+    // 阶段5 完成 + 主任务完成
+    [manager updateTaskWithId:taskId stageAtIndex:5 status:PLTaskStageStatusCompleted];
+    [manager updateTaskWithId:taskId stageAtIndex:5 progress:1.0 message:nil];
+    [manager setTaskWithId:taskId state:DownloadTaskStateCompleted];
+    self.currentImportTaskId = nil;
 
     if (progress) progress(1.0, @"导入完成");
     return YES;
 }
 
+/// Task 5.9：导入中止（取消/失败）时的统一清理：
+///   1. 半成品整合包目录 gameDirAbsolute
+///   2. 本次写入主 versions 目录的 version JSON（installModLoader 创建）
+///   3. 残留的临时 installer jar（installModLoader 中断时）
+/// mainTaskFailed=YES 时主任务标记失败，否则（取消路径）标记取消。
+- (void)cleanupAbortedImportWithGameDir:(nullable NSString *)gameDirAbsolute
+                         mainTaskFailed:(BOOL)mainTaskFailed {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (gameDirAbsolute.length > 0) {
+        [fm removeItemAtPath:gameDirAbsolute error:nil];
+    }
+    if (self.createdVersionJsonDir.length > 0) {
+        [fm removeItemAtPath:self.createdVersionJsonDir error:nil];
+        self.createdVersionJsonDir = nil;
+    }
+    if (self.currentTmpInstallerPath.length > 0) {
+        [fm removeItemAtPath:self.currentTmpInstallerPath error:nil];
+        self.currentTmpInstallerPath = nil;
+    }
+    if (self.currentImportTaskId.length > 0) {
+        DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+        if (mainTaskFailed) {
+            [[DownloadTaskManager sharedManager] setTaskWithId:self.currentImportTaskId state:DownloadTaskStateFailed];
+        } else {
+            [[DownloadTaskManager sharedManager] setTaskWithId:self.currentImportTaskId state:DownloadTaskStateCancelled];
+        }
+        self.currentImportTaskId = nil;
+    }
+}
+
 /// 根据 modpackInfo 计算 lastVersionId
+/// Task 5.6（P1）：versionId 唯一化——基础 id 追加整合包短 hash 后缀（8 位 hex），
+/// 消除多整合包间及与单独安装加载器的版本 JSON 物理覆盖。
+///（旧实现：导入两个相同 loader+MC 版本的整合包时 versionId 相同，
+///  versions/<id>/<id>.json 后者覆盖前者，先导入的整合包启动错乱；
+///  profile lastVersionId 由 createProfileForModpack 同步指向本 id，无需额外处理。）
 - (NSString *)versionIdForModpack:(NSDictionary *)modpackInfo {
     NSString *loader = modpackInfo[@"loader"];
     NSString *loaderVersion = modpackInfo[@"loaderVersion"];
     NSString *minecraftVersion = modpackInfo[@"minecraftVersion"];
 
+    NSString *baseId = nil;
     if ([loader isEqualToString:@"Fabric"]) {
-        return [NSString stringWithFormat:@"fabric-loader-%@-%@", loaderVersion, minecraftVersion];
+        baseId = [NSString stringWithFormat:@"fabric-loader-%@-%@", loaderVersion, minecraftVersion];
     } else if ([loader isEqualToString:@"Quilt"]) {
-        return [NSString stringWithFormat:@"quilt-loader-%@-%@", loaderVersion, minecraftVersion];
+        baseId = [NSString stringWithFormat:@"quilt-loader-%@-%@", loaderVersion, minecraftVersion];
     } else if ([loader isEqualToString:@"Forge"]) {
-        return [NSString stringWithFormat:@"%@-forge-%@", minecraftVersion, loaderVersion];
+        baseId = [NSString stringWithFormat:@"%@-forge-%@", minecraftVersion, loaderVersion];
     } else if ([loader isEqualToString:@"NeoForge"]) {
         // NeoForge 版本号本身已包含 MC 版本信息，例如 47.1.0 (对应 1.20.1)
         // 但在版本目录里仍用 <mc>-neoforge-<loader> 形式以便区分
-        return [NSString stringWithFormat:@"%@-neoforge-%@", minecraftVersion, loaderVersion];
+        baseId = [NSString stringWithFormat:@"%@-neoforge-%@", minecraftVersion, loaderVersion];
     } else {
-        return minecraftVersion ?: @"";
+        baseId = minecraftVersion ?: @"";
     }
+
+    // 短 hash 来源：整合包 id（每次导入生成的 UUID）> 文件路径 > 名称
+    NSString *hashSource = modpackInfo[@"id"];
+    if (![hashSource isKindOfClass:[NSString class]] || hashSource.length == 0) {
+        hashSource = modpackInfo[@"filePath"];
+    }
+    if (![hashSource isKindOfClass:[NSString class]] || hashSource.length == 0) {
+        hashSource = modpackInfo[@"name"];
+    }
+    if (![hashSource isKindOfClass:[NSString class]] || hashSource.length == 0) {
+        return baseId;
+    }
+    // NSString.hash 同一运行时内稳定；取低 32 位格式化为 8 位 hex 后缀
+    NSUInteger hash = [hashSource hash] & 0xFFFFFFFF;
+    return [NSString stringWithFormat:@"%@-%08lx", baseId, (unsigned long)hash];
 }
 
 /// 解压 overrides 目录到 gameDir
@@ -1054,26 +1373,65 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                 long long projectID = [fileInfo[@"projectID"] longLongValue];
                 long long fileID = [fileInfo[@"fileID"] longLongValue];
 
-                // 文件名：优先 manifest 透传的真实 fileName；缺失时经 HEAD 请求解析
-                //（Content-Disposition 或重定向 URL 末段），避免 mods/ 里全是 "12345-67890.jar"
-                // 这种用户无法识别的 fallback 名称。旧实现串行执行该请求阻塞整个导入流程，
-                // 现在与其他文件并发进行，解析本身即为提速。
+                // ===== Task 5.3 + 5.4：filesByFileID 元数据（fileName/sha1/classId）优先 =====
+                // BMCLAPI 镜像的 CurseForge API 可用时一举三得：真实文件名、SHA1 流式校验
+                //（修复 P0-2：CurseForge manifest 无哈希，此前仅 zip EOCD 兜底，静默损坏文件
+                // 无法拦截）、classId 项目类型分发（修复 P0-3：shader/resource/datapack 不再
+                // 全塞 mods/）。元数据不可用时回退 HEAD 文件名解析 + zip EOCD 兜底。
+                NSDictionary *fileMeta = [self fetchCurseForgeFileMetadata:projectID fileID:fileID];
+
+                // 文件名：manifest 透传 > 元数据 fileName > HEAD 解析 > "pid-fid.jar" fallback
                 BOOL hasRealFileName = NO;
                 fileName = fileInfo[@"fileName"];
                 if ([fileName isKindOfClass:[NSString class]] && fileName.length > 0) {
                     hasRealFileName = YES;
                 } else {
-                    NSString *realName = [self fetchCurseForgeRealFileName:projectID fileID:fileID];
-                    if (realName.length > 0) {
-                        fileName = realName;
+                    NSString *metaName = fileMeta[@"fileName"];
+                    if ([metaName isKindOfClass:[NSString class]] && metaName.length > 0) {
+                        fileName = metaName;
                         hasRealFileName = YES;
-                        NSLog(@"[ModpackImport] Resolved real filename via HEAD: projectID=%lld fileID=%lld → %@",
-                              projectID, fileID, realName);
                     } else {
-                        fileName = [NSString stringWithFormat:@"%lld-%lld.jar", projectID, fileID];
+                        NSString *realName = [self fetchCurseForgeRealFileName:projectID fileID:fileID];
+                        if (realName.length > 0) {
+                            fileName = realName;
+                            hasRealFileName = YES;
+                            NSLog(@"[ModpackImport] Resolved real filename via HEAD: projectID=%lld fileID=%lld → %@",
+                                  projectID, fileID, realName);
+                        } else {
+                            fileName = [NSString stringWithFormat:@"%lld-%lld.jar", projectID, fileID];
+                        }
                     }
                 }
-                destPath = [modsDir stringByAppendingPathComponent:fileName];
+
+                // Task 5.3（P0-2）：元数据可用时透传 SHA1 给 PLDownloadClient 做流式校验，
+                // 校验失败由其内部自动重试/换源；不可用时保持 nil（zip EOCD 兜底）。
+                NSString *metaSHA1 = fileMeta[@"sha1"];
+                if ([metaSHA1 isKindOfClass:[NSString class]] && metaSHA1.length == 40) {
+                    expectedSHA1 = metaSHA1;
+                }
+
+                // Task 5.4（P0-3）：按项目类型（classId）分发目录：
+                //   6=Mods → mods/（默认，含未知类型回退）
+                //   12=Resource Packs → resourcepacks/
+                //   17=Worlds → 保留 mods/（整合包 files 中罕见，无独立语义目录）
+                //   5231=Data Packs → datapacks/
+                //   6552=Shaders → shaderpacks/
+                long long classId = [fileMeta[@"classId"] isKindOfClass:[NSNumber class]]
+                    ? [fileMeta[@"classId"] longLongValue] : 6;
+                NSString *categoryDirName = @"mods";
+                if (classId == 6552) {
+                    categoryDirName = @"shaderpacks";
+                } else if (classId == 12) {
+                    categoryDirName = @"resourcepacks";
+                } else if (classId == 5231) {
+                    categoryDirName = @"datapacks";
+                }
+                NSString *categoryDir = [modsDir.stringByDeletingLastPathComponent stringByAppendingPathComponent:categoryDirName];
+                [[NSFileManager defaultManager] createDirectoryAtPath:categoryDir
+                                         withIntermediateDirectories:YES
+                                                          attributes:nil
+                                                               error:nil];
+                destPath = [categoryDir stringByAppendingPathComponent:fileName];
 
                 // 候选列表（按尝试顺序）：
                 //   1) BMCLAPI 下载端点（主源：无需 API Key，302 重定向到真实文件）
@@ -1116,6 +1474,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                 // mods/ 前缀的文件，包括 shaderpacks/、resourcepacks/、datapacks/ 等用户自定义资源，
                 // 与"模组不完整"问题密切相关。根据 path 前缀分发到对应目录（overrides 已另行解压）。
                 NSString *destDir = nil;
+                BOOL isNonStandardPrefix = NO;
                 if ([relPath hasPrefix:@"mods/"]) {
                     destDir = modsDir;
                 } else if ([relPath hasPrefix:@"shaderpacks/"]) {
@@ -1127,16 +1486,25 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                 } else {
                     // 其他前缀（如 config/、defaultconfigs/）通常在 overrides 中；若 files[] 出现，
                     // 按相对路径完整写入 gameDir 根。
+                    isNonStandardPrefix = YES;
                     destDir = [modsDir.stringByDeletingLastPathComponent stringByAppendingPathComponent:relPath.stringByDeletingLastPathComponent];
                 }
                 // 处理子目录（如 mods/inner/sub.jar）
                 // 阶段5修复（保留）：relPath 不含 "/" 时 rangeOfString: 返回 NSNotFound，
                 // 直接 +1 会整数溢出，导致 substringFromIndex: 抛出 NSRangeException 崩溃。
                 // 根目录文件（如 "config.toml"）保留原文件名直接拼到 destDir。
+                //
+                // Task 5.5（P1）修复：非标准前缀分支中 destDir 已包含 relPath 的完整目录部分，
+                // relativeUnder 必须只取 lastPathComponent，否则嵌套子目录被重复拼接
+                //（旧实现 "config/jei/jei.cfg" → gameDir/config/jei/jei/jei.cfg）。
+                // 标准前缀（mods/ 等）destDir 为固定目录，保留首个 "/" 后的子目录结构。
                 NSRange firstSlashRange = [relPath rangeOfString:@"/"];
-                NSString *relativeUnder = (firstSlashRange.location == NSNotFound)
-                    ? relPath.lastPathComponent
-                    : [relPath substringFromIndex:firstSlashRange.location + 1];
+                NSString *relativeUnder = nil;
+                if (firstSlashRange.location == NSNotFound || isNonStandardPrefix) {
+                    relativeUnder = relPath.lastPathComponent;
+                } else {
+                    relativeUnder = [relPath substringFromIndex:firstSlashRange.location + 1];
+                }
                 destPath = [destDir stringByAppendingPathComponent:relativeUnder];
 
                 // Task 3.2：.mrpack index 的 files[].hashes.sha1 透传给 PLDownloadClient 做流式校验，
@@ -1482,11 +1850,85 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     return NO;
 }
 
-/// 阶段5修复（参照 FCL CurseForgeFileResolver）：当整合包 manifest 中缺失 fileName 时，
-/// 通过 BMCLAPI 的下载链接做 HEAD 请求，跟随重定向到 CurseForge CDN 的实际文件 URL，
-/// 取其 lastPathComponent 作为真实文件名（如 "jei-1.20.1-15.2.0.27.jar"）。
-/// 这避免了将文件保存为 "12345-67890.jar" 这种用户无法识别的 fallback 名称。
-/// 失败时返回 nil，由调用方继续使用 fallback。
+/// Task 5.3 + 5.4：经 BMCLAPI 镜像的 CurseForge API（filesByFileID）获取文件元数据。
+/// 返回字典可含 fileName / sha1 / classId / fileLength 字段（部分缺失属正常），
+/// 请求失败或解析失败返回 nil（调用方回退 HEAD 文件名解析 + zip EOCD 兜底校验）。
+///   - sha1：写入 PLDownloadRequest.expectedSHA1 做流式校验（修复 P0-2：
+///     CurseForge manifest 不含哈希，此前仅 zip EOCD 兜底，静默损坏文件无法拦截）
+///   - classId：按项目类型分发目录（修复 P0-3：shader/resource/datapack 不再全塞 mods/）
+///     6=Mods, 12=Resource Packs, 17=Worlds, 5231=Data Packs, 6552=Shaders
+- (nullable NSDictionary *)fetchCurseForgeFileMetadata:(long long)projectID fileID:(long long)fileID {
+    NSString *apiURL = [NSString stringWithFormat:@"%@/cf/v1/mods/files/%lld", PLMirrorBMCLAPIRootURL, fileID];
+    NSURL *url = [NSURL URLWithString:apiURL];
+    if (!url) return nil;
+
+    NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
+    cfg.timeoutIntervalForRequest = 10;
+    cfg.HTTPAdditionalHeaders = @{
+        @"User-Agent": @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        @"Accept": @"application/json"
+    };
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"GET";
+
+    __block NSDictionary *metadata = nil;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    NSURLSessionDataTask *task = [session dataTaskWithRequest:request
+                                            completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!error && [response isKindOfClass:[NSHTTPURLResponse class]]) {
+            NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+            if (http.statusCode == 200 && data.length > 0) {
+                NSError *jsonError = nil;
+                NSDictionary *root = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+                NSDictionary *fileInfo = [root isKindOfClass:[NSDictionary class]] ? root[@"data"] : nil;
+                if ([fileInfo isKindOfClass:[NSDictionary class]]) {
+                    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+                    NSString *fileName = fileInfo[@"fileName"];
+                    if ([fileName isKindOfClass:[NSString class]] && fileName.length > 0) {
+                        result[@"fileName"] = fileName;
+                    }
+                    // hashes 数组：algo 1 = SHA1
+                    NSArray *hashes = [fileInfo[@"hashes"] isKindOfClass:[NSArray class]] ? fileInfo[@"hashes"] : @[];
+                    for (NSDictionary *h in hashes) {
+                        if (![h isKindOfClass:[NSDictionary class]]) continue;
+                        if ([h[@"algo"] respondsToSelector:@selector(integerValue)] &&
+                            [h[@"algo"] integerValue] == 1 &&
+                            [h[@"value"] isKindOfClass:[NSString class]] &&
+                            [h[@"value"] length] == 40) {
+                            result[@"sha1"] = h[@"value"];
+                            break;
+                        }
+                    }
+                    NSNumber *classId = fileInfo[@"classId"];
+                    if ([classId respondsToSelector:@selector(longLongValue)]) {
+                        result[@"classId"] = classId;
+                    }
+                    NSNumber *fileLength = fileInfo[@"fileLength"];
+                    if ([fileLength respondsToSelector:@selector(longLongValue)]) {
+                        result[@"fileLength"] = fileLength;
+                    }
+                    if (result.count > 0) {
+                        metadata = result;
+                    }
+                }
+            }
+        }
+        dispatch_semaphore_signal(sem);
+    }];
+    [task resume];
+    long waitResult = dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+    if (waitResult != 0) {
+        [task cancel];
+    }
+    [session finishTasksAndInvalidate];
+    return metadata;
+}
+
+/// 阶段5修复（参照 FCL CurseForgeFileResolver）：当整合包 manifest 中缺失 fileName 且
+/// filesByFileID 元数据也不可用时，通过 BMCLAPI 下载链接做 HEAD 请求，跟随重定向到
+/// CurseForge CDN 的实际文件 URL，取其 lastPathComponent 作为真实文件名。
+/// 失败时返回 nil，由调用方继续使用 "projectID-fileID.jar" fallback。
 - (nullable NSString *)fetchCurseForgeRealFileName:(long long)projectID fileID:(long long)fileID {
     NSString *bmclDownloadURL = [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/curseforge/files/%lld/%lld/download", projectID, fileID];
     NSURL *url = [NSURL URLWithString:bmclDownloadURL];
@@ -1973,6 +2415,32 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         profile[@"icon"] = iconBase64;
     }
 
+    // Task 5.7 + 5.8：MCBBS launchInfo / MMC instance.cfg 启动配置写入 profile
+    //   - javaArguments → profile javaArgs（生效：JavaLauncher 启动时读取拼接 JVM 参数）
+    //   - joinServerAddress → profile serverIp（生效：启动后自动加入服务器）
+    //   - minMemory/maxMemory/launchArguments → 记录（iOS 端内存统一由全局
+    //     java.allocated_memory 管理、游戏参数暂无消费方，供 UI 展示与后续扩展）
+    NSString *javaArguments = modpackInfo[@"javaArguments"];
+    if ([javaArguments isKindOfClass:[NSString class]] && javaArguments.length > 0) {
+        profile[@"javaArgs"] = javaArguments;
+    }
+    NSString *joinServerAddress = modpackInfo[@"joinServerAddress"];
+    if ([joinServerAddress isKindOfClass:[NSString class]] && joinServerAddress.length > 0) {
+        profile[@"serverIp"] = joinServerAddress;
+    }
+    NSNumber *minMemory = modpackInfo[@"minMemory"];
+    if ([minMemory respondsToSelector:@selector(integerValue)] && minMemory.integerValue > 0) {
+        profile[@"minMemory"] = minMemory;
+    }
+    NSNumber *maxMemory = modpackInfo[@"maxMemory"];
+    if ([maxMemory respondsToSelector:@selector(integerValue)] && maxMemory.integerValue > 0) {
+        profile[@"maxMemory"] = maxMemory;
+    }
+    NSString *launchArguments = modpackInfo[@"launchArguments"];
+    if ([launchArguments isKindOfClass:[NSString class]] && launchArguments.length > 0) {
+        profile[@"launchArguments"] = launchArguments;
+    }
+
     PLProfiles.current.profiles[profileName] = profile;
     [PLProfiles.current save];
 
@@ -2015,6 +2483,17 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     if (profileName) {
         [PLProfiles.current.profiles removeObjectForKey:profileName];
         [PLProfiles.current save];
+    }
+
+    // Task 5.6：versionId 唯一化后，主 versions 目录下本次导入的版本目录随整合包删除一并清理，
+    // 避免孤儿版本目录累积（仅清理 modpackInfo 中记录的带短 hash 后缀 versionId，
+    // 不会误删用户单独安装的无后缀同名版本；旧数据无 versionId 字段时保持旧行为不清理）。
+    NSString *versionId = modpackInfo[@"versionId"];
+    if ([versionId isKindOfClass:[NSString class]] && versionId.length > 0) {
+        NSString *mainVersionDir = [NSString stringWithFormat:@"%s/versions/%@", getenv("POJAV_GAME_DIR"), versionId];
+        if ([fm fileExistsAtPath:mainVersionDir]) {
+            [fm removeItemAtPath:mainVersionDir error:nil];
+        }
     }
 
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
