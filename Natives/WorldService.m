@@ -16,6 +16,7 @@
 #import "UZKArchive.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
+#import "PLTaskStages.h"
 #import "LauncherPreferences.h"
 
 @interface WorldService () <NSURLSessionDownloadDelegate>

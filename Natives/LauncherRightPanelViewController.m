@@ -8,10 +8,10 @@
 #import "LauncherPreferences.h"
 #import "MinecraftResourceUtils.h"
 #import "MinecraftResourceDownloadTask.h"
-#import "DownloadProgressViewController.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTasksViewController.h"
 #import "DownloadTaskItem.h"
+#import "PLTaskProgressViewController.h"
 #import "ALTServerConnection.h"
 #import "BackgroundManager.h"
 #import "ios_uikit_bridge.h"
@@ -41,7 +41,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
 // 下载相关属性
 @property(nonatomic, strong) MinecraftResourceDownloadTask *task;
-@property(nonatomic, strong) DownloadProgressViewController *progressVC;
 @property(nonatomic, strong) UIProgressView *progressView;
 @property(nonatomic, strong) UILabel *progressLabel;
 
@@ -489,12 +488,10 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 /// 处理下载任务更新通知（进度变化、新任务注册等）
 /// 当收到通知时仅更新下载中心按钮的状态，不再自动弹出下载中心界面。
 ///
-/// 修改说明（修复下载版本时出现两个进度显示的问题）：
-///   之前此方法会在检测到活跃下载任务时自动弹出 DownloadTasksViewController（下载中心界面），
-///   同时启动器自身在 startDownloadWithVersion: 中会自动弹出 DownloadProgressViewController
-///   （FCL/ZL2 风格单任务进度），导致两个进度显示同时出现。
-///   现在统一为 FCL/ZL2/HMCL 风格：版本下载开始时自动弹出 DownloadProgressViewController，
-///   DownloadTasksViewController 仅保留为手动打开（通过下载中心按钮）。
+/// redesign-download-ui Phase 3：单任务进度展示统一由任务注册时置
+/// autoPresentDetail=YES 的 DownloadTaskItem 触发 DownloadTaskManager
+/// 自动弹出统一进度页（PLTaskProgressViewController）；下载中心
+/// DownloadTasksViewController 仅保留为手动打开（通过下载中心按钮）。
 - (void)handleDownloadTaskUpdate:(NSNotification *)notification {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self updateDownloadCenterButton];
@@ -913,13 +910,19 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     } completion:nil];
 
     if (self.task) {
-        // 正在下载，显示详情（悬浮球已移除）
-        if (!self.progressVC) {
-            self.progressVC = [[DownloadProgressViewController alloc] initWithTask:self.task];
+        // redesign-download-ui Phase 3 Task 3.4：下载中点击启动按钮改为打开统一进度页。
+        // 任务由 MinecraftResourceDownloadTask 内部注册到 DownloadTaskManager，
+        // 此处按 rawTask 反查 taskId 后呈现统一进度页。
+        NSString *taskId = nil;
+        for (DownloadTaskItem *item in [DownloadTaskManager sharedManager].allTasks) {
+            if (item.rawTask == self.task) {
+                taskId = item.taskId;
+                break;
+            }
         }
-        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:self.progressVC];
-        nav.modalPresentationStyle = UIModalPresentationFormSheet;
-        [self presentViewController:nav animated:YES completion:nil];
+        if (taskId) {
+            [PLTaskProgressViewController presentForTaskId:taskId];
+        }
     } else if ([[DownloadTaskManager sharedManager] hasActiveTasks]) {
         // 下载中仍允许启动游戏（不再硬阻断），仅提示用户有进行中的下载。
         // 原实现在此处 return 导致"开了下载球后任意下载未完成就永远无法启动游戏"，
@@ -1014,7 +1017,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                 } @catch (NSException *e) {}
                 weakSelf.progressView.observedProgress = nil;
                 weakSelf.task = nil;
-                weakSelf.progressVC = nil;
             });
         };
 
@@ -1027,22 +1029,9 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                                        options:NSKeyValueObservingOptionInitial
                                        context:ProgressObserverContext];
 
-            // 自动弹出 FCL/ZL2 风格的单任务进度对话框（参照 FCL 启动下载时自动显示进度对话框）
-            // 之前通过 DownloadTaskManager 通知自动弹出 DownloadTasksViewController（下载中心界面），
-            // 导致两个进度显示同时出现。现在统一使用 DownloadProgressViewController。
-            if (!weakSelf.progressVC) {
-                weakSelf.progressVC = [[DownloadProgressViewController alloc] initWithTask:weakSelf.task];
-            }
-            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:weakSelf.progressVC];
-            nav.modalPresentationStyle = UIModalPresentationFormSheet;
-            // 检查是否已有模态视图弹出，避免覆盖重要弹窗（如账号登录）
-            UIViewController *topVC = weakSelf;
-            while (topVC.presentedViewController) {
-                topVC = topVC.presentedViewController;
-            }
-            if (!topVC.presentedViewController) {
-                [topVC presentViewController:nav animated:YES completion:nil];
-            }
+            // redesign-download-ui Phase 3 Task 3.4：启动下载的进度页已由任务内部
+            // 阶段上报（MinecraftResourceDownloadTask.downloadVersion: 注册任务并
+            // 置 autoPresentDetail=YES）自动弹出统一进度页，此处不再手动 present 旧进度 VC。
         });
     });
 }
@@ -1134,8 +1123,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                                     forKeyPath:@"fractionCompleted"
                                        context:ProgressObserverContext];
         } @catch (NSException *e) {}
-
-        [self.progressVC dismissViewControllerAnimated:NO completion:nil];
 
         self.progressView.observedProgress = nil;
         

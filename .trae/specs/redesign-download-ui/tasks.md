@@ -13,10 +13,10 @@
 - [x] Task 2.4: DownloadTasksViewController 卡片增强：卡片显示当前阶段名（item.stages[currentStageIndex].title）与阶段计数（"3/6"）；点击卡片打开 PLTaskProgressViewController（didSelectItem 回调）；下载中心按钮（LauncherRightPanelViewController/LauncherNavigationController）增强聚合进度显示（进行中任务数徽标）
 
 ## Phase 3：安装类流程接入（原版/加载器）
-- [ ] Task 3.1: MinecraftResourceDownloadTask 桥接：下载过程按 PLTaskStages 原版 6 步上报阶段（版本清单/版本JSON/客户端/库文件/资源文件/验证），内部 progressList 文件级进度映射到对应阶段 message 与双维度计数；注册 DownloadTaskManager 任务（autoPresentDetail=YES）
-- [ ] Task 3.2: DownloadViewController 安装逻辑改造：删除私有 InstallerProgressViewController 类（约 400 行）及其全部引用；原版预装/直装、Fabric/Quilt、Forge 直装、NeoForge 直装改为"注册任务 + 阶段上报 + 自动弹统一进度页"；安装器内部 reportProgress 回调映射到对应阶段（获取profile/下载加载器库/写入JSON 或 下载安装器/解析依赖/安装）
-- [ ] Task 3.3: FabricUtils/ForgeDirectInstaller/NeoForgeDirectInstaller 阶段回调对接：安装器回调签名保持不变，由 DownloadViewController 侧桥接为阶段上报（不改安装器内部逻辑）
-- [ ] Task 3.4: LauncherRightPanelViewController/LauncherNavigationController 清理：删除各自维护的 DownloadProgressViewController present 逻辑与重复通知代码，版本下载入口统一走"注册任务+自动弹出"
+- [x] Task 3.1: MinecraftResourceDownloadTask 桥接：下载过程按 PLTaskStages 原版 6 步上报阶段（版本清单/版本JSON/客户端/库文件/资源文件/验证），内部 progressList 文件级进度映射到对应阶段 message 与双维度计数；注册 DownloadTaskManager 任务（autoPresentDetail=YES）
+- [x] Task 3.2: DownloadViewController 安装逻辑改造：删除私有 InstallerProgressViewController 类（约 400 行）及其全部引用；原版预装/直装、Fabric/Quilt、Forge 直装、NeoForge 直装改为"注册任务 + 阶段上报 + 自动弹统一进度页"；安装器内部 reportProgress 回调映射到对应阶段（获取profile/下载加载器库/写入JSON 或 下载安装器/解析依赖/安装）
+- [x] Task 3.3: FabricUtils/ForgeDirectInstaller/NeoForgeDirectInstaller 阶段回调对接：安装器回调签名保持不变，由 DownloadViewController 侧桥接为阶段上报（不改安装器内部逻辑）
+- [x] Task 3.4: LauncherRightPanelViewController/LauncherNavigationController 清理：删除各自维护的 DownloadProgressViewController present 逻辑与重复通知代码，版本下载入口统一走"注册任务+自动弹出"
 
 ## Phase 4：资源下载接入（Mod/Shader/资源包/数据包/JRE）
 - [ ] Task 4.1: ModService/ShaderService/ResourcePackService/DataPackService 注册 DownloadTaskManager 任务（单阶段"下载文件"，含 SHA1/大小元数据），下载回调桥接阶段进度/速率；DownloadViewController 与各 Manager VC 的下载入口改为自动弹统一进度页；删除 DownloadProgressCardView 相关调用

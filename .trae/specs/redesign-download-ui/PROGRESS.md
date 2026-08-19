@@ -4,9 +4,9 @@
 > 完整需求与验收标准以 `spec.md` / `tasks.md` / `checklist.md` 三份文件为准，本文件仅作进度快照，实施细节请以 `tasks.md` 为准。
 
 - **改动分支**: `feature/optimize-download-system`
-- **最近已推送 commit**: `d79c9881`
-- **上次更新**: 本文件创建时（Phase 1 + Phase 2 完成）
-- **注意**: 本沙箱为 Linux，无 iOS SDK，无法本地编译验证；需每次推送后由 GitHub Actions（macOS 14 / Xcode 15.4）构建验证。
+- **最近已推送 commit**: `d79c9881`（Phase 1+2）
+- **上次更新**: Phase 3 完成（待提交推送）
+- **注意**: 本沙箱为 Windows，无 iOS SDK，无法本地编译验证；需每次推送后由 GitHub Actions（macOS 14 / Xcode 15.4）构建验证。
 
 ---
 
@@ -42,16 +42,27 @@
 | 下载中心按钮徽标 | `LauncherRightPanelViewController`/`LauncherNavigationController` 的下载中心按钮加红色进行中任务数徽标 |
 | 自动弹出机制 | `DownloadTaskItem.autoPresentDetail` 标记，由 `DownloadTaskManager.postUpdateForTask:` 主队列出口统一触发；同屏仅单个进度页，新任务原地替换 |
 
+### ✅ Phase 3：安装类流程接入（Task 3.1–3.4 全部完成）
+
+| 交付物 | 说明 |
+|--------|------|
+| `MinecraftResourceDownloadTask` 阶段桥接 | `downloadVersion:` 注册 DownloadTaskManager 任务（autoPresentDetail=YES）并按原版 6 步上报：清单(完成)/版本JSON/客户端(Skipped，iOS 由 Java 端按需下载)/库文件/资源文件(双维度文件计数)/验证；`progressList` 子进度映射阶段计数与速率；新增 `cancel` 方法供统一进度页取消；`downloadModpackFromAPI:` 关闭阶段上报（整合包归 ModpackImportService，Phase 5） |
+| `DownloadViewController` 安装改造 | 删除私有 `InstallerProgressViewController`（约 400 行）及 `installerProgressVC`/`vanillaPreinstallProgressVC`/`vanillaPreinstallForLoader`/`progressVC` 全部属性与引用；新增 `registerInstallerTaskWithResourceName:displayName:stages:` 辅助方法；Fabric/Forge/OptiFine/NeoForge 直装、整合包导入（`PLTaskStagesModpack()` 6 阶段）全部改为"注册任务+阶段上报+自动弹统一进度页"；`handleVanillaPreinstallProgress` 简化为仅完成收尾；删除废弃 `installModpackFromFile:modpack:`；ResourcePack/DataPack/World 下载入口进度交由 Service 内部任务驱动（progress 回调传 nil） |
+| 三 Service 单阶段接入 | `ResourcePackService`/`DataPackService`/`WorldService` 内部注册下载任务 + `PLTaskStagesSingleFile()` 单阶段上报，统一进度页自动弹出 |
+| `LauncherRightPanelViewController` 清理 | 删除 `progressVC` 属性与手动 present 逻辑；下载中点击启动按钮改为按 rawTask 反查 taskId 后 `[PLTaskProgressViewController presentForTaskId:]`；`startDownloadWithVersion:` 不再手动弹旧进度 VC（任务自注册+自动弹出） |
+| `LauncherNavigationController` 清理 | 同上：删除 `progressVC`、`launchMinecraft:` 自动弹旧 VC 块、`performInstallOrShowDetails:` 改统一进度页、KVO 完成分支删除旧 dismiss；`receiveNotification:`(InstallModpack) handleError 清理 |
+
 ---
 
 ## 三、当前进度
 
-**已到 Phase 2 结束，Phase 3 尚未开始。**
+**Phase 3 已完成，Phase 4/5 未开始。**
 
-- Phase 1、2 代码已全部提交并推送至远程分支 `feature/optimize-download-system`（commit `d79c9881`）。
-- Phase 3–7 均为未开始状态（tasks.md 中 `[ ]`）。
+- Phase 1、2 已推送（commit `d79c9881`）。
+- Phase 3 代码已完成（含 Task 3.4 双启动器清理），待提交推送触发 CI 验证。
+- Phase 4–7 均为未开始状态（tasks.md 中 `[ ]`）。
 
-> ⚠️ Phase 1/2 尚未经 GitHub Actions 真实编译验证，下次会话应先推送触发一次构建，确认这两个阶段无编译错误再进入 Phase 3，避免错误向上游扩散。
+> ⚠️ Phase 1/2/3 均未经 GitHub Actions 真实编译验证，应尽快推送触发构建，确认无编译错误再进入 Phase 4，避免错误向上游扩散。
 
 ---
 
@@ -71,22 +82,11 @@ Phase 6：旧 UI 清理（删 6 套旧界面）
 Phase 7：本地化 + 构建验证
 ```
 
-### Phase 3：安装类流程接入（原版/加载器）—— 下一优先项
+### Phase 4：资源下载接入（Mod/Shader/资源包/数据包/JRE/Forge 安装器）—— 下一优先项
 
-- **Task 3.1**: `MinecraftResourceDownloadTask` 桥接，按原版 6 步上报阶段，`autoPresentDetail=YES`
-- **Task 3.2**: `DownloadViewController.m` 删除私有 `InstallerProgressViewController`（行 456-840 约 400 行）及全部引用；原版/Fabric/Forge/NeoForge 直装改为"注册任务+阶段上报+自动弹统一进度页"
-- **Task 3.3**: `FabricUtils`/`ForgeDirectInstaller`/`NeoForgeDirectInstaller` 回调签名不变，由 DownloadViewController 侧桥接为阶段上报
-- **Task 3.4**: 清理 `LauncherRightPanelViewController`/`LauncherNavigationController` 的旧 present 逻辑
-
-**Phase 3 关键注意点**（sub-agent 实施时务必遵守，先读懂再改）：
-1. 实施前通读 `Natives/DownloadViewController.m` 现有安装逻辑与私有 `InstallerProgressViewController`（阶段步骤参考其布局/文案，删代码时连引用一起删）
-2. `MinecraftResourceDownloadTask` 内部多个 `NSProgress`（progressList），按其父子进度映射到对应阶段的双维度计数与 message
-3. 阶段上报都走 `DownloadTaskManager` 六大 API + `DownloadTaskItem.autoPresentDetail = YES` 自动弹出
-4. 安装器 `reportProgress:` 回调保持签名，桥接动作放在调用方（DownloadViewController）
-5. 阶段标题用 `PLTaskStages.h` 常量 + `NSLocalizedString`（`taskStage.title.*` key），文案代码兜底中文
-6. **不要**在 Phase 3 删除旧 UI 文件（DownloadProgressCardView 等），留到 Phase 6；但 Phase 3 起不再 present 它们
-
-### Phase 4：资源下载接入（Mod/Shader/资源包/数据包/JRE/Forge 安装器）
+> 说明：ResourcePack/DataPack/World 三类已在 Phase 3 提前完成 Service 内部单阶段接入；
+> Phase 4 剩余 Mod/Shader 的 DownloadProgressCardView 调用清理、ForgeInstallViewController、
+> JRE 下载、Fabric API/OptiFine（ProfileSettingsViewController）四处。
 
 - Task 4.1: 四大 Service 注册单阶段任务，桥接进度/速率；`DownloadViewController` 与各 Manager VC 入口自动弹统一进度页；删除 `DownloadProgressCardView` 调用
 - Task 4.2: `ForgeInstallViewController` 删 dlopen `WFWorkflowProgressView`（消除审核风险），installer jar 下载注册任务

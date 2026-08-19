@@ -18,6 +18,7 @@
 #import "UZKArchive.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
+#import "PLTaskStages.h"
 #import "LauncherPreferences.h"
 #import "PLDownloadClient.h"
 #import "PLMirrorCenter.h"
@@ -455,6 +456,10 @@
                       supportsResume:YES
                              iconURL:item.iconURL];
     taskItem.downloadURL = item.selectedVersionDownloadURL;
+    // redesign-download-ui Phase 3：单文件下载接入统一进度页——
+    // PLTaskStagesSingleFile 单阶段 + autoPresentDetail 自动弹出 PLTaskProgressViewController
+    [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId stages:PLTaskStagesSingleFile()];
+    taskItem.autoPresentDetail = YES;
 
     // retryHandler：FCL 风格重新下载，复用同一 taskItem，重新发起 PLDownloadClient 请求
     __weak typeof(self) weakSelf = self;
@@ -540,6 +545,10 @@
     taskItem.rawTask = operation;
     // 占用并发槽位（满则由 DownloadTaskManager 自动 pauseOperation 排队）
     [[DownloadTaskManager sharedManager] setTaskWithId:taskId state:DownloadTaskStateDownloading];
+    // redesign-download-ui Phase 3：单阶段任务进入下载时将阶段0 置为 Running
+    [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                              stageAtIndex:0
+                                                  status:PLTaskStageStatusRunning];
     return operation;
 }
 
@@ -574,6 +583,11 @@
                                                  progress:fraction
                                                totalBytes:totalStored
                                           downloadedBytes:accumulated];
+    // redesign-download-ui Phase 3：单阶段任务的阶段进度与任务总进度保持一致
+    [[DownloadTaskManager sharedManager] updateTaskWithId:taskId
+                                              stageAtIndex:0
+                                                  progress:fraction
+                                                 message:nil];
 
     if (!progressHandler) return;
 
@@ -628,11 +642,13 @@
 
     DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
     if (success) {
+        [manager updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusCompleted];
         [manager setTaskWithId:taskId state:DownloadTaskStateCompleted];
     } else if ([error.domain isEqualToString:NSURLErrorDomain] && error.code == NSURLErrorCancelled) {
         // 用户取消（DownloadTaskManager 已置 Cancelled，这里幂等对齐）
         [manager setTaskWithId:taskId state:DownloadTaskStateCancelled];
     } else {
+        [manager updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
         [manager updateTaskWithId:taskId error:error];
         [manager setTaskWithId:taskId state:DownloadTaskStateFailed];
     }
