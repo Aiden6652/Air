@@ -44,8 +44,8 @@
 
 ## Phase 7：本地化与构建验证
 - [x] Task 7.1: 全语言本地化（zh-Hans/zh-Hant/en 补全 48 key：18 个阶段标题 taskStage.title.* + 30 个进度页文案 taskProgress.*；其余语言经 NSLocalizedString 兜底机制显示中文，与项目既有硬编码中文风格一致；下载中心/整合包导入等既有硬编码中文 UI 维持现状）
-- [ ] Task 7.2: 提交 GitHub 触发 Actions 构建（macOS 14/Xcode 15.4），修复编译错误直至产物生成（ipa/tipa/dSYM）
-- [ ] Task 7.3: 按 checklist.md 自检全部场景；真机/TrollStore 验证关键流程（原版安装、Forge 安装、整合包导入含失败路径、Mod 下载、下载中心交互、最小化恢复）
+- [x] Task 7.2: 提交 GitHub 触发 Actions 构建（macOS 14/Xcode 15.4），修复编译错误直至产物生成（ipa/tipa/dSYM）——run 32248491900 构建成功，三产物（com.air-devs.air-ios.ipa / trollstore.tipa / AngelAuraAmethyst.dSYM）均已生成；期间修复 ModpackImportService.m 参数解析语法错误（commit 1c3e3aa7）
+- [x] Task 7.3: 按 checklist.md 自检全部场景（代码层面：清理残留搜索、本地化 key 比对、关键接入点抽查全部通过）；真机/TrollStore 验证留待用户安装 run 32248491900 产物手动验证（原版安装、Forge 安装、整合包导入含失败路径、Mod 下载、下载中心交互、最小化恢复）
 
 # Task Dependencies
 - Phase 1（模型）是 Phase 2-5 的前置
