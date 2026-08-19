@@ -1,6 +1,7 @@
 #import "DownloadTaskManager.h"
 #import "DownloadHistoryStore.h"
 #import "PLDownloadClient.h"
+#import "PLTaskProgressViewController.h"
 
 NSString * const DownloadTaskManagerDidUpdateTaskNotification          = @"com.amethyst.DownloadTaskManager.DidUpdateTask";
 NSString * const DownloadTaskManagerAggregateStateDidChangeNotification = @"com.amethyst.DownloadTaskManager.AggregateStateDidChange";
@@ -45,6 +46,11 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
 
 /// 下载历史存储
 @property (nonatomic, strong) DownloadHistoryStore *historyStore;
+
+/// 已自动弹出过统一进度页的 taskId（redesign-download-ui Task 2.3）。
+/// 仅在主队列访问（postUpdateForTask: 的 dispatch block 内），无需加锁；
+/// 用于保证 autoPresentDetail 任务只弹出一次（用户最小化后进度更新不再打扰）。
+@property (nonatomic, strong) NSMutableSet<NSString *> *autoPresentedTaskIds;
 @end
 
 @implementation DownloadTaskManager
@@ -70,6 +76,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         _slotOwningTaskIds = [NSMutableSet set];
         _ioQueue = dispatch_queue_create("com.amethyst.downloadtaskmanager.io", DISPATCH_QUEUE_SERIAL);
         _historyStore = [DownloadHistoryStore sharedStore];
+        _autoPresentedTaskIds = [NSMutableSet set];
         [self restoreTasksFromDisk];
     }
     return self;
@@ -932,6 +939,145 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     if (item) [self postUpdateForTask:item];
 }
 
+#pragma mark - 阶段上报（redesign-download-ui Phase 1）
+
+/// 锁内辅助：取出任务指定下标的阶段（item 不存在 / index 越界 / 类型非法时返回 nil）
+- (PLTaskStage *)stageForItem:(DownloadTaskItem *)item atIndex:(NSUInteger)index {
+    if (!item || index >= item.stages.count) return nil;
+    PLTaskStage *stage = item.stages[index];
+    return [stage isKindOfClass:[PLTaskStage class]] ? stage : nil;
+}
+
+- (void)setTaskWithId:(NSString *)taskId stages:(NSArray<PLTaskStage *> *)stages {
+    if (!taskId) return;
+
+    [self.lock lock];
+    DownloadTaskItem *item = self.tasks[taskId];
+    if (item) {
+        // 过滤非法对象，保证 stages 内全部为 PLTaskStage
+        NSMutableArray *valid = [NSMutableArray array];
+        for (PLTaskStage *stage in stages) {
+            if ([stage isKindOfClass:[PLTaskStage class]]) {
+                [valid addObject:stage];
+            }
+        }
+        item.stages = [valid copy];
+        // 阶段列表非空时当前阶段指向第一个；空列表回退纯进度展示
+        item.currentStageIndex = item.stages.count > 0 ? 0 : -1;
+    }
+    [self.lock unlock];
+
+    if (item) {
+        [self postUpdateForTask:item];
+        [self schedulePersistSnapshot];
+    }
+}
+
+- (void)updateTaskWithId:(NSString *)taskId
+           stageAtIndex:(NSUInteger)index
+                 status:(PLTaskStageStatus)status {
+    if (!taskId) return;
+
+    [self.lock lock];
+    DownloadTaskItem *item = self.tasks[taskId];
+    PLTaskStage *stage = [self stageForItem:item atIndex:index];
+    if (stage) stage.status = status;
+    [self.lock unlock];
+
+    if (stage) {
+        [self postUpdateForTask:item];
+        [self schedulePersistSnapshot];
+    } else if (item) {
+        NSLog(@"[DownloadTaskManager] updateTaskWithId:stageAtIndex:status: invalid stage index %lu for task %@", (unsigned long)index, taskId);
+    }
+}
+
+- (void)updateTaskWithId:(NSString *)taskId
+           stageAtIndex:(NSUInteger)index
+                progress:(double)progress
+                message:(nullable NSString *)message {
+    if (!taskId) return;
+
+    [self.lock lock];
+    DownloadTaskItem *item = self.tasks[taskId];
+    PLTaskStage *stage = [self stageForItem:item atIndex:index];
+    if (stage) {
+        stage.progress = progress;
+        if (message) stage.message = [message copy]; // nil 表示保留原文案
+    }
+    [self.lock unlock];
+
+    if (stage) {
+        [self postUpdateForTask:item];
+        [self schedulePersistSnapshotForProgress];
+    } else if (item) {
+        NSLog(@"[DownloadTaskManager] updateTaskWithId:stageAtIndex:progress:message: invalid stage index %lu for task %@", (unsigned long)index, taskId);
+    }
+}
+
+- (void)updateTaskWithId:(NSString *)taskId
+           stageAtIndex:(NSUInteger)index
+                   rate:(double)rate {
+    if (!taskId) return;
+
+    [self.lock lock];
+    DownloadTaskItem *item = self.tasks[taskId];
+    PLTaskStage *stage = [self stageForItem:item atIndex:index];
+    if (stage) stage.rateBytesPerSec = rate;
+    [self.lock unlock];
+
+    // 速率为瞬时值，不触发快照持久化（与 updateTaskWithId:speed: 一致）
+    if (stage) {
+        [self postUpdateForTask:item];
+    } else if (item) {
+        NSLog(@"[DownloadTaskManager] updateTaskWithId:stageAtIndex:rate: invalid stage index %lu for task %@", (unsigned long)index, taskId);
+    }
+}
+
+- (void)updateTaskWithId:(NSString *)taskId
+           stageAtIndex:(NSUInteger)index
+              fileCount:(NSInteger)completedFileCount
+          totalFileCount:(NSInteger)totalFileCount {
+    if (!taskId) return;
+
+    [self.lock lock];
+    DownloadTaskItem *item = self.tasks[taskId];
+    PLTaskStage *stage = [self stageForItem:item atIndex:index];
+    if (stage) {
+        stage.completedFileCount = MAX(0, completedFileCount);
+        stage.totalFileCount = MAX(0, totalFileCount);
+    }
+    [self.lock unlock];
+
+    if (stage) {
+        [self postUpdateForTask:item];
+        [self schedulePersistSnapshotForProgress];
+    } else if (item) {
+        NSLog(@"[DownloadTaskManager] updateTaskWithId:stageAtIndex:fileCount:totalFileCount: invalid stage index %lu for task %@", (unsigned long)index, taskId);
+    }
+}
+
+- (void)updateTaskWithId:(NSString *)taskId
+      currentStageIndex:(NSInteger)currentStageIndex {
+    if (!taskId) return;
+
+    BOOL updated = NO;
+    [self.lock lock];
+    DownloadTaskItem *item = self.tasks[taskId];
+    if (item && currentStageIndex >= 0 && (NSUInteger)currentStageIndex < item.stages.count) {
+        item.currentStageIndex = currentStageIndex;
+        updated = YES;
+    }
+    [self.lock unlock];
+
+    if (updated) {
+        [self postUpdateForTask:item];
+        [self schedulePersistSnapshot];
+    } else if (item) {
+        NSLog(@"[DownloadTaskManager] updateTaskWithId:currentStageIndex: invalid index %ld for task %@", (long)currentStageIndex, taskId);
+    }
+}
+
 #pragma mark - 并发 / 断点查询（Phase 2 新增公开接口）
 
 - (NSInteger)pendingQueueCount {
@@ -1237,6 +1383,21 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         [[NSNotificationCenter defaultCenter] postNotificationName:DownloadTaskManagerDidUpdateTaskNotification
                                                             object:self
                                                           userInfo:@{DownloadTaskManagerTaskKey: item}];
+
+        // 自动弹出统一进度页（redesign-download-ui Task 2.3）：
+        // 安装类任务标记 autoPresentDetail 后，在首次非终态更新时自动弹出；
+        // 仅弹一次（最小化后进度更新不再打扰），同屏仅一个进度页由
+        // PLTaskProgressViewController.presentForTaskId: 保证（新任务替换内容）。
+        if (item.autoPresentDetail && ![self.autoPresentedTaskIds containsObject:item.taskId]) {
+            [self.autoPresentedTaskIds addObject:item.taskId];
+            BOOL terminal = (item.state == DownloadTaskStateCompleted ||
+                             item.state == DownloadTaskStateCancelled ||
+                             item.state == DownloadTaskStateFailed);
+            // 任务仍存在（未被移除）且未到终态才弹出（防止移除通知误触发）
+            if (!terminal && [self taskWithId:item.taskId] != nil) {
+                [PLTaskProgressViewController presentForTaskId:item.taskId];
+            }
+        }
     });
 }
 

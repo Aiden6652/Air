@@ -50,13 +50,32 @@ static NSString *PLSnapshotString(id value, NSString *fallback) {
         _retryCount = 0;
         _maxRetryCount = 3;
         _needsRecreate = NO;
+        _stages = @[];
+        _currentStageIndex = -1;
     }
     return self;
+}
+
+#pragma mark - 阶段化进度
+
+- (PLTaskStage *)currentStage {
+    if (self.currentStageIndex < 0) return nil;
+    NSUInteger index = (NSUInteger)self.currentStageIndex;
+    if (index >= self.stages.count) return nil;
+    PLTaskStage *stage = self.stages[index];
+    return [stage isKindOfClass:[PLTaskStage class]] ? stage : nil;
 }
 
 #pragma mark - 快照序列化
 
 - (NSDictionary *)snapshotDictionary {
+    // 阶段快照逐项导出（stages 为空数组时序列化为空列表）
+    NSMutableArray<NSDictionary *> *stageSnapshots = [NSMutableArray array];
+    for (PLTaskStage *stage in self.stages) {
+        if ([stage isKindOfClass:[PLTaskStage class]]) {
+            [stageSnapshots addObject:[stage snapshotDictionary]];
+        }
+    }
     return @{
         @"taskId": self.taskId ?: @"",
         @"resourceType": self.resourceType ?: @"",
@@ -74,6 +93,8 @@ static NSString *PLSnapshotString(id value, NSString *fallback) {
         @"retryCount": @(self.retryCount),
         @"completedFileCount": @(self.completedFileCount),
         @"totalFileCount": @(self.totalFileCount),
+        @"stages": [stageSnapshots copy],
+        @"currentStageIndex": @(self.currentStageIndex),
         @"timestamp": @([self.createdDate timeIntervalSince1970]),
     };
 }
@@ -116,6 +137,23 @@ static NSString *PLSnapshotString(id value, NSString *fallback) {
     if ([timestamp isKindOfClass:[NSNumber class]]) {
         _createdDate = [NSDate dateWithTimeIntervalSince1970:timestamp.doubleValue];
     }
+
+    // 阶段列表（旧版快照无 stages 字段：保持空数组，回退纯进度展示，不崩溃）
+    NSArray *stageSnapshots = snapshot[@"stages"];
+    if ([stageSnapshots isKindOfClass:[NSArray class]]) {
+        NSMutableArray *stages = [NSMutableArray array];
+        for (id entry in stageSnapshots) {
+            if (![entry isKindOfClass:[NSDictionary class]]) continue;
+            PLTaskStage *stage = [[PLTaskStage alloc] initWithSnapshotDictionary:entry];
+            if (stage) [stages addObject:stage];
+        }
+        _stages = [stages copy];
+    } else {
+        _stages = @[];
+    }
+    // currentStageIndex 越界（含空阶段列表）一律回退 -1，避免 UI 数组越界访问
+    NSInteger stageIndex = [snapshot[@"currentStageIndex"] integerValue];
+    _currentStageIndex = (stageIndex >= 0 && (NSUInteger)stageIndex < _stages.count) ? stageIndex : -1;
     return self;
 }
 

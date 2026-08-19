@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "PLTaskStage.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -100,6 +101,24 @@ typedef id _Nullable (^DownloadRetryHandler)(DownloadTaskItem *item);
 /// 从磁盘快照恢复标记：底层 rawTask 与 retryHandler 闭包无法序列化，
 /// 恢复的任务需业务方重新注册才能真正续传/重试；恢复项的 supportsResume 会被置 NO。
 @property (nonatomic, assign) BOOL needsRecreate;
+
+#pragma mark - 阶段化进度（redesign-download-ui Phase 1）
+
+/// 阶段列表（安装类任务的多步骤进度；空数组表示无阶段信息，回退纯进度展示）。
+/// 阶段对象可变，业务方通过 DownloadTaskManager 的阶段上报 API 逐个更新。
+@property (nonatomic, copy) NSArray<PLTaskStage *> *stages;
+
+/// 当前进行到的阶段下标；-1 表示未进入任何阶段（无阶段信息时保持 -1）
+@property (nonatomic, assign) NSInteger currentStageIndex;
+
+/// 当前阶段（stages 为空或 currentStageIndex 越界时返回 nil，UI 可安全调用）
+- (nullable PLTaskStage *)currentStage;
+
+/// 安装类任务自动弹出统一进度页标记（redesign-download-ui Phase 2）：
+/// 业务方注册任务后置 YES，DownloadTaskManager 在该任务首次状态更新时
+/// 自动弹出 PLTaskProgressViewController（同屏仅一个，新任务替换内容）。
+/// 纯运行时标记，不参与快照序列化（恢复的任务不自动弹出）。
+@property (nonatomic, assign) BOOL autoPresentDetail;
 
 - (instancetype)initWithResourceType:(NSString *)resourceType
                         resourceName:(NSString *)resourceName

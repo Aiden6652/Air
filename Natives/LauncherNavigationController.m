@@ -44,6 +44,9 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 @property(nonatomic, strong) UIButton *downloadCenterButton;
 @property(nonatomic, strong) UIActivityIndicatorView *downloadCenterActivityIndicator;
 @property(nonatomic, strong) UILabel *downloadCenterProgressLabel;
+// 进行中任务数徽标（redesign-download-ui Task 2.4）：红色圆形小徽标
+// 叠在按钮左侧下载图标右上角，显示进行中（下载中/排队中）任务数
+@property(nonatomic, strong) UILabel *downloadCenterBadgeLabel;
 @property(nonatomic, weak) DownloadTasksViewController *presentedDownloadCenterVC;
 // 标记用户是否手动关闭了下载中心（避免下载任务更新时反复自动弹出）
 @property(nonatomic, assign) BOOL userDismissedDownloadCenter;
@@ -157,6 +160,21 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     self.downloadCenterProgressLabel.frame = CGRectMake(iconSize + 6, 0, dcBtnWidth - iconSize - indicatorSize - 12, dcBtnHeight);
     self.downloadCenterProgressLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [self.downloadCenterButton addSubview:self.downloadCenterProgressLabel];
+
+    // 进行中任务数徽标（redesign-download-ui Task 2.4）：红色圆形小徽标叠在
+    // 左侧下载图标右上角（app 图标徽标风格），无进行中任务时隐藏。
+    // 按钮内部已无空余空间（图标+百分比+指示器排满），叠图标视觉损耗最小。
+    self.downloadCenterBadgeLabel = [[UILabel alloc] init];
+    self.downloadCenterBadgeLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightBold];
+    self.downloadCenterBadgeLabel.textColor = [UIColor whiteColor];
+    self.downloadCenterBadgeLabel.backgroundColor = [UIColor systemRedColor];
+    self.downloadCenterBadgeLabel.textAlignment = NSTextAlignmentCenter;
+    self.downloadCenterBadgeLabel.layer.cornerRadius = 8.0;
+    self.downloadCenterBadgeLabel.layer.masksToBounds = YES;
+    self.downloadCenterBadgeLabel.frame = CGRectMake(iconSize - 10, 0, 16, 16);
+    self.downloadCenterBadgeLabel.autoresizingMask = UIViewAutoresizingFlexibleRightMargin;
+    self.downloadCenterBadgeLabel.hidden = YES;
+    [self.downloadCenterButton addSubview:self.downloadCenterBadgeLabel];
 
     [self fetchRemoteVersionList];
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -366,6 +384,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
     if (allTasks.count == 0) {
         self.downloadCenterButton.hidden = YES;
+        self.downloadCenterBadgeLabel.hidden = YES;
         [self.downloadCenterActivityIndicator stopAnimating];
         return;
     }
@@ -386,6 +405,14 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         } else if (task.state != DownloadTaskStateCompleted) {
             allCompleted = NO;
         }
+    }
+
+    // 进行中任务数徽标（redesign-download-ui Task 2.4）：有进行中任务时显示数量
+    if (hasActive) {
+        self.downloadCenterBadgeLabel.text = activeCount > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)activeCount];
+        self.downloadCenterBadgeLabel.hidden = NO;
+    } else {
+        self.downloadCenterBadgeLabel.hidden = YES;
     }
 
     if (hasActive) {

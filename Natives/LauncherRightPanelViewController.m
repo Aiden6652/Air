@@ -55,6 +55,9 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 @property(nonatomic, strong) UIActivityIndicatorView *downloadCenterActivityIndicator;
 // 按钮上的进度百分比标签（实时显示所有活动任务的聚合进度）
 @property(nonatomic, strong) UILabel *downloadCenterProgressLabel;
+// 进行中任务数徽标（redesign-download-ui Task 2.4）：红色圆形小徽标显示
+// 进行中（下载中/排队中）任务数，无进行中任务时隐藏
+@property(nonatomic, strong) UILabel *downloadCenterBadgeLabel;
 // 当前弹出的下载中心 VC（弱引用，避免循环持有）
 @property(nonatomic, weak) DownloadTasksViewController *presentedDownloadCenterVC;
 // 标记用户是否手动关闭了下载中心（避免下载任务更新时反复自动弹出）
@@ -272,6 +275,18 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     self.downloadCenterProgressLabel.textAlignment = NSTextAlignmentRight;
     self.downloadCenterProgressLabel.text = @"0%";
     [self.downloadCenterButton addSubview:self.downloadCenterProgressLabel];
+
+    // 进行中任务数徽标（红色圆形，位于进度百分比左侧，redesign-download-ui Task 2.4）
+    self.downloadCenterBadgeLabel = [[UILabel alloc] init];
+    self.downloadCenterBadgeLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.downloadCenterBadgeLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightBold];
+    self.downloadCenterBadgeLabel.textColor = [UIColor whiteColor];
+    self.downloadCenterBadgeLabel.backgroundColor = [UIColor systemRedColor];
+    self.downloadCenterBadgeLabel.textAlignment = NSTextAlignmentCenter;
+    self.downloadCenterBadgeLabel.layer.cornerRadius = 8.0;
+    self.downloadCenterBadgeLabel.layer.masksToBounds = YES;
+    self.downloadCenterBadgeLabel.hidden = YES;
+    [self.downloadCenterButton addSubview:self.downloadCenterBadgeLabel];
     
     // 启动游戏按钮（FCL 复合布局 + ZL2 按压动画风格）
     self.launchButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -384,6 +399,12 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         // 进度百分比标签（指示器左侧，垂直居中）
         [self.downloadCenterProgressLabel.trailingAnchor constraintEqualToAnchor:self.downloadCenterActivityIndicator.leadingAnchor constant:-6],
         [self.downloadCenterProgressLabel.centerYAnchor constraintEqualToAnchor:self.downloadCenterButton.centerYAnchor],
+
+        // 进行中任务数徽标（进度百分比左侧，垂直居中；隐藏时自动收起不占位）
+        [self.downloadCenterBadgeLabel.trailingAnchor constraintEqualToAnchor:self.downloadCenterProgressLabel.leadingAnchor constant:-6],
+        [self.downloadCenterBadgeLabel.centerYAnchor constraintEqualToAnchor:self.downloadCenterButton.centerYAnchor],
+        [self.downloadCenterBadgeLabel.heightAnchor constraintEqualToConstant:16],
+        [self.downloadCenterBadgeLabel.widthAnchor constraintGreaterThanOrEqualToConstant:16],
 
         // ===== 下方按钮区（自下而上锚定到 safeArea 底部，参照 FCL 两按钮一排）=====
         // 执行Jar 按钮（最底部，左半区）
@@ -499,7 +520,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 /// 更新下载中心按钮的显示状态和进度百分比
 /// 根据 DownloadTaskManager 的当前状态：
 /// - 无任务：隐藏按钮
-/// - 有活跃任务（downloading/pending）：显示按钮 + 活动指示器旋转 + 显示聚合进度百分比
+/// - 有活跃任务（downloading/pending）：显示按钮 + 活动指示器旋转 + 进行中任务数徽标 + 显示聚合进度百分比
 /// - 全部完成：显示按钮 + 活动指示器停止 + 显示"已完成"
 - (void)updateDownloadCenterButton {
     DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
@@ -508,6 +529,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     if (allTasks.count == 0) {
         // 无任何下载任务，隐藏下载中心按钮
         self.downloadCenterButton.hidden = YES;
+        self.downloadCenterBadgeLabel.hidden = YES;
         [self.downloadCenterActivityIndicator stopAnimating];
         return;
     }
@@ -530,6 +552,14 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         } else if (task.state != DownloadTaskStateCompleted) {
             allCompleted = NO;
         }
+    }
+
+    // 进行中任务数徽标（redesign-download-ui Task 2.4）：有进行中任务时显示数量
+    if (hasActive) {
+        self.downloadCenterBadgeLabel.text = activeCount > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)activeCount];
+        self.downloadCenterBadgeLabel.hidden = NO;
+    } else {
+        self.downloadCenterBadgeLabel.hidden = YES;
     }
 
     if (hasActive) {

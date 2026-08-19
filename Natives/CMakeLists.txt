@@ -324,6 +324,8 @@ add_executable(AngelAuraAmethyst
   InlineMessageView.m
   DownloadTaskItem.m
   DownloadTaskManager.m
+  PLTaskStage.m
+  PLTaskProgressViewController.m
   DownloadTasksViewController.m
   DownloadHistoryViewController.m
   DownloadHistoryStore.m

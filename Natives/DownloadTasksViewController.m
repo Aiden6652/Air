@@ -6,6 +6,8 @@
 #import "IconLoader.h"
 #import "ModLoaderIconHelper.h"
 #import "DownloadHistoryViewController.h"
+#import "PLTaskStages.h"
+#import "PLTaskProgressViewController.h"
 
 static NSString * const kTaskCellReuseIdentifier = @"DownloadTaskCell";
 static NSString * const kEmptyStateReuseIdentifier = @"DownloadTaskEmptyCell";
@@ -24,6 +26,13 @@ static const CGFloat kSectionInset = 16.0;
 @property (nonatomic, strong) UIProgressView *progressView;
 @property (nonatomic, strong) UILabel *progressLabel;
 @property (nonatomic, strong) UIView *separatorView;
+
+// 阶段信息行（redesign-download-ui Task 2.4）：当前阶段名 + "3/6" 阶段计数；
+// 无阶段信息（stages 为空或 currentStageIndex 无效）时整行收起
+@property (nonatomic, strong) UILabel *stageTitleLabel;
+@property (nonatomic, strong) UILabel *stageCountLabel;
+@property (nonatomic, strong) NSLayoutConstraint *stageHeightConstraint;
+@property (nonatomic, strong) NSLayoutConstraint *progressTopConstraint;
 
 // FCL 风格操作按钮区（直接显示在卡片上，无需长按）
 @property (nonatomic, strong) UIButton *primaryActionButton;   // 暂停/继续/重试（主操作，蓝色）
@@ -111,6 +120,28 @@ static const CGFloat kSectionInset = 16.0;
     self.separatorView.backgroundColor = [UIColor separatorColor];
     [self.contentView addSubview:self.separatorView];
 
+    // 阶段信息行：左侧当前阶段名（单行截断）+ 右侧阶段计数（如 "3/6"）
+    self.stageTitleLabel = [[UILabel alloc] init];
+    self.stageTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.stageTitleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    self.stageTitleLabel.textColor = [UIColor secondaryLabelColor];
+    self.stageTitleLabel.numberOfLines = 1;
+    self.stageTitleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    [self.contentView addSubview:self.stageTitleLabel];
+
+    self.stageCountLabel = [[UILabel alloc] init];
+    self.stageCountLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.stageCountLabel.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightMedium];
+    self.stageCountLabel.textColor = [UIColor secondaryLabelColor];
+    self.stageCountLabel.textAlignment = NSTextAlignmentRight;
+    self.stageCountLabel.numberOfLines = 1;
+    [self.contentView addSubview:self.stageCountLabel];
+
+    // 阶段行高度约束（无阶段信息时置 0 收起）
+    self.stageHeightConstraint = [self.stageTitleLabel.heightAnchor constraintEqualToConstant:16.0];
+    // 进度条顶部约束（有阶段信息时位于阶段行下方，无阶段信息时回到紧贴分隔线）
+    self.progressTopConstraint = [self.progressView.topAnchor constraintEqualToAnchor:self.stageTitleLabel.bottomAnchor constant:6.0];
+
     // FCL 风格：主操作按钮（暂停/继续/重试），右侧靠齐
     self.primaryActionButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.primaryActionButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -159,9 +190,18 @@ static const CGFloat kSectionInset = 16.0;
         [self.separatorView.topAnchor constraintEqualToAnchor:self.iconImageView.bottomAnchor constant:10],
         [self.separatorView.heightAnchor constraintEqualToConstant:0.5],
 
-        // 进度区：进度条 + 百分比
+        // 阶段信息行：位于分隔线下方、进度条上方
+        [self.stageTitleLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+        [self.stageTitleLabel.topAnchor constraintEqualToAnchor:self.separatorView.bottomAnchor constant:6],
+        [self.stageTitleLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.stageCountLabel.leadingAnchor constant:-8],
+        self.stageHeightConstraint,
+
+        [self.stageCountLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+        [self.stageCountLabel.centerYAnchor constraintEqualToAnchor:self.stageTitleLabel.centerYAnchor],
+
+        // 进度区：进度条 + 百分比（顶部约束按是否有阶段信息动态调整间距）
         [self.progressView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
-        [self.progressView.topAnchor constraintEqualToAnchor:self.separatorView.bottomAnchor constant:8],
+        self.progressTopConstraint,
         [self.progressView.trailingAnchor constraintEqualToAnchor:self.progressLabel.leadingAnchor constant:-8],
 
         [self.progressLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12],
@@ -220,6 +260,8 @@ static const CGFloat kSectionInset = 16.0;
     self.progressView.progress = 0.0;
     self.progressLabel.text = nil;
     self.progressView.hidden = NO;
+    self.stageTitleLabel.text = nil;
+    self.stageCountLabel.text = nil;
     self.currentTask = nil;
     [self.primaryActionButton setTitle:nil forState:UIControlStateNormal];
     self.primaryActionButton.hidden = YES;
@@ -241,6 +283,22 @@ static const CGFloat kSectionInset = 16.0;
     // resourceName 通常已带 loader 标识（如 "fabric-1.20.1-0.15.7" / "optifine-..."），
     // 用 detectLoaderFromVersionId 解析；解析不到则用通用占位符。
     [self configureIconForTask:task];
+
+    // 阶段信息行：当前阶段名（经 PLTaskStageTitleDisplay 本地化渲染）+ 阶段计数（如 "3/6"）。
+    // stages 非空且 currentStageIndex 有效（currentStage 非 nil）时展示，否则整行收起回退原布局。
+    PLTaskStage *currentStage = task.currentStage;
+    BOOL hasStageInfo = (currentStage != nil);
+    if (hasStageInfo) {
+        self.stageTitleLabel.text = PLTaskStageTitleDisplay(currentStage.title);
+        self.stageCountLabel.text = [NSString stringWithFormat:@"%ld/%lu",
+                                     (long)task.currentStageIndex + 1, (unsigned long)task.stages.count];
+    } else {
+        self.stageTitleLabel.text = nil;
+        self.stageCountLabel.text = nil;
+    }
+    self.stageHeightConstraint.constant = hasStageInfo ? 16.0 : 0.0;
+    // 有阶段行时进度条距阶段行 6pt；无阶段行时保持原"分隔线下方 8pt"的视觉间距（6+0+2）
+    self.progressTopConstraint.constant = hasStageInfo ? 6.0 : 2.0;
 
     // 速度与进度
     switch (task.state) {
@@ -1113,6 +1171,18 @@ static const CGFloat kSectionInset = 16.0;
     return cell;
 }
 
+#pragma mark - UICollectionViewDelegate
+
+/// 点击任务卡片打开统一进度页（redesign-download-ui Task 2.4）。
+/// 卡片上的操作按钮（暂停/继续/取消/重试/移除）会拦截自身点击，不与本回调冲突；
+/// 长按切源等既有交互不受影响。
+- (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.filteredTasks.count == 0) return;
+    if (indexPath.item >= self.filteredTasks.count) return;
+    DownloadTaskItem *task = self.filteredTasks[indexPath.item];
+    [PLTaskProgressViewController presentForTaskId:task.taskId];
+}
+
 #pragma mark - UICollectionViewDelegateFlowLayout
 
 - (CGSize)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout *)collectionViewLayout sizeForItemAtIndexPath:(NSIndexPath *)indexPath {
@@ -1121,7 +1191,8 @@ static const CGFloat kSectionInset = 16.0;
     }
 
     CGFloat width = collectionView.bounds.size.width - kSectionInset * 2;
-    return CGSizeMake(width, 152);
+    // 阶段信息行（约 20pt：16 高 + 间距）计入卡片高度
+    return CGSizeMake(width, 172);
 }
 
 - (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
