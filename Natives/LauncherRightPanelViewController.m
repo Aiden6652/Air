@@ -1,6 +1,5 @@
 #import "LauncherRightPanelViewController.h"
 #import "authenticator/BaseAuthenticator.h"
-#import "LauncherProfilesViewController.h"
 #import "AccountListViewController.h"
 #import "SurfaceViewController.h"
 #import "JavaGUIViewController.h"

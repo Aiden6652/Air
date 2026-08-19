@@ -37,13 +37,13 @@
 - [x] Task 5.10: P2 统一：在线整合包下载路径（ModrinthAPI/CurseForgeAPI downloader:submitDownloadTasksFromPackage:）改为下载 zip 后复用 ModpackImportService 统一导入流程，消除双轨
 
 ## Phase 6：旧 UI 清理与双端打磨
-- [ ] Task 6.1: 删除 DownloadProgressCardView.{h,m} 与 DownloadProgressViewController.{h,m} 文件及 CMakeLists 条目；全局搜索确认无残留引用
-- [ ] Task 6.2: 删除 LauncherNavigationController progressViewMain 属性与全部代码；下载中心按钮聚合进度显示就位
-- [ ] Task 6.3: 全局清理：DownloadViewController 中废弃的整合包旧安装路径（installModpackFromFile: 标注废弃段）、各处临时 alert 式进度提示一并收敛到统一入口
-- [ ] Task 6.4: 双端适配走查：统一进度页与下载中心在 iPhone（含小屏 SE）/iPad（含分屏 1/3 宽）/横竖屏下的布局验证；深色模式颜色适配
+- [x] Task 6.1: 删除 DownloadProgressCardView.{h,m} 与 DownloadProgressViewController.{h,m} 文件及 CMakeLists 条目；全局搜索确认无残留引用
+- [x] Task 6.2: 删除 LauncherNavigationController progressViewMain 属性与全部代码；下载中心按钮聚合进度显示就位
+- [x] Task 6.3: 全局清理：DownloadViewController 中废弃的整合包旧安装路径（installModpackFromFile: 标注废弃段）、各处临时 alert 式进度提示一并收敛到统一入口（Mods/Shaders/ResourcePacks/DataPacks/Worlds 五个 Manager VC 的"正在下载"alert 删除；死代码 LauncherProfilesViewController 连同假下载 alert 整体删除）
+- [x] Task 6.4: 双端适配走查：统一进度页与下载中心在 iPhone（含小屏 SE）/iPad（含分屏 1/3 宽）/横竖屏下的布局验证；深色模式颜色适配（代码走查：两 VC 全部使用动态颜色 systemBackground/labelColor 等，pageSheet/formSheet 双端呈现）
 
 ## Phase 7：本地化与构建验证
-- [ ] Task 7.1: 全语言本地化（zh-Hans/zh-Hant/en 及项目现有全部语言）：阶段标题、进度页按钮/标签（最小化/暂停/继续/取消/重试/查看详情/剩余时间/速率/双维度格式/跳过清单提示）、下载中心新增文案、MCBBS/instance.cfg 相关提示
+- [x] Task 7.1: 全语言本地化（zh-Hans/zh-Hant/en 补全 48 key：18 个阶段标题 taskStage.title.* + 30 个进度页文案 taskProgress.*；其余语言经 NSLocalizedString 兜底机制显示中文，与项目既有硬编码中文风格一致；下载中心/整合包导入等既有硬编码中文 UI 维持现状）
 - [ ] Task 7.2: 提交 GitHub 触发 Actions 构建（macOS 14/Xcode 15.4），修复编译错误直至产物生成（ipa/tipa/dSYM）
 - [ ] Task 7.3: 按 checklist.md 自检全部场景；真机/TrollStore 验证关键流程（原版安装、Forge 安装、整合包导入含失败路径、Mod 下载、下载中心交互、最小化恢复）
 

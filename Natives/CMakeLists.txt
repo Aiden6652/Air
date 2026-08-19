@@ -334,8 +334,6 @@ add_executable(AngelAuraAmethyst
   AppDelegate.m
   CustomControlsViewController.m
   CustomControlsViewController+UndoManager.m
-  DownloadProgressViewController.m
-  DownloadProgressCardView.m
   FileListViewController.m
   GameSurfaceView.m
   JavaGUIViewController.m
@@ -362,7 +360,6 @@ add_executable(AngelAuraAmethyst
   LauncherPrefGameDirViewController.m
   LauncherPrefManageJREViewController.m
   LauncherProfileEditorViewController.m
-  LauncherProfilesViewController.m
   LauncherSplitViewController.m
   MinecraftResourceDownloadTask.m
   MinecraftResourceUtils.m
@@ -386,7 +383,7 @@ add_executable(AngelAuraAmethyst
   ios_uikit_bridge.m
   utils.m
 
-  # Version card cell (shared between DownloadViewController and LauncherProfilesViewController)
+  # Version card cell (used by DownloadViewController)
   VersionCardCell.m
 
   # Mod-related sources (ensure implementations are compiled and linked)

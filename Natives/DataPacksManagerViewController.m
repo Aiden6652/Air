@@ -588,25 +588,9 @@
 }
 
 - (void)startDownloadForItem:(DataPackItem *)item {
-    // 始终显示单独下载进度（悬浮球已移除）
-    BOOL showProgressUI = YES;
-    UIAlertController *downloadingAlert = nil;
-    if (showProgressUI) {
-        downloadingAlert = [UIAlertController alertControllerWithTitle:@"正在下载"
-                                                                                  message:[NSString stringWithFormat:@"%@...\n下载完成后请手动移动到对应世界目录。", item.displayName]
-                                                                           preferredStyle:UIAlertControllerStyleAlert];
-        UIActivityIndicatorView *indicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
-        indicator.translatesAutoresizingMaskIntoConstraints = NO;
-        [downloadingAlert.view addSubview:indicator];
-        [NSLayoutConstraint activateConstraints:@[
-            [indicator.centerXAnchor constraintEqualToAnchor:downloadingAlert.view.centerXAnchor],
-            [indicator.centerYAnchor constraintEqualToAnchor:downloadingAlert.view.centerYAnchor constant:20]
-        ]];
-        [indicator startAnimating];
-        [self presentViewController:downloadingAlert animated:YES completion:nil];
-    }
-
-    // expectedSHA1 来自版本代理处记录的 fileSHA1（spec Task 5.1）；取不到时传 nil 保持原行为
+    // redesign-download-ui Task 6.3：下载进度统一由 DataPackService 注册的
+    // DownloadTaskManager 任务 + 统一进度页（autoPresentDetail 自动弹出）展示，
+    // 不再弹"正在下载" alert（无进度的转圈弹窗会与统一进度页模态冲突）。
     [[DataPackService sharedService] downloadDataPack:item
                                             toProfile:self.profileName
                                             worldName:nil
@@ -614,26 +598,19 @@
                                              progress:nil
                                            completion:^(BOOL success, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            void (^showResult)(void) = ^{
-                if (!success || error) {
-                    [self showSimpleAlertWithTitle:@"下载失败" message:error.localizedDescription ?: @"未知错误"];
-                } else {
-                    UIAlertController *successAlert = [UIAlertController alertControllerWithTitle:@"下载成功"
-                                                                                          message:[NSString stringWithFormat:@"%@ 已下载到通用 datapacks 目录。\n请手动移动到对应世界目录（saves/<世界名>/datapacks/）。", item.displayName]
-                                                                                   preferredStyle:UIAlertControllerStyleAlert];
-                    [successAlert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-                        self.pendingDownloadItem = nil;
-                        [self.modeSwitcher setSelectedSegmentIndex:0];
-                        [self modeChanged:self.modeSwitcher];
-                        [self refreshLocalList];
-                    }]];
-                    [self presentViewController:successAlert animated:YES completion:nil];
-                }
-            };
-            if (downloadingAlert) {
-                [downloadingAlert dismissViewControllerAnimated:YES completion:showResult];
+            if (!success || error) {
+                [self showSimpleAlertWithTitle:@"下载失败" message:error.localizedDescription ?: @"未知错误"];
             } else {
-                showResult();
+                UIAlertController *successAlert = [UIAlertController alertControllerWithTitle:@"下载成功"
+                                                                                      message:[NSString stringWithFormat:@"%@ 已下载到通用 datapacks 目录。\n请手动移动到对应世界目录（saves/<世界名>/datapacks/）。", item.displayName]
+                                                                               preferredStyle:UIAlertControllerStyleAlert];
+                [successAlert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+                    self.pendingDownloadItem = nil;
+                    [self.modeSwitcher setSelectedSegmentIndex:0];
+                    [self modeChanged:self.modeSwitcher];
+                    [self refreshLocalList];
+                }]];
+                [self presentViewController:successAlert animated:YES completion:nil];
             }
         });
     }];

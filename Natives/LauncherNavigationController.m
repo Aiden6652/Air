@@ -95,11 +95,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     UIView *targetToolbar = self.toolbar;
     [targetToolbar addSubview:self.versionTextField];
 
-    self.progressViewMain = [[UIProgressView alloc] initWithFrame:CGRectMake(0, 0, self.toolbar.frame.size.width, 4)];
-    self.progressViewMain.autoresizingMask = AUTORESIZE_MASKS;
-    self.progressViewMain.hidden = YES;
-    [targetToolbar addSubview:self.progressViewMain];
-
     self.buttonInstall = [UIButton buttonWithType:UIButtonTypeSystem];
     setButtonPointerInteraction(self.buttonInstall);
     [self.buttonInstall setTitle:localize(@"Play", nil) forState:UIControlStateNormal];
@@ -111,14 +106,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     self.buttonInstall.enabled = NO;
     [self.buttonInstall addTarget:self action:@selector(performInstallOrShowDetails:) forControlEvents:UIControlEventPrimaryActionTriggered];
     [targetToolbar addSubview:self.buttonInstall];
-
-    self.progressText = [[UILabel alloc] initWithFrame:self.versionTextField.frame];
-    self.progressText.adjustsFontSizeToFitWidth = YES;
-    self.progressText.autoresizingMask = AUTORESIZE_MASKS;
-    self.progressText.font = [self.progressText.font fontWithSize:16];
-    self.progressText.textAlignment = NSTextAlignmentCenter;
-    self.progressText.userInteractionEnabled = NO;
-    [targetToolbar addSubview:self.progressText];
 
     // ===== 下载中心入口按钮（参照 FCL/ZL2/HMCL 下载进度弹窗入口）=====
     // 在工具栏左侧添加一个"下载中心"按钮，当有下载任务时显示，
@@ -205,7 +192,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         [self setInteractionEnabled:NO forDownloading:NO];
         id callback = ^(id status, BOOL success) {
             status = [status description];
-            self.progressText.text = status;
             if (status == nil) {
                 [self setInteractionEnabled:YES forDownloading:NO];
             } else if (!success) {
@@ -262,13 +248,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         versionManifestURL = @"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     }
     
-    [manager GET:versionManifestURL parameters:nil headers:nil progress:^(NSProgress * _Nonnull progress) {
-        // AFNetworking 的 progress 回调在后台线程执行，必须回主线程更新 UI，
-        // 否则会触发 "modifying the autolayout engine from a background thread" 崩溃
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressViewMain.progress = progress.fractionCompleted;
-        });
-    } success:^(NSURLSessionTask *task, NSDictionary *responseObject) {
+    [manager GET:versionManifestURL parameters:nil headers:nil progress:nil success:^(NSURLSessionTask *task, NSDictionary *responseObject) {
         [remoteVersionList addObjectsFromArray:responseObject[@"versions"]];
         NSDebugLog(@"[VersionList] Got %d versions", remoteVersionList.count);
         setPrefObject(@"internal.latest_version", responseObject[@"latest"]);
@@ -494,13 +474,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
             view.enabled = enabled;
         }
     }
-    // 启动游戏的完整性检查/下载：始终显示进度（HMCL 风格进度条+文本），
-    // 不再被悬浮球设置隐藏，确保用户在启动前能"一模一样"地看到完整性检查进度。
-    BOOL showProgressUI = YES;
-    self.progressViewMain.hidden = enabled || !showProgressUI;
-    if (!showProgressUI) {
-        self.progressText.text = nil;
-    }
     if (downloading) {
         [self.buttonInstall setTitle:localize(enabled ? @"Play" : @"Details", nil) forState:UIControlStateNormal];
         self.buttonInstall.alpha = 1;
@@ -552,7 +525,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         };
         [self.task downloadVersion:object];
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressViewMain.observedProgress = self.task.progress;
             [self.task.progress addObserver:self
                 forKeyPath:@"fractionCompleted"
                 options:NSKeyValueObservingOptionInitial
@@ -610,15 +582,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        // 启动游戏的完整性检查/下载：始终显示进度（HMCL 风格进度条+文本）
-        BOOL showProgressUI = YES;
-        if (showProgressUI) {
-            self.progressText.text = progress.localizedAdditionalDescription;
-        }
-
         if (!progress.finished) return;
 
-        self.progressViewMain.observedProgress = nil;
         // 关键修复（KVO 泄漏）：下载完成时移除 KVO 观察者。
         // 之前不移除，导致每次下载都在 self.task.progress 上累积一个观察者，
         // 多次下载后 progress 变化会触发多次 observeValueForKeyPath，UI 异常。
@@ -662,7 +627,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         };
         [self.task downloadModpackFromAPI:notification.object detail:userInfo[@"detail"] atIndex:[userInfo[@"index"] unsignedLongValue]];
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressViewMain.observedProgress = self.task.progress;
             [self.task.progress addObserver:self
                 forKeyPath:@"fractionCompleted"
                 options:NSKeyValueObservingOptionInitial
@@ -700,8 +664,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         // Assuming 16.7-17.3.1. SideStore still lacks this URL scheme at the time of writing, so it only jumps to SideStore.
         [UIApplication.sharedApplication openURL:[NSURL URLWithString:[NSString stringWithFormat:@"sidestore://sidejit-enable?pid=%d", getpid()]] options:@{} completionHandler:nil];
     }
-
-    self.progressText.text = localize(@"launcher.wait_jit.title", nil);
 
     UIAlertController* alert = [UIAlertController alertControllerWithTitle:localize(@"launcher.wait_jit.title", nil)
         message:hasTrollStoreJIT ? localize(@"launcher.wait_jit_trollstore.message", nil) : localize(@"launcher.wait_jit.message", nil)

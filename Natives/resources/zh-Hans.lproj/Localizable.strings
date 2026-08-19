@@ -730,3 +730,55 @@
 "download.history.empty" = "暂无下载历史";
 "download.history.result.success" = "成功";
 "download.history.result.failed" = "失败";
+
+// 统一任务阶段标题（redesign-download-ui Phase 1 Task 1.4 / Phase 7 Task 7.1）
+"taskStage.title.fetchVersionManifest" = "获取版本清单";
+"taskStage.title.downloadVersionJSON" = "下载版本 JSON";
+"taskStage.title.downloadClient" = "下载客户端";
+"taskStage.title.downloadLibraries" = "下载库文件";
+"taskStage.title.downloadAssets" = "下载资源文件";
+"taskStage.title.verifyIntegrity" = "验证完整性";
+"taskStage.title.fetchLoaderProfile" = "获取加载器 profile";
+"taskStage.title.downloadLoaderLibraries" = "下载加载器库";
+"taskStage.title.writeVersionJSON" = "写入版本 JSON";
+"taskStage.title.downloadInstaller" = "下载安装器";
+"taskStage.title.resolveDependencies" = "解析依赖";
+"taskStage.title.installLoader" = "安装加载器";
+"taskStage.title.parseModpack" = "解析整合包";
+"taskStage.title.extractFiles" = "解压文件";
+"taskStage.title.downloadDependencies" = "下载依赖文件";
+"taskStage.title.downloadGameFiles" = "下载游戏文件";
+"taskStage.title.finalizeConfig" = "完成配置";
+"taskStage.title.downloadFile" = "下载文件";
+
+// 统一进度页（redesign-download-ui Phase 2 / Phase 7 Task 7.1）
+"taskProgress.stage.running" = "进行中";
+"taskProgress.state.pending" = "等待中";
+"taskProgress.state.downloading" = "下载中";
+"taskProgress.state.paused" = "已暂停";
+"taskProgress.state.completed" = "已完成";
+"taskProgress.state.cancelled" = "已取消";
+"taskProgress.state.failed" = "失败";
+"taskProgress.button.minimize" = "最小化";
+"taskProgress.button.cancel" = "取消";
+"taskProgress.button.pause" = "暂停";
+"taskProgress.button.resume" = "继续";
+"taskProgress.button.retry" = "重试";
+"taskProgress.button.retryWithCount" = "重试 (%1$ld/%2$ld)";
+"taskProgress.button.viewDetail" = "查看详情";
+"taskProgress.button.hideDetail" = "收起详情";
+"taskProgress.total.title" = "总进度";
+"taskProgress.total.indeterminate" = "进行中";
+"taskProgress.eta.seconds" = "%ld 秒";
+"taskProgress.eta.minutesSeconds" = "%1$ld 分 %2$ld 秒";
+"taskProgress.eta.minutes" = "%ld 分";
+"taskProgress.eta.hoursMinutes" = "%1$ld 小时 %2$ld 分";
+"taskProgress.eta.hours" = "%ld 小时";
+"taskProgress.eta.format" = "剩余约 %1$@";
+"taskProgress.fileCount.format" = "%1$ld/%2$ld 个文件 · %3$@/%4$@";
+"taskProgress.fileCount.onlyCount" = "%1$ld/%2$ld 个文件";
+"taskProgress.errorDetail.title" = "错误详情";
+"taskProgress.errorDetail.domainCode" = "错误域：%1$@ (code %2$ld)";
+"taskProgress.errorDetail.underlying" = "底层错误：%1$@";
+"taskProgress.errorDetail.retry" = "已重试：%1$ld/%2$ld";
+"taskProgress.errorDetail.stage" = "当前阶段：%1$@";

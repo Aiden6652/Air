@@ -708,3 +708,55 @@
 "download.history.empty" = "No download history yet";
 "download.history.result.success" = "Success";
 "download.history.result.failed" = "Failed";
+
+// Unified task stage titles (redesign-download-ui Phase 1 Task 1.4 / Phase 7 Task 7.1)
+"taskStage.title.fetchVersionManifest" = "Fetch version manifest";
+"taskStage.title.downloadVersionJSON" = "Download version JSON";
+"taskStage.title.downloadClient" = "Download client";
+"taskStage.title.downloadLibraries" = "Download libraries";
+"taskStage.title.downloadAssets" = "Download assets";
+"taskStage.title.verifyIntegrity" = "Verify integrity";
+"taskStage.title.fetchLoaderProfile" = "Fetch loader profile";
+"taskStage.title.downloadLoaderLibraries" = "Download loader libraries";
+"taskStage.title.writeVersionJSON" = "Write version JSON";
+"taskStage.title.downloadInstaller" = "Download installer";
+"taskStage.title.resolveDependencies" = "Resolve dependencies";
+"taskStage.title.installLoader" = "Install loader";
+"taskStage.title.parseModpack" = "Parse modpack";
+"taskStage.title.extractFiles" = "Extract files";
+"taskStage.title.downloadDependencies" = "Download dependencies";
+"taskStage.title.downloadGameFiles" = "Download game files";
+"taskStage.title.finalizeConfig" = "Finalize configuration";
+"taskStage.title.downloadFile" = "Download file";
+
+// Unified progress page (redesign-download-ui Phase 2 / Phase 7 Task 7.1)
+"taskProgress.stage.running" = "Running";
+"taskProgress.state.pending" = "Pending";
+"taskProgress.state.downloading" = "Downloading";
+"taskProgress.state.paused" = "Paused";
+"taskProgress.state.completed" = "Completed";
+"taskProgress.state.cancelled" = "Cancelled";
+"taskProgress.state.failed" = "Failed";
+"taskProgress.button.minimize" = "Minimize";
+"taskProgress.button.cancel" = "Cancel";
+"taskProgress.button.pause" = "Pause";
+"taskProgress.button.resume" = "Resume";
+"taskProgress.button.retry" = "Retry";
+"taskProgress.button.retryWithCount" = "Retry (%1$ld/%2$ld)";
+"taskProgress.button.viewDetail" = "View Details";
+"taskProgress.button.hideDetail" = "Hide Details";
+"taskProgress.total.title" = "Total Progress";
+"taskProgress.total.indeterminate" = "In Progress";
+"taskProgress.eta.seconds" = "%ld sec";
+"taskProgress.eta.minutesSeconds" = "%1$ld min %2$ld sec";
+"taskProgress.eta.minutes" = "%ld min";
+"taskProgress.eta.hoursMinutes" = "%1$ld hr %2$ld min";
+"taskProgress.eta.hours" = "%ld hr";
+"taskProgress.eta.format" = "About %1$@ remaining";
+"taskProgress.fileCount.format" = "%1$ld/%2$ld files · %3$@/%4$@";
+"taskProgress.fileCount.onlyCount" = "%1$ld/%2$ld files";
+"taskProgress.errorDetail.title" = "Error Details";
+"taskProgress.errorDetail.domainCode" = "Domain: %1$@ (code %2$ld)";
+"taskProgress.errorDetail.underlying" = "Underlying error: %1$@";
+"taskProgress.errorDetail.retry" = "Retried: %1$ld/%2$ld";
+"taskProgress.errorDetail.stage" = "Current stage: %1$@";
