@@ -720,6 +720,16 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
     if (![mainPath isKindOfClass:[NSString class]] || mainPath.length == 0) {
         NSString *versionField = installProfile[@"version"];
         if ([versionField isKindOfClass:[NSString class]] && versionField.length > 0) {
+            // install_profile.json 的 version 是实例 ID 格式（如 "1.19.2-forge-43.5.2"），
+            // 而 Forge maven 坐标一律为 "<mcVersion>-<build>"（如 "1.19.2-43.5.2"），
+            // 不带 "-forge-" 中缀（实测 43.x/49.x/54.x 系列 maven 均如此）。
+            // 直接用实例 ID 拼坐标必然 404，需先剥离 "-forge-" 中缀。
+            NSRange forgeRange = [versionField rangeOfString:@"-forge-"];
+            if (forgeRange.location != NSNotFound) {
+                versionField = [NSString stringWithFormat:@"%@%@",
+                    [versionField substringToIndex:forgeRange.location],
+                    [versionField substringFromIndex:forgeRange.location + forgeRange.length - 1]];
+            }
             mainPath = [NSString stringWithFormat:@"net.minecraftforge:forge:%@", versionField];
             NSLog(@"[ForgeDirect] path field missing, falling back to version field: %@", mainPath);
         }
