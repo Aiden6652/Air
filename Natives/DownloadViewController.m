@@ -2824,39 +2824,64 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         return;
     }
 
-    // 参照 FCL：安装模组加载器前，先完整安装对应的原版（client.jar + libraries + assets）。
-    // Fabric/Quilt/OptiFine 的版本 JSON 含 "inheritsFrom" 字段，启动时 Java 端
-    // Tools.getVersionInfo() 会读取 versions/{inheritsFrom}/{inheritsFrom}.json 合并。
-    // 若用户尚未安装原版，启动会因 FileNotFoundException 崩溃；仅下载 JSON 不够，
-    // 还需下载 client.jar/资源/库，否则首次启动仍要现下、体验割裂。
-    // Forge/NeoForge 直装器内部已有 ensureParentVersionExists 逻辑（仅 JSON），此处补全完整原版。
-    //
-    // redesign-download-ui Phase 3：原版预装与加载器安装的进度均通过
-    // DownloadTaskManager 阶段上报驱动统一进度页，无需在此区分转交逻辑。
-    __weak typeof(self) weakSelf = self;
-    [self ensureVanillaInstalled:version completion:^(BOOL success) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) return;
-        if (!success) {
-            [strongSelf showError:[NSString stringWithFormat:@"无法安装原版 %@，请检查网络后重试", versionId]];
-            return;
+    // 用户决策（参考 ZL2 的保守策略）：安装模组加载器前检测对应原版是否已安装，
+    // 未安装时不再自动代装原版，而是提醒用户先手动安装原版。
+    // 原因：原版自动预装 + 加载器安装的复合流程中，若原版安装失败/被中断，
+    // 加载器版本虽写入但继承的原版缺失，实例管理会出现"找不到刚安装的版本"等问题；
+    // 提醒方式让用户明确先完成原版安装，流程更可控。
+    // 注：加载器版本 JSON 均含 "inheritsFrom" 字段，启动时 Java 端会读取
+    // versions/{inheritsFrom}/{inheritsFrom}.json 合并，原版缺失会导致启动崩溃。
+    if (![self isVanillaVersionInstalled:versionId]) {
+        NSDictionary *loaderDisplayNames = @{
+            @"fabric": @"Fabric",
+            @"forge": @"Forge",
+            @"neoforge": @"NeoForge",
+            @"quilt": @"Quilt",
+            @"optifine": @"OptiFine"
+        };
+        NSString *loaderDisplayName = loaderDisplayNames[loaderType] ?: loaderType;
+        UIAlertController *alert = [UIAlertController
+            alertControllerWithTitle:@"未安装原版"
+                             message:[NSString stringWithFormat:
+                                      @"安装 %@ 前需要先安装原版 %@。\n\n请先在「下载」页面安装该原版版本，完成后再安装模组加载器。",
+                                      loaderDisplayName, versionId]
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"知道了"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([loaderType isEqualToString:@"fabric"]) {
+            [self installFabric:versionId loaderVersion:loaderVersion installAPI:installFabricAPI];
+        } else if ([loaderType isEqualToString:@"forge"]) {
+            [self installForge:versionId installOptiFine:installOptiFine loaderVersion:loaderVersion];
+        } else if ([loaderType isEqualToString:@"neoforge"]) {
+            [self installNeoForge:versionId loaderVersion:loaderVersion];
+        } else if ([loaderType isEqualToString:@"quilt"]) {
+            [self installQuilt:versionId loaderVersion:loaderVersion];
+        } else if ([loaderType isEqualToString:@"optifine"]) {
+            [self installOptiFineAsPatch:versionId loaderVersion:loaderVersion];
+        } else {
+            [self showError:[NSString stringWithFormat:@"%@ 安装器暂未实现", loaderType]];
         }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if ([loaderType isEqualToString:@"fabric"]) {
-                [strongSelf installFabric:versionId loaderVersion:loaderVersion installAPI:installFabricAPI];
-            } else if ([loaderType isEqualToString:@"forge"]) {
-                [strongSelf installForge:versionId installOptiFine:installOptiFine loaderVersion:loaderVersion];
-            } else if ([loaderType isEqualToString:@"neoforge"]) {
-                [strongSelf installNeoForge:versionId loaderVersion:loaderVersion];
-            } else if ([loaderType isEqualToString:@"quilt"]) {
-                [strongSelf installQuilt:versionId loaderVersion:loaderVersion];
-            } else if ([loaderType isEqualToString:@"optifine"]) {
-                [strongSelf installOptiFineAsPatch:versionId loaderVersion:loaderVersion];
-            } else {
-                [strongSelf showError:[NSString stringWithFormat:@"%@ 安装器暂未实现", loaderType]];
-            }
-        });
-    }];
+    });
+}
+
+/// 检测指定原版版本是否已安装（versions/{versionId}/{versionId}.json 存在即视为已安装，
+/// 与版本列表扫描 versions/ 目录的判定标准一致）。
+- (BOOL)isVanillaVersionInstalled:(NSString *)versionId {
+    if (versionId.length == 0) return NO;
+    NSString *gameDir = @(getenv("POJAV_GAME_DIR"));
+    if (gameDir.length == 0) {
+        gameDir = @(getenv("POJAV_HOME"));
+    }
+    if (gameDir.length == 0) return NO;
+    NSString *versionJsonPath = [gameDir stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"versions/%@/%@.json", versionId, versionId]];
+    return [NSFileManager.defaultManager fileExistsAtPath:versionJsonPath];
 }
 
 /// 参照 FCL：确保原版版本的 version JSON 已存在。

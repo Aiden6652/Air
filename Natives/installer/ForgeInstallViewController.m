@@ -1117,6 +1117,23 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
     NSString *versionString = self.selectedVersionString;
     if (!versionString) return;
 
+    // 修复 Forge installer 下载 404（参考 ZL2 ForgeVersions.getDownloadUrl 的
+    // "<inherit>-<fileVersion>" 复合格式规则）：
+    // ModLoaderInstallViewController 传入的 presetVersionString 是纯 Forge 版本号
+    // （如 "47.2.0"），而官方 maven / BMCLAPI 的 installer 路径必须是复合格式
+    // "<mcVersion>-<forgeVersion>"（如 "1.20.1-47.2.0"），缺失前缀时 URL 必然 404。
+    // 此处检测前缀缺失时补全；NeoForge 不适用（其 maven 路径本就是纯版本号格式）。
+    if ([self.currentVendor isEqualToString:@"Forge"] && self.gameVersion.length > 0) {
+        NSString *compoundPrefix = [NSString stringWithFormat:@"%@-", self.gameVersion];
+        if (![versionString hasPrefix:compoundPrefix] &&
+            ![versionString hasPrefix:self.gameVersion]) {
+            versionString = [compoundPrefix stringByAppendingString:versionString];
+            // 回写：后续直装（ForgeDirectInstaller 解析 inheritsFrom）与
+            // completion 回调均使用复合格式
+            self.selectedVersionString = versionString;
+        }
+    }
+
     self.selectedScheme = scheme;
     NSIndexPath *indexPath = [self indexPathForVersionString:versionString];
     self.currentDownloadIndexPath = indexPath;
@@ -1139,7 +1156,14 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
             jarURL = [NSString stringWithFormat:self.endpoints[self.currentVendor][@"installer"], versionString];
         }
     } else {
-        jarURL = [NSString stringWithFormat:self.endpoints[self.currentVendor][@"installer"], versionString];
+        // Forge：参考 ZL2 BMCLAPI 镜像替换规则
+        // （https://maven.minecraftforge.net → https://bmclapi2.bangbang93.com/maven），
+        // 用户偏好 BMCLAPI 时走镜像下载，避免国内直连官方 maven 失败
+        if (useBMCLAPI) {
+            jarURL = [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/%@/forge-%@-installer.jar", versionString, versionString];
+        } else {
+            jarURL = [NSString stringWithFormat:self.endpoints[self.currentVendor][@"installer"], versionString];
+        }
     }
     NSString *outPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
                          [NSString stringWithFormat:@"%@-installer-%@.jar",

@@ -19,6 +19,11 @@ static NSInteger const PLNSURLErrorCannotResume = -3004;
 static const NSTimeInterval kSnapshotDebounceInterval = 0.5;
 /// 进度上报触发落盘的最小间隔（秒）：高频进度下节流，保证长下载期间快照也能定期落盘
 static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
+/// 进度类 UI 通知节流间隔（秒）：下载器 KVO/回调每秒可触发数百次，
+/// 若每次都派发主队列通知会让进度页/下载中心全量刷新刷爆主队列，
+/// 触摸事件无法响应（表现为进度页卡死、按钮点不动）。
+/// 进度/速率/文件计数类更新按此间隔合并；状态变化（state/stages/终态）仍立即通知。
+static const NSTimeInterval kUIProgressNotifyThrottleInterval = 0.2;
 
 @interface DownloadTaskManager ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, DownloadTaskItem *> *tasks;
@@ -51,6 +56,12 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
 /// 仅在主队列访问（postUpdateForTask: 的 dispatch block 内），无需加锁；
 /// 用于保证 autoPresentDetail 任务只弹出一次（用户最小化后进度更新不再打扰）。
 @property (nonatomic, strong) NSMutableSet<NSString *> *autoPresentedTaskIds;
+
+/// 进度类 UI 通知节流状态（仅在主队列访问，无需加锁）：
+/// lastProgressNotifyDates：taskId → 上次进度通知时间
+/// pendingProgressNotifyTaskIds：已排队等待补发通知的 taskId（防止重复堆积 dispatch_after）
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSDate *> *lastProgressNotifyDates;
+@property (nonatomic, strong) NSMutableSet<NSString *> *pendingProgressNotifyTaskIds;
 @end
 
 @implementation DownloadTaskManager
@@ -77,6 +88,8 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
         _ioQueue = dispatch_queue_create("com.amethyst.downloadtaskmanager.io", DISPATCH_QUEUE_SERIAL);
         _historyStore = [DownloadHistoryStore sharedStore];
         _autoPresentedTaskIds = [NSMutableSet set];
+        _lastProgressNotifyDates = [NSMutableDictionary dictionary];
+        _pendingProgressNotifyTaskIds = [NSMutableSet set];
         [self restoreTasksFromDisk];
     }
     return self;
@@ -774,7 +787,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     [self.lock unlock];
 
     if (item) {
-        [self postUpdateForTask:item];
+        [self postProgressUpdateForTask:item];
         [self checkAggregateStateChange];
         [self schedulePersistSnapshotForProgress];
     }
@@ -792,7 +805,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     }
     [self.lock unlock];
 
-    if (item) [self postUpdateForTask:item];
+    if (item) [self postProgressUpdateForTask:item];
 }
 
 - (void)updateTaskWithId:(NSString *)taskId
@@ -808,7 +821,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     [self.lock unlock];
 
     if (item) {
-        [self postUpdateForTask:item];
+        [self postProgressUpdateForTask:item];
         [self schedulePersistSnapshotForProgress];
     }
 }
@@ -1008,7 +1021,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     [self.lock unlock];
 
     if (stage) {
-        [self postUpdateForTask:item];
+        [self postProgressUpdateForTask:item];
         [self schedulePersistSnapshotForProgress];
     } else if (item) {
         NSLog(@"[DownloadTaskManager] updateTaskWithId:stageAtIndex:progress:message: invalid stage index %lu for task %@", (unsigned long)index, taskId);
@@ -1028,7 +1041,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
 
     // 速率为瞬时值，不触发快照持久化（与 updateTaskWithId:speed: 一致）
     if (stage) {
-        [self postUpdateForTask:item];
+        [self postProgressUpdateForTask:item];
     } else if (item) {
         NSLog(@"[DownloadTaskManager] updateTaskWithId:stageAtIndex:rate: invalid stage index %lu for task %@", (unsigned long)index, taskId);
     }
@@ -1050,7 +1063,7 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
     [self.lock unlock];
 
     if (stage) {
-        [self postUpdateForTask:item];
+        [self postProgressUpdateForTask:item];
         [self schedulePersistSnapshotForProgress];
     } else if (item) {
         NSLog(@"[DownloadTaskManager] updateTaskWithId:stageAtIndex:fileCount:totalFileCount: invalid stage index %lu for task %@", (unsigned long)index, taskId);
@@ -1377,27 +1390,76 @@ static const NSTimeInterval kSnapshotProgressThrottleInterval = 3.0;
 
 #pragma mark - Notifications
 
+/// 主队列内直接执行：发送任务更新通知 + autoPresentDetail 自动弹出处理
+- (void)postUpdateNotificationOnMainThreadForTaskItem:(DownloadTaskItem *)item {
+    NSAssert([NSThread isMainThread], @"must be called on main thread");
+    [[NSNotificationCenter defaultCenter] postNotificationName:DownloadTaskManagerDidUpdateTaskNotification
+                                                        object:self
+                                                      userInfo:@{DownloadTaskManagerTaskKey: item}];
+
+    // 自动弹出统一进度页（redesign-download-ui Task 2.3）：
+    // 安装类任务标记 autoPresentDetail 后，在首次非终态更新时自动弹出；
+    // 仅弹一次（最小化后进度更新不再打扰），同屏仅一个进度页由
+    // PLTaskProgressViewController.presentForTaskId: 保证（新任务替换内容）。
+    if (item.autoPresentDetail && ![self.autoPresentedTaskIds containsObject:item.taskId]) {
+        [self.autoPresentedTaskIds addObject:item.taskId];
+        BOOL terminal = (item.state == DownloadTaskStateCompleted ||
+                         item.state == DownloadTaskStateCancelled ||
+                         item.state == DownloadTaskStateFailed);
+        // 任务仍存在（未被移除）且未到终态才弹出（防止移除通知误触发）
+        if (!terminal && [self taskWithId:item.taskId] != nil) {
+            [PLTaskProgressViewController presentForTaskId:item.taskId];
+        }
+    }
+}
+
 - (void)postUpdateForTask:(DownloadTaskItem *)item {
     if (!item) return;
     dispatch_async(dispatch_get_main_queue(), ^{
-        [[NSNotificationCenter defaultCenter] postNotificationName:DownloadTaskManagerDidUpdateTaskNotification
-                                                            object:self
-                                                          userInfo:@{DownloadTaskManagerTaskKey: item}];
+        [self postUpdateNotificationOnMainThreadForTaskItem:item];
+    });
+}
 
-        // 自动弹出统一进度页（redesign-download-ui Task 2.3）：
-        // 安装类任务标记 autoPresentDetail 后，在首次非终态更新时自动弹出；
-        // 仅弹一次（最小化后进度更新不再打扰），同屏仅一个进度页由
-        // PLTaskProgressViewController.presentForTaskId: 保证（新任务替换内容）。
-        if (item.autoPresentDetail && ![self.autoPresentedTaskIds containsObject:item.taskId]) {
-            [self.autoPresentedTaskIds addObject:item.taskId];
-            BOOL terminal = (item.state == DownloadTaskStateCompleted ||
-                             item.state == DownloadTaskStateCancelled ||
-                             item.state == DownloadTaskStateFailed);
-            // 任务仍存在（未被移除）且未到终态才弹出（防止移除通知误触发）
-            if (!terminal && [self taskWithId:item.taskId] != nil) {
-                [PLTaskProgressViewController presentForTaskId:item.taskId];
-            }
+/// 进度类更新（progress/speed/rate/fileCount/stage进度）专用：
+/// 按 kUIProgressNotifyThrottleInterval 节流合并 UI 通知，避免高频回调刷爆主队列。
+/// 终态任务直接立即通知（不走节流，确保完成/失败状态第一时间可见）。
+- (void)postProgressUpdateForTask:(DownloadTaskItem *)item {
+    if (!item) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL terminal = (item.state == DownloadTaskStateCompleted ||
+                         item.state == DownloadTaskStateCancelled ||
+                         item.state == DownloadTaskStateFailed);
+        if (terminal) {
+            [self.lastProgressNotifyDates removeObjectForKey:item.taskId];
+            [self.pendingProgressNotifyTaskIds removeObject:item.taskId];
+            [self postUpdateNotificationOnMainThreadForTaskItem:item];
+            return;
         }
+
+        NSDate *last = self.lastProgressNotifyDates[item.taskId];
+        NSDate *now = [NSDate date];
+        if (!last || [now timeIntervalSinceDate:last] >= kUIProgressNotifyThrottleInterval) {
+            self.lastProgressNotifyDates[item.taskId] = now;
+            [self postUpdateNotificationOnMainThreadForTaskItem:item];
+            return;
+        }
+
+        // 节流窗口内：安排一次补发（携带补发时刻的最新任务数据），避免末尾进度被吞
+        if ([self.pendingProgressNotifyTaskIds containsObject:item.taskId]) return;
+        [self.pendingProgressNotifyTaskIds addObject:item.taskId];
+        NSTimeInterval delay = kUIProgressNotifyThrottleInterval - [now timeIntervalSinceDate:last];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [self.pendingProgressNotifyTaskIds removeObject:item.taskId];
+            // 重新取最新 item：任务可能已推进/移除
+            DownloadTaskItem *latest = [self taskWithId:item.taskId];
+            if (latest) {
+                self.lastProgressNotifyDates[latest.taskId] = [NSDate date];
+                [self postUpdateNotificationOnMainThreadForTaskItem:latest];
+            } else {
+                [self.lastProgressNotifyDates removeObjectForKey:item.taskId];
+            }
+        });
     });
 }
 
