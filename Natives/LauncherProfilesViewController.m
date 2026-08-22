@@ -16,6 +16,8 @@
 #import "installer/ForgeInstallViewController.h"
 #import "installer/ForgeDirectInstaller.h"
 #import "installer/NeoForgeDirectInstaller.h"
+#import "installer/ForgeProcessorExecutor.h"
+#import "PLCrashView.h"
 #import "installer/ModpackInstallViewController.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
@@ -397,7 +399,20 @@ typedef NS_ENUM(NSInteger, VersionType) {
                 }
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (installed) {
-                        showDialog(localize(@"Success", nil), [NSString stringWithFormat:@"%@ 安装成功", isNeoForge ? @"NeoForge" : @"Forge"]);
+                        // 直装在本进程执行过 processors（headless JVM），进程内 JVM
+                        // 只能创建一次，直接启动游戏会崩溃，提示重启 app 释放。
+                        if ([ForgeProcessorExecutor jvmUsedThisProcess]) {
+                            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"需要重启启动器"
+                                                                                           message:[NSString stringWithFormat:@"%@ 安装成功。\n本次安装使用了 Java 运行时，直接启动游戏会导致崩溃。\n请重启启动器以释放 Java 运行时。", isNeoForge ? @"NeoForge" : @"Forge"]
+                                                                                    preferredStyle:UIAlertControllerStyleAlert];
+                            [alert addAction:[UIAlertAction actionWithTitle:@"立即重启" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                                [PLCrashView restartLauncher];
+                            }]];
+                            [alert addAction:[UIAlertAction actionWithTitle:@"稍后手动重启" style:UIAlertActionStyleCancel handler:nil]];
+                            [strongSelf presentViewController:alert animated:YES completion:nil];
+                        } else {
+                            showDialog(localize(@"Success", nil), [NSString stringWithFormat:@"%@ 安装成功", isNeoForge ? @"NeoForge" : @"Forge"]);
+                        }
                     } else {
                         showDialog(localize(@"Error", nil), directError.localizedDescription ?: @"未知错误");
                     }

@@ -2,13 +2,22 @@
 //  NeoForgeDirectInstaller.m
 //  Amethyst
 //
-//  Direct NeoForge installer (new format only, NeoForge 1.20.1+).
+//  Direct NeoForge installer (new format only, NeoForge 1.20.1+),
+//  参照 ZalithLauncher2 / HMCL 的 ForgeNewInstallTask。
 //
-//  本直装器采用"下载预打补丁 PATCHED artifact"方案，不执行 install_profile.json 的 processors。
-//  原因：iOS 沙箱禁止 fork/exec，无法 spawn 子 JVM 执行 processor 工具（binarypatcher、
-//  jarsplitter、SpecialSource 等）。社区启动器在受限平台的通用做法是直接从 maven 下载
-//  NeoForge 已发布的预打补丁 client jar（如 neoforge-{loader}-client.jar），
-//  这等同于 processor 的输出产物，运行时直接可用。
+//  通过 ForgeProcessorExecutor 在本地 headless JVM 中执行 install_profile.json 的
+//  processors（binarypatcher、jarsplitter、AutoRenamingTool 等），生成 FML 运行
+//  必需的 PATCHED / MC_SRG / MC_EXTRA artifact。
+//
+//  iOS 沙箱禁止 fork/exec，无法为每个 processor spawn 子 JVM，因此命令被序列化为
+//  commands.json，由进程内 headless JVM 中的 ForgeProcessorRunner 逐条执行
+//  （见 JavaLauncher.m 的 launchHeadlessJVM）。
+//
+//  历史方案（已废弃）："直接从 maven 下载预打补丁 client jar"。官方 maven 从未
+//  发布 processor 输出产物（client classifier 实测 404），该方案根本不可行。
+//
+//  注意：执行过 processors 后进程内 JVM 已创建，再次创建 JVM 会崩溃，
+//  游戏启动前必须重启 app（见 ForgeProcessorExecutor.jvmUsedThisProcess）。
 //
 //  JarJar（JarInJar）机制是运行期由 modlauncher 的 JarInJarDependencyLocator 处理，
 //  安装期无需任何 processor 介入。
@@ -19,6 +28,7 @@
 #import "utils.h"
 #import "LauncherPreferences.h"
 #import "MinecraftResourceUtils.h"
+#import "ForgeProcessorExecutor.h"
 #import "external/UnzipKit/UZKArchive.h"
 
 NSString *const NeoForgeDirectInstallerErrorDomain = @"NeoForgeDirectInstallerErrorDomain";
@@ -242,45 +252,11 @@ NSString *const NeoForgeDirectInstallerErrorDomain = @"NeoForgeDirectInstallerEr
     }
     NSLog(@"[NeoForgeDirect] version.json parsed successfully");
 
+    // 注意：不再把 install_profile.libraries 合并进 version.json。
+    // profile 的 libraries 是安装期 processor 工具链依赖，仅供 ForgeProcessorExecutor
+    // 使用，全部下载到 libraries/ 后由 processor 消费；合并进 version.json 会污染
+    // 运行期 classpath（与游戏依赖版本冲突），参照 ZL2/HMCL 均不合并。
     versionJson[@"id"] = versionId;
-
-    // Merge libraries from install_profile into versionJson (dedup by name)
-    NSLog(@"[NeoForgeDirect] Merging libraries");
-    NSArray *profileLibraries = installProfile[@"libraries"];
-    if ([profileLibraries isKindOfClass:[NSArray class]] && profileLibraries.count > 0) {
-        NSMutableArray *mergedLibraries = [NSMutableArray array];
-        NSMutableArray *existingNames = [NSMutableArray array];
-
-        NSArray *versionLibraries = versionJson[@"libraries"];
-        if ([versionLibraries isKindOfClass:[NSArray class]]) {
-            for (NSDictionary *lib in versionLibraries) {
-                [mergedLibraries addObject:lib];
-                if ([lib isKindOfClass:[NSDictionary class]]) {
-                    NSString *name = lib[@"name"];
-                    if ([name isKindOfClass:[NSString class]]) {
-                        [existingNames addObject:name];
-                    }
-                }
-            }
-        }
-
-        NSUInteger addedCount = 0;
-        NSUInteger skippedCount = 0;
-        for (NSDictionary *library in installProfile[@"libraries"]) {
-            if (![library isKindOfClass:[NSDictionary class]]) continue;
-            NSString *name = library[@"name"];
-            if (![name isKindOfClass:[NSString class]]) continue;
-            if ([existingNames containsObject:name]) {
-                skippedCount++;
-                continue;
-            }
-            [mergedLibraries addObject:library];
-            [existingNames addObject:name];
-            addedCount++;
-        }
-        NSLog(@"[NeoForgeDirect] Merged libraries: added %lu, skipped %lu duplicates", (unsigned long)addedCount, (unsigned long)skippedCount);
-        versionJson[@"libraries"] = mergedLibraries;
-    }
 
     // Prepare version directory
     // 版本 JSON 必须写入 POJAV_GAME_DIR/versions/（主目录），而非 profile gameDir。
@@ -304,50 +280,43 @@ NSString *const NeoForgeDirectInstallerErrorDomain = @"NeoForgeDirectInstallerEr
     reportProgress(0.3, @"正在下载缺失的依赖库");
     NSArray *allLibraries = versionJson[@"libraries"];
     if ([allLibraries isKindOfClass:[NSArray class]]) {
-        [self downloadMissingLibraries:allLibraries librariesDir:librariesDir progress:progress baseProgress:0.3 progressSpan:0.4];
+        [self downloadMissingLibraries:allLibraries librariesDir:librariesDir progress:progress baseProgress:0.3 progressSpan:0.2];
     }
 
-    // Step C: 关键步骤——下载预打补丁的 PATCHED artifact
-    // install_profile.json 的 processors 会生成 :client 这个 jar，但 iOS 不能跑 processor。
-    // NeoForge 已将这个预打补丁 jar 发布到 maven，直接下载即可。
-    NSLog(@"[NeoForgeDirect] Downloading pre-patched client artifact");
-    reportProgress(0.75, @"正在下载预打补丁的核心 jar");
-    NSString *mainPath = installProfile[@"path"];
-    // 兜底：path 字段缺失时用 version 字段拼接（NeoForge 1.20.1 用 forge artifactId，1.20.2+ 用 neoforge artifactId）
-    if (![mainPath isKindOfClass:[NSString class]] || mainPath.length == 0) {
-        NSString *versionField = installProfile[@"version"];
-        if ([versionField isKindOfClass:[NSString class]] && versionField.length > 0) {
-            // NeoForge 1.20.1 path 形如 "net.neoforged:forge:1.20.1-47.1.0"（versionField 含 "1.20.1-"）
-            // 其他版本 path 形如 "net.neoforged:neoforge:20.6.119-beta"
-            // 注意：NeoForge loader 版本号 47.x 对应 MC 1.20.1，但 versionField 可能是 "47.1.0"
-            // 不含 "1.20.1" 子串，需双重判断（与 NeoForgeVersionFetcher.m:54 保持一致）。
-            // 当 versionField 以 "47." 开头但不含 MC 版本前缀时，必须补上 "1.20.1-" 前缀，
-            // 否则 maven 坐标 net/neoforged/forge/47.1.0/forge-47.1.0-client.jar 会 404。
-            if ([versionField containsString:@"1.20.1"] || [versionField hasPrefix:@"47."]) {
-                NSString *resolvedVersion = versionField;
-                if ([versionField hasPrefix:@"47."] && ![versionField containsString:@"1.20.1"]) {
-                    resolvedVersion = [NSString stringWithFormat:@"1.20.1-%@", versionField];
-                }
-                mainPath = [NSString stringWithFormat:@"net.neoforged:forge:%@", resolvedVersion];
-            } else {
-                mainPath = [NSString stringWithFormat:@"net.neoforged:neoforge:%@", versionField];
-            }
-            NSLog(@"[NeoForgeDirect] path field missing, falling back to version field: %@", mainPath);
-        }
+    // Step C: 下载 install_profile.libraries（processor 工具链依赖）
+    // processor 的 jar 与 classpath 全部来自这份清单，必须先就位
+    NSLog(@"[NeoForgeDirect] Downloading processor libraries");
+    reportProgress(0.5, @"正在下载安装工具链依赖");
+    NSArray *processorLibraries = installProfile[@"libraries"];
+    if ([processorLibraries isKindOfClass:[NSArray class]] && processorLibraries.count > 0) {
+        [self downloadMissingLibraries:processorLibraries librariesDir:librariesDir progress:progress baseProgress:0.5 progressSpan:0.05];
     }
-    if ([mainPath isKindOfClass:[NSString class]] && mainPath.length > 0) {
-        if (![self downloadPatchedArtifact:mainPath librariesDir:librariesDir error:error]) {
-            NSLog(@"[NeoForgeDirect] Failed to download patched artifact");
-            return NO;
-        }
-    } else {
-        // path 是 NeoForge 运行核心依赖，缺失会导致启动时 ClassNotFoundException
-        NSLog(@"[NeoForgeDirect] install_profile.json missing path/version fields, cannot download patched client jar");
+
+    // Step D: 关键步骤——执行 install_profile processors 生成 PATCHED / MC_SRG 等 artifact
+    // 参照 ZL2/HMCL ForgeNewInstallTask：processor 在本地 headless JVM 中执行。
+    // 之前"直接从 maven 下载预打补丁 jar"的方案是错的——官方 maven 从未发布过
+    // 这些 processor 输出产物（实测 client classifier 均 404）。
+    NSString *minecraftVersion = [versionJson[@"inheritsFrom"] isKindOfClass:[NSString class]] ? versionJson[@"inheritsFrom"] : nil;
+    if (minecraftVersion.length == 0) {
+        NSLog(@"[NeoForgeDirect] version.json missing inheritsFrom, cannot run processors");
         if (error) {
             *error = [NSError errorWithDomain:NeoForgeDirectInstallerErrorDomain
                                          code:NeoForgeDirectInstallerErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: @"install_profile.json 缺少 path 和 version 字段，无法定位预打补丁核心 jar"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: @"version.json 缺少 inheritsFrom 字段，无法确定原版版本"}];
         }
+        return NO;
+    }
+    NSLog(@"[NeoForgeDirect] Running processors for Minecraft %@", minecraftVersion);
+    reportProgress(0.55, @"正在执行安装处理器");
+    if (![ForgeProcessorExecutor runProcessorsWithProfile:installProfile
+                                             installerPath:installerPath
+                                          minecraftVersion:minecraftVersion
+                                                mainGameDir:[self gameDirectory]
+                                               baseProgress:0.55
+                                              progressSpan:0.3
+                                                   progress:progress
+                                                      error:error]) {
+        NSLog(@"[NeoForgeDirect] Processor execution failed");
         return NO;
     }
 
@@ -955,105 +924,6 @@ NSString *const NeoForgeDirectInstallerErrorDomain = @"NeoForgeDirectInstallerEr
     }
     // 从官方源失败，尝试 BMCLAPI 镜像
     return [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/%@", relativePath];
-}
-
-// 下载预打补丁的 PATCHED artifact
-// mainPath 格式："net.neoforged:forge:1.20.1-47.3.0"（旧 NeoForge）或 "net.neoforged:neoforge:21.5.75"（新 NeoForge）
-// 对应 maven 上的 :client classifier jar：
-//   官方源: https://maven.neoforged.net/releases/net/neoforged/{forge|neoforge}/{ver}/{forge|neoforge}-{ver}-client.jar
-//   BMCLAPI: https://bmclapi2.bangbang93.com/maven/net/neoforged/{forge|neoforge}/{ver}/{forge|neoforge}-{ver}-client.jar
-+ (BOOL)downloadPatchedArtifact:(NSString *)mainPath librariesDir:(NSString *)librariesDir error:(NSError **)error {
-    NSArray *parts = [mainPath componentsSeparatedByString:@":"];
-    if (parts.count < 3) {
-        if (error) {
-            *error = [NSError errorWithDomain:NeoForgeDirectInstallerErrorDomain
-                                         code:NeoForgeDirectInstallerErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Invalid main path: %@", mainPath]}];
-        }
-        return NO;
-    }
-
-    NSString *groupId = parts[0];
-    NSString *artifactId = parts[1];
-    NSString *version = parts[2];
-
-    NSString *groupPath = [groupId stringByReplacingOccurrencesOfString:@"." withString:@"/"];
-
-    // 参照 FCL/HMCL：实测 NeoForge maven（如 21.1.77）只发布 -universal（HTTP 200），
-    // -client 和无 classifier 均 404。调整顺序为 universal -> client -> 无 classifier，
-    // 优先尝试成功率最高的 universal。
-    NSArray *classifiers = @[@"universal", @"client", @""];
-    NSString *downloadSource = getPrefObject(@"general.download_source");
-    BOOL useBMCLAPI = [downloadSource isEqualToString:@"bmclapi"];
-
-    // 源 URL 构造：官方源 + BMCLAPI + HMCL 镜像
-    // 注意：腾讯云镜像不镜像 NeoForge maven，已替换为 HMCL 镜像（mirror.hua-u.me）。
-    NSMutableArray *baseURLs = [NSMutableArray array];
-    if ([groupId hasPrefix:@"net.neoforged"]) {
-        if (useBMCLAPI) {
-            [baseURLs addObject:@"https://bmclapi2.bangbang93.com/maven"];
-            [baseURLs addObject:@"https://maven.neoforged.net/releases"];
-        } else {
-            [baseURLs addObject:@"https://maven.neoforged.net/releases"];
-            [baseURLs addObject:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-        [baseURLs addObject:@"https://mirror.hua-u.me/neoforge"];
-    } else {
-        // 兜底：当作 Forge 处理
-        if (useBMCLAPI) {
-            [baseURLs addObject:@"https://bmclapi2.bangbang93.com/maven"];
-            [baseURLs addObject:@"https://maven.minecraftforge.net"];
-        } else {
-            [baseURLs addObject:@"https://maven.minecraftforge.net"];
-            [baseURLs addObject:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-        [baseURLs addObject:@"https://mirror.hua-u.me/forge"];
-    }
-
-    NSError *lastError = nil;
-    NSString *firstTriedURL = nil;
-    for (NSString *classifier in classifiers) {
-        NSString *jarName;
-        if (classifier.length > 0) {
-            jarName = [NSString stringWithFormat:@"%@-%@-%@.jar", artifactId, version, classifier];
-        } else {
-            jarName = [NSString stringWithFormat:@"%@-%@.jar", artifactId, version];
-        }
-        NSString *relativePath = [NSString stringWithFormat:@"%@/%@/%@/%@", groupPath, artifactId, version, jarName];
-        NSString *destPath = [librariesDir stringByAppendingPathComponent:relativePath];
-
-        // 已存在则跳过
-        if ([NSFileManager.defaultManager fileExistsAtPath:destPath]) {
-            NSLog(@"[NeoForgeDirect] Patched artifact already exists: %@", destPath);
-            return YES;
-        }
-
-        for (NSString *baseURL in baseURLs) {
-            NSString *url = [NSString stringWithFormat:@"%@/%@", baseURL, relativePath];
-            if (firstTriedURL == nil) firstTriedURL = url;
-            NSLog(@"[NeoForgeDirect] Trying classifier=%@ source=%@", classifier, url);
-            NSError *downloadError = nil;
-            if ([self downloadFileFromURL:url toPath:destPath error:&downloadError]) {
-                NSLog(@"[NeoForgeDirect] Patched artifact downloaded: %@ (classifier=%@)", destPath, classifier);
-                return YES;
-            }
-            // 下载失败：清理可能的部分文件
-            [NSFileManager.defaultManager removeItemAtPath:destPath error:nil];
-            lastError = downloadError;
-            NSLog(@"[NeoForgeDirect] Failed: %@ (%@)", url, downloadError.localizedDescription ?: @"Unknown error");
-        }
-    }
-
-    if (error) {
-        *error = [NSError errorWithDomain:NeoForgeDirectInstallerErrorDomain
-                                     code:NeoForgeDirectInstallerErrorExtractionFailed
-                                 userInfo:@{
-                                     NSLocalizedDescriptionKey: [NSString stringWithFormat:@"下载预打补丁核心 jar 失败\n主源 URL: %@\n已尝试 classifier: client/universal/无\n已尝试源: 官方/BMCLAPI/HMCL镜像\n最后错误: %@",
-                                         firstTriedURL ?: @"未知",
-                                         lastError.localizedDescription ?: @"未知错误"]
-                                 }];
-    }
-    return NO;
 }
 
 // 同步下载文件到指定路径（带 60 秒超时）

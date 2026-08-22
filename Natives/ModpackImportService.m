@@ -15,10 +15,13 @@
 //
 
 #import "ModpackImportService.h"
+#import <UIKit/UIKit.h>
 #import "installer/FabricUtils.h"
 #import "installer/modpack/ModpackUtils.h"
 #import "installer/ForgeDirectInstaller.h"
 #import "installer/NeoForgeDirectInstaller.h"
+#import "installer/ForgeProcessorExecutor.h"
+#import "PLCrashView.h"
 #import "PLProfiles.h"
 #import "PLPreferences.h"
 #import "UnzipKit.h"
@@ -745,6 +748,35 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     [self saveImportedModpack:savedModpack];
 
     if (progress) progress(1.0, @"导入完成");
+
+    // Forge/NeoForge 直装在本进程执行过 processors（headless JVM），进程内 JVM
+    // 只能创建一次，直接启动游戏会崩溃，提示用户重启 app 释放后再玩。
+    if ([ForgeProcessorExecutor jvmUsedThisProcess]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIWindow *keyWindow = nil;
+            if (@available(iOS 13.0, *)) {
+                for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                    if (scene.activationState == UISceneActivationStateForegroundActive) {
+                        keyWindow = scene.windows.firstObject;
+                        break;
+                    }
+                }
+            }
+            if (!keyWindow) {
+                keyWindow = [[UIApplication sharedApplication] windows].firstObject;
+            }
+            UIViewController *rootVC = keyWindow.rootViewController;
+            if (!rootVC) return;
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"需要重启启动器"
+                                                                           message:@"整合包导入完成。\n本次安装使用了 Java 运行时，直接启动游戏会导致崩溃。\n请重启启动器以释放 Java 运行时。"
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"立即重启" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                [PLCrashView restartLauncher];
+            }]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"稍后手动重启" style:UIAlertActionStyleCancel handler:nil]];
+            [rootVC presentViewController:alert animated:YES completion:nil];
+        });
+    }
     return YES;
 }
 

@@ -2,13 +2,14 @@
 //  ForgeDirectInstaller.m
 //  Amethyst
 //
-//  Direct Forge installer (old + new format) based on FCL logic.
+//  Direct Forge installer (old + new format) based on FCL / ZalithLauncher2 logic.
 //
-//  本直装器采用"下载预打补丁 PATCHED artifact"方案，不执行 install_profile.json 的 processors。
-//  原因：iOS 沙箱禁止 fork/exec，无法 spawn 子 JVM 执行 processor 工具（binarypatcher、
-//  jarsplitter、SpecialSource 等）。社区启动器在受限平台的通用做法是直接从 maven 下载
-//  Forge/NeoForge 已发布的预打补丁 client jar（如 forge-{mc}-{loader}-client.jar），
-//  这等同于 processor 的输出产物，运行时直接可用。
+//  新格式（Forge 1.13+）：参照 ZL2/HMCL 的 ForgeNewInstallTask，在本地执行
+//  install_profile.json 的 processors（binarypatcher、jarsplitter、
+//  ForgeAutoRenamingTool、installertools 等），生成 FML 运行必需的
+//  PATCHED / MC_SRG / MC_EXTRA artifact。processors 由进程内 headless JVM
+//  中的 ForgeProcessorRunner 执行（iOS 沙箱禁止 fork/exec，无法 spawn 子 JVM），
+//  共用核心见 ForgeProcessorExecutor。
 //
 //  JarJar（JarInJar）机制是运行期由 modlauncher 的 JarInJarDependencyLocator 处理，
 //  安装期无需任何 processor 介入。
@@ -21,6 +22,7 @@
 #import "utils.h"
 #import "LauncherPreferences.h"
 #import "MinecraftResourceUtils.h"
+#import "ForgeProcessorExecutor.h"
 #import "external/UnzipKit/UZKArchive.h"
 
 NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDomain";
@@ -620,45 +622,12 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
     }
     NSLog(@"[ForgeDirect] version.json parsed successfully");
 
+    // 注意：不再把 install_profile.libraries 合并进 version.json。
+    // profile 的 libraries 是安装期 processor 工具链（binarypatcher、jarsplitter、
+    // installertools、ASM 不同版本等）的依赖，仅供 ForgeProcessorExecutor 使用，
+    // 全部下载到 libraries/ 后由 processor 消费；合并进 version.json 会污染
+    // 运行期 classpath（与游戏依赖版本冲突），参照 ZL2/HMCL 均不合并。
     versionJson[@"id"] = versionId;
-
-    // Merge libraries from install_profile into versionJson (dedup by name)
-    NSLog(@"[ForgeDirect] Merging libraries");
-    NSArray *profileLibraries = installProfile[@"libraries"];
-    if ([profileLibraries isKindOfClass:[NSArray class]] && profileLibraries.count > 0) {
-        NSMutableArray *mergedLibraries = [NSMutableArray array];
-        NSMutableArray *existingNames = [NSMutableArray array];
-
-        NSArray *versionLibraries = versionJson[@"libraries"];
-        if ([versionLibraries isKindOfClass:[NSArray class]]) {
-            for (NSDictionary *lib in versionLibraries) {
-                [mergedLibraries addObject:lib];
-                if ([lib isKindOfClass:[NSDictionary class]]) {
-                    NSString *name = lib[@"name"];
-                    if ([name isKindOfClass:[NSString class]]) {
-                        [existingNames addObject:name];
-                    }
-                }
-            }
-        }
-
-        NSUInteger addedCount = 0;
-        NSUInteger skippedCount = 0;
-        for (NSDictionary *library in installProfile[@"libraries"]) {
-            if (![library isKindOfClass:[NSDictionary class]]) continue;
-            NSString *name = library[@"name"];
-            if (![name isKindOfClass:[NSString class]]) continue;
-            if ([existingNames containsObject:name]) {
-                skippedCount++;
-                continue;
-            }
-            [mergedLibraries addObject:library];
-            [existingNames addObject:name];
-            addedCount++;
-        }
-        NSLog(@"[ForgeDirect] Merged libraries: added %lu, skipped %lu duplicates", (unsigned long)addedCount, (unsigned long)skippedCount);
-        versionJson[@"libraries"] = mergedLibraries;
-    }
 
     // Prepare version directory
     // 版本 JSON 必须写入 POJAV_GAME_DIR/versions/（主目录），而非 profile gameDir。
@@ -685,36 +654,44 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
     reportProgress(0.3, @"正在下载缺失的依赖库");
     NSArray *allLibraries = versionJson[@"libraries"];
     if ([allLibraries isKindOfClass:[NSArray class]]) {
-        [self downloadMissingLibraries:allLibraries librariesDir:librariesDir progress:progress baseProgress:0.3 progressSpan:0.4];
+        [self downloadMissingLibraries:allLibraries librariesDir:librariesDir progress:progress baseProgress:0.3 progressSpan:0.2];
     }
 
-    // Step C: 关键步骤——下载预打补丁的 PATCHED artifact
-    // install_profile.json 的 processors 会生成 :client 这个 jar，但 iOS 不能跑 processor。
-    // Forge/NeoForge 已将这个预打补丁 jar 发布到 maven，直接下载即可。
-    NSLog(@"[ForgeDirect] Downloading pre-patched client artifact");
-    reportProgress(0.75, @"正在下载预打补丁的核心 jar");
-    NSString *mainPath = installProfile[@"path"];
-    // 兜底：path 字段缺失时用 version 字段拼接标准 Forge 坐标
-    if (![mainPath isKindOfClass:[NSString class]] || mainPath.length == 0) {
-        NSString *versionField = installProfile[@"version"];
-        if ([versionField isKindOfClass:[NSString class]] && versionField.length > 0) {
-            mainPath = [NSString stringWithFormat:@"net.minecraftforge:forge:%@", versionField];
-            NSLog(@"[ForgeDirect] path field missing, falling back to version field: %@", mainPath);
-        }
+    // Step C: 下载 install_profile.libraries（processor 工具链依赖）
+    // processor 的 jar 与 classpath 全部来自这份清单，必须先就位
+    NSLog(@"[ForgeDirect] Downloading processor libraries");
+    reportProgress(0.5, @"正在下载安装工具链依赖");
+    NSArray *processorLibraries = installProfile[@"libraries"];
+    if ([processorLibraries isKindOfClass:[NSArray class]] && processorLibraries.count > 0) {
+        [self downloadMissingLibraries:processorLibraries librariesDir:librariesDir progress:progress baseProgress:0.5 progressSpan:0.05];
     }
-    if ([mainPath isKindOfClass:[NSString class]] && mainPath.length > 0) {
-        if (![self downloadPatchedArtifact:mainPath librariesDir:librariesDir error:error]) {
-            NSLog(@"[ForgeDirect] Failed to download patched artifact");
-            return NO;
-        }
-    } else {
-        // path 是 Forge 1.13+ 运行核心依赖，缺失会导致启动时 ClassNotFoundException
-        NSLog(@"[ForgeDirect] install_profile.json missing path/version fields, cannot download patched client jar");
+
+    // Step D: 关键步骤——执行 install_profile processors 生成 PATCHED / MC_SRG 等 artifact
+    // 参照 ZL2/HMCL ForgeNewInstallTask：processor 在本地 headless JVM 中执行，
+    // 生成 FML 运行必需的 :client（PATCHED）、:srg（MC_SRG）、:extra（MC_EXTRA）jar。
+    // 之前"直接从 maven 下载预打补丁 jar"的方案是错的——官方 maven 从未发布过
+    // 这些 processor 输出产物（实测 client/universal classifier 均 404）。
+    NSString *minecraftVersion = [versionJson[@"inheritsFrom"] isKindOfClass:[NSString class]] ? versionJson[@"inheritsFrom"] : nil;
+    if (minecraftVersion.length == 0) {
+        NSLog(@"[ForgeDirect] version.json missing inheritsFrom, cannot run processors");
         if (error) {
             *error = [NSError errorWithDomain:ForgeDirectInstallerErrorDomain
                                          code:ForgeDirectInstallerErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: @"install_profile.json 缺少 path 和 version 字段，无法定位预打补丁核心 jar"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: @"version.json 缺少 inheritsFrom 字段，无法确定原版版本"}];
         }
+        return NO;
+    }
+    NSLog(@"[ForgeDirect] Running processors for Minecraft %@", minecraftVersion);
+    reportProgress(0.55, @"正在执行安装处理器");
+    if (![ForgeProcessorExecutor runProcessorsWithProfile:installProfile
+                                             installerPath:installerPath
+                                          minecraftVersion:minecraftVersion
+                                                mainGameDir:[self gameDirectory]
+                                               baseProgress:0.55
+                                              progressSpan:0.3
+                                                   progress:progress
+                                                      error:error]) {
+        NSLog(@"[ForgeDirect] Processor execution failed");
         return NO;
     }
 
@@ -1077,112 +1054,6 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
     }
     // 从官方源失败，尝试 BMCLAPI 镜像
     return [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/%@", relativePath];
-}
-
-// 下载预打补丁的 PATCHED artifact
-// mainPath 格式："net.minecraftforge:forge:1.20.1-47.3.0"
-// 对应 maven 上的 :client classifier jar：
-//   官方源: https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.3.0/forge-1.20.1-47.3.0-client.jar
-//   BMCLAPI: https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/1.20.1-47.3.0/forge-1.20.1-47.3.0-client.jar
-+ (BOOL)downloadPatchedArtifact:(NSString *)mainPath librariesDir:(NSString *)librariesDir error:(NSError **)error {
-    // 拆分 maven 坐标
-    NSArray *parts = [mainPath componentsSeparatedByString:@":"];
-    if (parts.count < 3) {
-        if (error) {
-            *error = [NSError errorWithDomain:ForgeDirectInstallerErrorDomain
-                                         code:ForgeDirectInstallerErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Invalid main path: %@", mainPath]}];
-        }
-        return NO;
-    }
-
-    NSString *groupId = parts[0];
-    NSString *artifactId = parts[1];
-    NSString *version = parts[2];
-
-    NSString *groupPath = [groupId stringByReplacingOccurrencesOfString:@"." withString:@"/"];
-
-    // 参照 FCL/HMCL：尝试多个 classifier。
-    // 实测 Forge maven（如 1.21.11-61.0.x）通常只发布 -universal（HTTP 200），
-    // -client 和无 classifier 均 404。早期 Forge（1.7-1.12）也主要用 -universal。
-    // 调整顺序为 universal -> client -> 无 classifier，优先尝试成功率最高的 universal，
-    // 避免先尝试必定 404 的 client 浪费时间（每次 404 仍需等待响应）。
-    NSArray *classifiers = @[@"universal", @"client", @""];
-    NSString *downloadSource = getPrefObject(@"general.download_source");
-    BOOL useBMCLAPI = [downloadSource isEqualToString:@"bmclapi"];
-
-    // 源 URL 构造：官方源 + BMCLAPI + HMCL 镜像
-    // 注意：腾讯云镜像（mirrors.cloud.tencent.com/maven）不镜像 Forge/NeoForge maven，
-    // 之前作为 fallback 是错误配置，已替换为 HMCL 镜像（mirror.hua-u.me）。
-    NSMutableArray *baseURLs = [NSMutableArray array];
-    if ([groupId hasPrefix:@"net.neoforged"]) {
-        if (useBMCLAPI) {
-            [baseURLs addObject:@"https://bmclapi2.bangbang93.com/maven"];
-            [baseURLs addObject:@"https://maven.neoforged.net/releases"];
-        } else {
-            [baseURLs addObject:@"https://maven.neoforged.net/releases"];
-            [baseURLs addObject:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-    } else {
-        if (useBMCLAPI) {
-            [baseURLs addObject:@"https://bmclapi2.bangbang93.com/maven"];
-            [baseURLs addObject:@"https://maven.minecraftforge.net"];
-        } else {
-            [baseURLs addObject:@"https://maven.minecraftforge.net"];
-            [baseURLs addObject:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-    }
-    // HMCL 镜像作为最后兜底（国内可用性较好，且镜像了 Forge maven）
-    if ([groupId hasPrefix:@"net.neoforged"]) {
-        [baseURLs addObject:@"https://mirror.hua-u.me/neoforge"];
-    } else {
-        [baseURLs addObject:@"https://mirror.hua-u.me/forge"];
-    }
-
-    NSError *lastError = nil;
-    NSString *firstTriedURL = nil;
-    for (NSString *classifier in classifiers) {
-        NSString *jarName;
-        if (classifier.length > 0) {
-            jarName = [NSString stringWithFormat:@"%@-%@-%@.jar", artifactId, version, classifier];
-        } else {
-            jarName = [NSString stringWithFormat:@"%@-%@.jar", artifactId, version];
-        }
-        NSString *relativePath = [NSString stringWithFormat:@"%@/%@/%@/%@", groupPath, artifactId, version, jarName];
-        NSString *destPath = [librariesDir stringByAppendingPathComponent:relativePath];
-
-        // 已存在则跳过
-        if ([NSFileManager.defaultManager fileExistsAtPath:destPath]) {
-            NSLog(@"[ForgeDirect] Patched artifact already exists: %@", destPath);
-            return YES;
-        }
-
-        for (NSString *baseURL in baseURLs) {
-            NSString *url = [NSString stringWithFormat:@"%@/%@", baseURL, relativePath];
-            if (firstTriedURL == nil) firstTriedURL = url;
-            NSLog(@"[ForgeDirect] Trying classifier=%@ source=%@", classifier, url);
-            NSError *downloadError = nil;
-            if ([self downloadFileFromURL:url toPath:destPath error:&downloadError]) {
-                NSLog(@"[ForgeDirect] Patched artifact downloaded: %@ (classifier=%@)", destPath, classifier);
-                return YES;
-            }
-            // 下载失败：清理可能的部分文件，避免下次误判已存在
-            [NSFileManager.defaultManager removeItemAtPath:destPath error:nil];
-            lastError = downloadError;
-            NSLog(@"[ForgeDirect] Failed: %@ (%@)", url, downloadError.localizedDescription ?: @"Unknown error");
-        }
-    }
-
-    if (error) {
-        *error = [NSError errorWithDomain:ForgeDirectInstallerErrorDomain
-                                     code:ForgeDirectInstallerErrorExtractionFailed
-                                 userInfo:@{
-                                     NSLocalizedDescriptionKey: [NSString stringWithFormat:@"下载预打补丁核心 jar 失败\n主源 URL: %@\n已尝试 classifier: client/universal/无\n已尝试源: 官方/BMCLAPI/HMCL镜像\n最后错误: %@",
-                                         firstTriedURL ?: @"未知",
-                                         lastError.localizedDescription ?: @"未知错误"]
-                                 }];
-    }
-    return NO;
 }
 
 // 安全创建目录：若路径上存在同名普通文件（之前安装失败残留），先删除再创建。

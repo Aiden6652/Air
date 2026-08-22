@@ -34,6 +34,8 @@
 #import "installer/ForgeInstallViewController.h"
 #import "installer/ForgeDirectInstaller.h"
 #import "installer/NeoForgeDirectInstaller.h"
+#import "installer/ForgeProcessorExecutor.h"
+#import "PLCrashView.h"
 #import "installer/NeoForgeVersionFetcher.h"
 #import "installer/ModLoaderInstallViewController.h"
 #import "LauncherNavigationController.h"
@@ -3866,6 +3868,18 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         // 导致"已安装的版本"列表不刷新、新版本卡片不显示、加载器图标也不显示。
         // 此处统一在安装完成后发通知，触发 LauncherRootViewController / VersionManagerViewController 等监听者重新加载版本列表。
         [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
+        // Forge/NeoForge 直装在本进程执行过 processors（headless JVM），进程内 JVM
+        // 只能创建一次，直接启动游戏会崩溃，必须重启 app 释放后再玩。
+        if ([ForgeProcessorExecutor jvmUsedThisProcess]) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"需要重启启动器"
+                                                                           message:@"安装已完成。\n本次安装使用了 Java 运行时，直接启动游戏会导致崩溃。\n请重启启动器以释放 Java 运行时。"
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"立即重启" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                [PLCrashView restartLauncher];
+            }]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"稍后手动重启" style:UIAlertActionStyleCancel handler:nil]];
+            [strongSelf presentViewController:alert animated:YES completion:nil];
+        }
     });
 }
 

@@ -303,6 +303,7 @@ add_executable(AngelAuraAmethyst
   installer/ForgeInstallSchemeViewController.m
   installer/ForgeDirectInstaller.m
   installer/NeoForgeDirectInstaller.m
+  installer/ForgeProcessorExecutor.m
   installer/ModpackInstallViewController.m
   installer/ModLoaderInstallViewController.m
   installer/FabricUtils.m
