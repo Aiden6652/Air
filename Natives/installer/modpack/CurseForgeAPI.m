@@ -725,8 +725,10 @@ static NSString *CFAMirrorResolvedURL(NSString *urlString) {
 // 此处不再维护 API 侧的整合包解包双轨逻辑（modpackDependencyInfoFromManifest:/
 // fileForProjectID:fileID:/filesByFileID:/submitDownloadTasksFromPackage: 已删除）。
 
-- (NSMutableDictionary *)projectForFileHash:(NSString *)murmurHash projectType:(NSString *)projectType {
-    if (!murmurHash || murmurHash.length == 0) return nil;
+- (NSMutableDictionary *)projectForFileHash:(NSNumber *)fingerprint projectType:(NSString *)projectType {
+    // 修复：本方法接收的是 MurmurHash2 指纹数字（由 CurseForgeMurmurHash 对文件计算得到），
+    // 原签名接收 NSString 且内部 [murmurHash longLongValue]，调用方传入文件路径时恒为 0，永不命中
+    if (![fingerprint isKindOfClass:[NSNumber class]]) return nil;
     NSString *urlStr = [NSString stringWithFormat:@"%@/fingerprints/%ld", self.baseURL, (long)kCurseForgeGameIDMinecraft];
     NSURL *url = [NSURL URLWithString:urlStr];
     if (!url) return nil;
@@ -734,7 +736,7 @@ static NSString *CFAMirrorResolvedURL(NSString *urlString) {
     request.HTTPMethod = @"POST";
     [request setValue:[self apiKey] forHTTPHeaderField:@"x-api-key"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    NSDictionary *body = @{@"fingerprints": @[@([murmurHash longLongValue])]};
+    NSDictionary *body = @{@"fingerprints": @[fingerprint]};
     NSError *jsonError = nil;
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:body options:0 error:&jsonError];
     if (jsonError) return nil;
@@ -747,11 +749,16 @@ static NSString *CFAMirrorResolvedURL(NSString *urlString) {
             NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
             NSArray *exactMatches = [json isKindOfClass:NSDictionary.class] ? json[@"data"][@"exactMatches"] : nil;
             if ([exactMatches isKindOfClass:NSArray.class] && exactMatches.count > 0) {
-                NSDictionary *match = exactMatches[0];
-                result = [NSMutableDictionary dictionary];
-                result[@"id"] = [match[@"id"] stringValue];
-                result[@"fileId"] = [match[@"file"][@"id"] stringValue];
-                result[@"name"] = match[@"name"];
+                NSDictionary *match = [exactMatches[0] isKindOfClass:NSDictionary.class] ? exactMatches[0] : nil;
+                NSDictionary *file = [match[@"file"] isKindOfClass:NSDictionary.class] ? match[@"file"] : nil;
+                if (file) {
+                    result = [NSMutableDictionary dictionary];
+                    // 修复：exactMatches[].id 是文件 ID 而非项目 ID，项目 ID 必须取 file.modId，
+                    // 否则后续 mods/{id}/files 拉版本列表会查错项目
+                    result[@"id"] = [file[@"modId"] stringValue];
+                    result[@"fileId"] = [file[@"id"] stringValue];
+                    result[@"name"] = file[@"displayName"];
+                }
             }
         }
         dispatch_semaphore_signal(sem);
@@ -787,10 +794,14 @@ static NSString *CFAMirrorResolvedURL(NSString *urlString) {
             if ([exactMatches isKindOfClass:NSArray.class]) {
                 for (NSDictionary *match in exactMatches) {
                     if (![match isKindOfClass:NSDictionary.class]) continue;
+                    NSDictionary *file = [match[@"file"] isKindOfClass:[NSDictionary class]] ? match[@"file"] : nil;
+                    if (!file) continue;
                     NSMutableDictionary *item = [NSMutableDictionary dictionary];
-                    item[@"id"] = [match[@"id"] stringValue];
-                    item[@"fileId"] = [match[@"file"][@"id"] stringValue];
-                    item[@"name"] = match[@"name"];
+                    // 修复：与 projectForFileHash 一致，项目 ID 取 file.modId（exactMatches[].id 是文件 ID），
+                    // 名称取 file.displayName（顶层无 name 字段）
+                    item[@"id"] = [file[@"modId"] stringValue];
+                    item[@"fileId"] = [file[@"id"] stringValue];
+                    item[@"name"] = file[@"displayName"];
                     [results addObject:item];
                 }
             }

@@ -2,224 +2,184 @@
 //  DataPacksManagerViewController.m
 //  Amethyst
 //
-//  数据包管理视图控制器实现，参照 ModsManagerViewController
-//  使用 DataPackService 进行本地扫描与下载
-//  使用 AssetVersionViewController 进行在线版本选择
-//  使用 ModrinthAPI 进行在线搜索（projectType=datapack）
-//  提示：iOS 上无法选择世界，下载到 <gameDir>/datapacks/，需手动移动到 saves/<世界名>/datapacks/
+//  数据包管理视图控制器实现（继承 ResourceListViewController 基类）
+//  使用 DataPackService 进行本地扫描、启用/禁用与删除
+//  在线下载入口已移至统一下载界面：空状态提供"去下载"引导按钮
+//  提示：iOS 上无法选择世界，数据包位于 <gameDir>/datapacks/，需手动移动到 saves/<世界名>/datapacks/
 //
 
 #import "DataPacksManagerViewController.h"
 #import "DataPackService.h"
 #import "DataPackItem.h"
-#import "AssetVersionViewController.h"
-#import "ModVersion.h"
-#import "installer/modpack/ModrinthAPI.h"
-#import "PLProfiles.h"
-#import "LauncherPreferences.h"
-#import "BackgroundManager.h"
+#import "ResourceCardTableViewCell.h"
+#import "DownloadViewController.h"
+#import "utils.h"
 
-@interface DataPacksManagerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, AssetVersionViewControllerDelegate, UIDocumentPickerDelegate>
+#pragma mark - 数据包卡片 Cell（继承 Air-Design 卡片基类，本文件内轻量子类）
 
-@property (nonatomic, strong) UISegmentedControl *modeSwitcher;
-@property (nonatomic, strong) UISearchBar *searchBar;
-@property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) UIActivityIndicatorView *activityIndicator;
-@property (nonatomic, strong) UILabel *emptyLabel;
+@interface DataPackCardCell : ResourceCardTableViewCell
+/// 启用/禁用开关回调（VC 在 cellForRow 中设置，参数为触发开关的 cell）
+@property (nonatomic, copy, nullable) void (^toggleHandler)(DataPackCardCell *cell);
+@end
+
+@implementation DataPackCardCell
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        // 开关事件统一挂在 cell 自身（只挂一次），避免复用时重复 addTarget
+        [self.toggleSwitch addTarget:self action:@selector(internalSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+    }
+    return self;
+}
+
+- (void)internalSwitchChanged:(UISwitch *)sender {
+    if (self.toggleHandler) self.toggleHandler(self);
+}
+
+- (void)configureWithDataPack:(DataPackItem *)item {
+    NSString *title = item.displayName.length > 0 ? item.displayName : item.fileName;
+    // 副标题：pack_format（无则回退文件名）
+    NSString *subtitle = item.packFormat ? [NSString stringWithFormat:localize(@"resman.common.pack_format", nil), item.packFormat] : item.fileName;
+    // 元信息：数据包描述
+    NSString *detail = item.dataPackDescription.length > 0 ? item.dataPackDescription : nil;
+
+    [self configureWithIcon:@"doc.text.fill"
+                  iconColor:[UIColor systemTealColor]
+                      title:title
+                   subtitle:subtitle
+                     detail:detail];
+
+    // 启用/禁用开关（.disabled 后缀切换）
+    self.toggleSwitch.hidden = NO;
+    [self.toggleSwitch setOn:!item.disabled animated:NO];
+    self.contentView.alpha = item.disabled ? 0.5 : 1.0;
+}
+
+@end
+
+#pragma mark - 视图控制器
+
+@interface DataPacksManagerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, UIDocumentPickerDelegate>
+
 @property (nonatomic, strong) UIBarButtonItem *refreshButton;
 @property (nonatomic, strong) UIBarButtonItem *importButton;
-@property (nonatomic, strong) UILabel *tipLabel;
 
 @property (nonatomic, strong) NSMutableArray<DataPackItem *> *localItems;
 @property (nonatomic, strong) NSMutableArray<DataPackItem *> *filteredLocalItems;
-@property (nonatomic, strong, nullable) DataPackItem *pendingDownloadItem;
+
+// 顶部提示横幅（saves/<世界名>/datapacks/ 说明），作为 tableHeaderView 展示
+@property (nonatomic, strong) UIView *tipHeaderView;
+@property (nonatomic, assign) CGFloat lastTipHeaderWidth;
+
+// 首屏连锁进场动画只播一次
+@property (nonatomic, assign) BOOL didPlayChainAnimation;
 
 @end
 
 @implementation DataPacksManagerViewController
 
+#pragma mark - Init
+
+- (instancetype)init {
+    // 接入资源列表基类：标题 + 数据包类型语义色图标（teal / doc.text.fill）
+    // 兼容既有调用方 [[DataPacksManagerViewController alloc] init] 的创建方式
+    return [super initWithTitle:localize(@"resman.datapacks.title", nil) resourceTypeIcon:@"doc.text.fill" iconColor:[UIColor systemTealColor]];
+}
+
+#pragma mark - Lifecycle
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"管理数据包";
-    self.view.backgroundColor = [UIColor systemBackgroundColor];
-    // 适配自定义启动器背景：透明化当前 VC，让全局背景图/毛玻璃透出
-    [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
-    self.currentMode = self.initialMode;
+    // 在线下载入口已移至下载界面：固定本地模式（currentMode 等属性保留仅为兼容 .h 既有声明）
+    self.currentMode = DataPacksManagerModeLocal;
     self.localItems = [NSMutableArray array];
     self.filteredLocalItems = [NSMutableArray array];
     self.onlineSearchResults = [NSMutableArray array];
-    [self setupUI];
-    // 修复"前一个页面没有及时消失"：给 view 添加毛玻璃遮挡层，
-    // 防止 push 转场时透出栈底 ProfileSettingsViewController 的内容
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    // 透明化 tableView 背景与 backgroundView，避免遮挡全局背景
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-    [self updateUIForCurrentMode];
-    if (self.currentMode == DataPacksManagerModeLocal) {
-        [self refreshLocalList];
-    }
-    // 监听背景效果变化通知，背景切换时重新应用透明效果
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(reapplyBackgroundEffect)
-                                                 name:@"BackgroundUIEffectChanged"
-                                               object:nil];
-}
 
-/// 背景效果变化时重新应用透明化处理，确保背景切换后仍透出全局背景
-- (void)reapplyBackgroundEffect {
-    // 重新透明化当前 VC
-    [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
-    // 重新应用 view 毛玻璃遮挡层
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    // 重新设置 tableView 背景为透明，确保背景效果切换后仍透出全局背景
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-    // 重新应用 searchBar 透明化效果（毛玻璃↔半透明切换后输入框背景需刷新）
-    [[BackgroundManager sharedManager] applyEffectToSearchBar:self.searchBar];
-    // 重新加载 cell，让每个 cell 重新应用 applyEffectToCell:（毛玻璃/半透明）
-    [self.tableView reloadData];
-}
-
-- (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated];
-    // 修复"前一个页面没有及时消失"：
-    // viewDidLoad 时 self.view.bounds 可能为 zero，applyEffectToView: 插入的 blurView
-    // frame 为 zero，push 转场第一帧无法遮挡栈底 VersionManagerViewController 的卡片。
-    // 在 viewWillAppear 中重新应用（此时 bounds 已正确），确保转场前遮挡到位。
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-}
-
-- (void)dealloc {
-    // 移除背景效果变化通知的观察者，避免 dealloc 后收到通知导致野指针崩溃
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-}
-
-- (void)setupUI {
-    self.modeSwitcher = [[UISegmentedControl alloc] initWithItems:@[@"本地数据包", @"在线搜索 (Modrinth)"]];
-    self.modeSwitcher.translatesAutoresizingMaskIntoConstraints = NO;
-    self.modeSwitcher.selectedSegmentIndex = self.currentMode;
-    [self.modeSwitcher addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
-    [self.view addSubview:self.modeSwitcher];
-
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectZero];
-    self.searchBar.translatesAutoresizingMaskIntoConstraints = NO;
+    // 搜索栏（基类构建）：只搜本地
     self.searchBar.delegate = self;
-    self.searchBar.placeholder = @"搜索本地数据包...";
-    // 适配自定义启动器背景：透明化 searchBar 默认不透明背景，让全局背景图/毛玻璃透出
-    [[BackgroundManager sharedManager] applyEffectToSearchBar:self.searchBar];
-    [self.view addSubview:self.searchBar];
+    self.searchBar.placeholder = localize(@"resman.datapacks.search_placeholder", nil);
 
-    // 提示标签：iOS 上需手动移动数据包到对应世界目录
-    self.tipLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    self.tipLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.tipLabel.text = @"提示：数据包需放在 saves/<世界名>/datapacks/ 才生效。下载的数据包默认放在通用 datapacks 目录，请手动移动到对应世界目录。";
-    self.tipLabel.font = [UIFont systemFontOfSize:11];
-    self.tipLabel.textColor = [UIColor systemOrangeColor];
-    self.tipLabel.numberOfLines = 0;
-    self.tipLabel.textAlignment = NSTextAlignmentCenter;
-    self.tipLabel.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    self.tipLabel.layer.cornerRadius = 6;
-    self.tipLabel.clipsToBounds = YES;
-    [self.view addSubview:self.tipLabel];
-
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
-    self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"DataPackCell"];
+    // 列表（基类构建）：注册卡片 Cell + 下拉刷新
+    [self.tableView registerClass:[DataPackCardCell class] forCellReuseIdentifier:@"DataPackCardCell"];
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
-    self.tableView.rowHeight = 64;
-    self.tableView.tableFooterView = [UIView new];
-    [self.view addSubview:self.tableView];
+    self.tableView.rowHeight = 84;
 
     UIRefreshControl *rc = [UIRefreshControl new];
     [rc addTarget:self action:@selector(handleRefresh:) forControlEvents:UIControlEventValueChanged];
     self.tableView.refreshControl = rc;
 
-    self.activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
-    self.activityIndicator.translatesAutoresizingMaskIntoConstraints = NO;
-    self.activityIndicator.hidesWhenStopped = YES;
-    [self.view addSubview:self.activityIndicator];
-
-    self.emptyLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyLabel.textAlignment = NSTextAlignmentCenter;
-    self.emptyLabel.textColor = [UIColor secondaryLabelColor];
-    self.emptyLabel.numberOfLines = 0;
-    self.emptyLabel.hidden = YES;
-    [self.view addSubview:self.emptyLabel];
-
+    // 导航按钮：左侧关闭，右侧导入 + 刷新
+    UIBarButtonItem *closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeTapped)];
     self.refreshButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(handleRefresh:)];
     UIImage *importImage = [UIImage systemImageNamed:@"square.and.arrow.down"] ?: [UIImage systemImageNamed:@"plus"];
     self.importButton = [[UIBarButtonItem alloc] initWithImage:importImage style:UIBarButtonItemStylePlain target:self action:@selector(importTapped)];
-    self.importButton.accessibilityLabel = @"导入数据包";
-
-    [self updateNavigationButtons];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [self.modeSwitcher.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8],
-        [self.modeSwitcher.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:16],
-        [self.modeSwitcher.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
-
-        [self.searchBar.topAnchor constraintEqualToAnchor:self.modeSwitcher.bottomAnchor constant:8],
-        [self.searchBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.searchBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-
-        [self.tipLabel.topAnchor constraintEqualToAnchor:self.searchBar.bottomAnchor constant:4],
-        [self.tipLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:8],
-        [self.tipLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-8],
-
-        [self.tableView.topAnchor constraintEqualToAnchor:self.tipLabel.bottomAnchor constant:4],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
-        [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-
-        [self.activityIndicator.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
-        [self.activityIndicator.centerYAnchor constraintEqualToAnchor:self.tableView.centerYAnchor],
-
-        [self.emptyLabel.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
-        [self.emptyLabel.centerYAnchor constraintEqualToAnchor:self.tableView.centerYAnchor],
-        [self.emptyLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.view.leadingAnchor constant:16],
-        [self.emptyLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.view.trailingAnchor constant:-16],
-    ]];
-}
-
-- (void)modeChanged:(UISegmentedControl *)sender {
-    self.currentMode = (DataPacksManagerMode)sender.selectedSegmentIndex;
-    [self.searchBar resignFirstResponder];
-    self.searchBar.text = @"";
-    [self.onlineSearchResults removeAllObjects];
-    [self filterLocalItems];
-    [self.tableView reloadData];
-    [self updateUIForCurrentMode];
-}
-
-- (void)updateUIForCurrentMode {
-    if (self.currentMode == DataPacksManagerModeLocal) {
-        self.searchBar.placeholder = @"搜索本地数据包...";
-        self.emptyLabel.text = @"未发现数据包";
-        self.emptyLabel.hidden = self.localItems.count > 0;
-    } else {
-        self.searchBar.placeholder = @"在线搜索 Modrinth...";
-        self.emptyLabel.text = @"输入关键词进行在线搜索";
-        self.emptyLabel.hidden = self.onlineSearchResults.count > 0;
-    }
-    self.tableView.refreshControl.enabled = YES;
-    [self updateNavigationButtons];
-    [self.tableView reloadData];
-}
-
-- (void)updateNavigationButtons {
-    UIBarButtonItem *closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeTapped)];
-    if (self.currentMode == DataPacksManagerModeLocal) {
-        self.navigationItem.rightBarButtonItems = @[self.importButton, self.refreshButton];
-    } else {
-        self.navigationItem.rightBarButtonItems = nil;
-    }
+    self.importButton.accessibilityLabel = localize(@"resman.datapacks.import", nil);
     self.navigationItem.leftBarButtonItem = closeButton;
+    self.navigationItem.rightBarButtonItems = @[self.importButton, self.refreshButton];
+
+    // 顶部提示横幅（保留既有提示文案）
+    [self setupTipHeaderView];
+
+    [self refreshLocalList];
 }
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    // tableView 宽度确定/变化（首次布局、旋转）时重算提示横幅高度
+    CGFloat width = CGRectGetWidth(self.tableView.bounds);
+    if (width > 0 && fabs(width - self.lastTipHeaderWidth) > 0.5) {
+        self.lastTipHeaderWidth = width;
+        [self fitTipHeaderToWidth:width];
+    }
+}
+
+#pragma mark - 顶部提示横幅
+
+- (void)setupTipHeaderView {
+    // 数据包目录说明横幅：轻量卡片样式（半透明基底 + 0.5pt 描边 + 10pt 圆角）
+    UIView *container = [[UIView alloc] init];
+    container.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.06];
+    container.layer.cornerRadius = 10.0;
+    container.layer.cornerCurve = kCACornerCurveContinuous;
+    container.layer.borderWidth = 0.5;
+    container.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.10].CGColor;
+    container.clipsToBounds = YES;
+
+    UILabel *tipLabel = [[UILabel alloc] init];
+    tipLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    tipLabel.font = [UIFont systemFontOfSize:11];
+    tipLabel.textColor = [UIColor systemOrangeColor];
+    tipLabel.textAlignment = NSTextAlignmentCenter;
+    tipLabel.numberOfLines = 0;
+    tipLabel.text = localize(@"resman.datapacks.tip", nil);
+    [container addSubview:tipLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [tipLabel.topAnchor constraintEqualToAnchor:container.topAnchor constant:8],
+        [tipLabel.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:10],
+        [tipLabel.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-10],
+        [tipLabel.bottomAnchor constraintEqualToAnchor:container.bottomAnchor constant:-8],
+    ]];
+    self.tipHeaderView = container;
+}
+
+- (void)fitTipHeaderToWidth:(CGFloat)width {
+    if (width <= 0 || !self.tipHeaderView) return;
+    // 临时宽度约束用于自适应计算高度，算完即移除
+    NSLayoutConstraint *widthConstraint = [self.tipHeaderView.widthAnchor constraintEqualToConstant:width];
+    widthConstraint.active = YES;
+    CGSize size = [self.tipHeaderView systemLayoutSizeFittingSize:UILayoutFittingCompressedSize];
+    widthConstraint.active = NO;
+    CGRect frame = CGRectMake(0, 0, width, ceil(size.height));
+    if (!CGRectEqualToRect(self.tipHeaderView.frame, frame)) {
+        self.tipHeaderView.frame = frame;
+        self.tableView.tableHeaderView = self.tipHeaderView;
+    }
+}
+
+#pragma mark - 关闭
 
 - (void)closeTapped {
     // 兼容两种容器：
@@ -238,14 +198,14 @@
     NSError *dirError = nil;
     NSString *dir = [[DataPackService sharedService] ensureDataPacksFolderForProfile:self.profileName error:&dirError];
     if (!dir) {
-        [self showSimpleAlertWithTitle:@"无法导入" message:dirError.localizedDescription ?: @"无法确定 datapacks 目录"];
+        [self showSimpleAlertWithTitle:localize(@"resman.common.cannot_import", nil) message:dirError.localizedDescription ?: localize(@"resman.datapacks.dir_not_found", nil)];
         return;
     }
 
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.zip", @"public.item"] inMode:UIDocumentPickerModeImport];
     picker.allowsMultipleSelection = YES;
     picker.delegate = self;
-    picker.title = @"选择数据包文件";
+    picker.title = localize(@"resman.datapacks.picker_title", nil);
     [self presentViewController:picker animated:YES completion:nil];
 }
 
@@ -255,7 +215,7 @@
     NSError *dirError = nil;
     NSString *dir = [[DataPackService sharedService] ensureDataPacksFolderForProfile:self.profileName error:&dirError];
     if (!dir) {
-        [self showSimpleAlertWithTitle:@"导入失败" message:dirError.localizedDescription ?: @"无法确定 datapacks 目录"];
+        [self showSimpleAlertWithTitle:localize(@"resman.common.import_failed", nil) message:dirError.localizedDescription ?: localize(@"resman.datapacks.dir_not_found", nil)];
         return;
     }
 
@@ -288,7 +248,7 @@
     [self refreshLocalList];
 
     if (failedFiles.count > 0) {
-        [self showSimpleAlertWithTitle:[NSString stringWithFormat:@"导入完成（%ld 成功，%ld 失败）", (long)successCount, (long)failedFiles.count]
+        [self showSimpleAlertWithTitle:[NSString stringWithFormat:localize(@"resman.common.import_result", nil), (long)successCount, (long)failedFiles.count]
                                message:[failedFiles componentsJoinedByString:@"\n"]];
     }
 }
@@ -296,32 +256,10 @@
 #pragma mark - 数据加载
 
 - (void)handleRefresh:(id)sender {
-    if (self.currentMode == DataPacksManagerModeLocal) {
-        [self refreshLocalList];
-    } else {
-        if (self.searchBar.text.length > 0) {
-            [self performOnlineSearch];
-        } else {
-            [self.tableView.refreshControl endRefreshing];
-        }
-    }
-}
-
-- (void)setLoading:(BOOL)loading {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (loading) {
-            self.emptyLabel.hidden = YES;
-            [self.activityIndicator startAnimating];
-        } else {
-            [self.activityIndicator stopAnimating];
-            [self.tableView.refreshControl endRefreshing];
-        }
-    });
+    [self refreshLocalList];
 }
 
 - (void)refreshLocalList {
-    if (self.currentMode != DataPacksManagerModeLocal) return;
-
     [self setLoading:YES];
     NSString *profile = self.profileName ?: @"default";
     [[DataPackService sharedService] scanDataPacksForProfile:profile completion:^(NSArray<DataPackItem *> *items) {
@@ -330,88 +268,30 @@
             [self.localItems addObjectsFromArray:items];
             [self filterLocalItems];
             [self setLoading:NO];
+            [self.tableView.refreshControl endRefreshing];
+            // 首屏连锁进场动画（Air-Design 15.3）：只播一次
+            if (!self.didPlayChainAnimation && self.filteredLocalItems.count > 0) {
+                self.didPlayChainAnimation = YES;
+                [self animateCellsInChain];
+            }
         });
     }];
 }
 
-- (void)performOnlineSearch {
-    NSString *searchText = self.searchBar.text;
-    if (searchText.length == 0) return;
-
-    [self setLoading:YES];
-    [self.onlineSearchResults removeAllObjects];
-    [self.tableView reloadData];
-
-    NSString *gameVersion = nil;
-    [self resolveCurrentGameVersion:&gameVersion];
-
-    NSMutableDictionary *filters = [NSMutableDictionary dictionary];
-    filters[@"name"] = searchText;
-    filters[@"projectType"] = @"datapack";
-    if (gameVersion.length > 0) {
-        filters[@"mcVersion"] = gameVersion;
-    }
-
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSMutableArray *results = [[ModrinthAPI sharedInstance] searchModWithFilters:filters previousPageResult:nil];
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (results) {
-                [self.onlineSearchResults addObjectsFromArray:results];
-            }
-            [self setLoading:NO];
-            self.emptyLabel.hidden = self.onlineSearchResults.count > 0;
-            if (self.onlineSearchResults.count == 0) {
-                self.emptyLabel.text = @"未找到在线结果";
-            }
-            [self.tableView reloadData];
-        });
-    });
-}
-
-- (void)resolveCurrentGameVersion:(NSString **)outGameVersion {
-    if (outGameVersion) *outGameVersion = nil;
-    NSDictionary *selectedProfile = PLProfiles.current.selectedProfile;
-    NSString *lastVersionId = selectedProfile[@"lastVersionId"];
-    if (![lastVersionId isKindOfClass:[NSString class]] || lastVersionId.length == 0) return;
-
-    NSArray<NSString *> *loaders = @[@"forge", @"fabric", @"neoforge", @"quilt"];
-    for (NSString *name in loaders) {
-        NSString *delimiter = [NSString stringWithFormat:@"-%@-", name];
-        NSRange range = [lastVersionId rangeOfString:delimiter];
-        if (range.location != NSNotFound) {
-            if (outGameVersion) *outGameVersion = [lastVersionId substringToIndex:range.location];
-            return;
-        }
-    }
-    if (outGameVersion) *outGameVersion = lastVersionId;
-}
-
-#pragma mark - UISearchBarDelegate
+#pragma mark - 搜索与空状态
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
-    if (self.currentMode == DataPacksManagerModeLocal) {
-        [self filterLocalItems];
-    }
+    [self filterLocalItems];
 }
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
-    if (self.currentMode == DataPacksManagerModeOnline) {
-        [self performOnlineSearch];
-    }
 }
 
 - (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
     searchBar.text = @"";
     [searchBar resignFirstResponder];
-    if (self.currentMode == DataPacksManagerModeLocal) {
-        [self filterLocalItems];
-    } else {
-        [self.onlineSearchResults removeAllObjects];
-        [self.tableView reloadData];
-        [self updateUIForCurrentMode];
-    }
+    [self filterLocalItems];
 }
 
 - (void)filterLocalItems {
@@ -427,89 +307,93 @@
             }
         }
     }
-    self.emptyLabel.hidden = self.filteredLocalItems.count > 0;
-    if (!self.emptyLabel.hidden) {
-        self.emptyLabel.text = @"未找到本地数据包";
-    }
     [self.tableView reloadData];
+    [self updateEmptyState];
+}
+
+- (void)updateEmptyState {
+    if (self.filteredLocalItems.count > 0) {
+        [self hideEmptyState];
+        return;
+    }
+    if (self.localItems.count == 0) {
+        // 目录为空：类型图标 + "去下载"引导（跳转统一下载界面）
+        [self showEmptyStateWithIcon:nil
+                           iconColor:nil
+                             message:localize(@"resman.datapacks.empty", nil)
+                        actionTitle:localize(@"resman.common.go_download", nil)
+                      actionHandler:^{
+                          [self openDownloadPage];
+                      }];
+    } else {
+        // 搜索无结果：不放引导按钮
+        [self showEmptyStateWithIcon:@"magnifyingglass"
+                           iconColor:[UIColor secondaryLabelColor]
+                             message:localize(@"resman.datapacks.search_empty", nil)
+                        actionTitle:nil
+                      actionHandler:nil];
+    }
+}
+
+#pragma mark - 跳转统一下载界面
+
+- (void)openDownloadPage {
+    // 在线下载入口已收敛到统一下载界面（未区分资源类型 Tab，进入默认页）
+    DownloadViewController *downloadVC = [[DownloadViewController alloc] init];
+    if (self.navigationController) {
+        [self.navigationController pushViewController:downloadVC animated:YES];
+    } else {
+        // 无导航栈（旧 present 路径）时全屏弹出
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:downloadVC];
+        nav.modalPresentationStyle = UIModalPresentationFullScreen;
+        [self presentViewController:nav animated:YES completion:nil];
+    }
 }
 
 #pragma mark - UITableView DataSource & Delegate
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.currentMode == DataPacksManagerModeLocal ? self.filteredLocalItems.count : self.onlineSearchResults.count;
+    return self.filteredLocalItems.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"DataPackCell" forIndexPath:indexPath];
-    cell.accessoryView = nil;
-    cell.accessoryType = UITableViewCellAccessoryNone;
-    cell.imageView.image = [UIImage systemImageNamed:@"shippingbox.fill"];
-    cell.imageView.tintColor = [UIColor systemPurpleColor];
-
-    if (self.currentMode == DataPacksManagerModeLocal) {
-        DataPackItem *item = self.filteredLocalItems[indexPath.row];
-        cell.textLabel.text = item.displayName ?: item.fileName;
-        NSMutableArray<NSString *> *parts = [NSMutableArray array];
-        if (item.packFormat) {
-            [parts addObject:[NSString stringWithFormat:@"格式 %@", item.packFormat]];
-        }
-        if (item.dataPackDescription.length > 0) {
-            [parts addObject:item.dataPackDescription];
-        }
-        cell.detailTextLabel.text = parts.count > 0 ? [parts componentsJoinedByString:@" · "] : item.fileName;
-        cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-        cell.contentView.alpha = item.disabled ? 0.5 : 1.0;
-
-        UISwitch *switchView = [[UISwitch alloc] init];
-        switchView.tag = indexPath.row;
-        [switchView setOn:!item.disabled animated:NO];
-        [switchView addTarget:self action:@selector(toggleSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView = switchView;
-    } else {
-        NSDictionary *data = self.onlineSearchResults[indexPath.row];
-        cell.textLabel.text = data[@"title"] ?: @"";
-        cell.detailTextLabel.text = data[@"description"] ?: @"";
-        cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-
-        UIButton *downloadButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        [downloadButton setTitle:@"下载" forState:UIControlStateNormal];
-        downloadButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
-        downloadButton.tag = indexPath.row;
-        [downloadButton addTarget:self action:@selector(downloadButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
-        downloadButton.contentEdgeInsets = UIEdgeInsetsMake(4, 8, 4, 8);
-        cell.accessoryView = downloadButton;
-    }
-    // 适配自定义启动器背景：为 cell 注入毛玻璃/半透明效果
-    [[BackgroundManager sharedManager] applyEffectToCell:cell];
+    DataPackCardCell *cell = [tableView dequeueReusableCellWithIdentifier:@"DataPackCardCell" forIndexPath:indexPath];
+    DataPackItem *item = self.filteredLocalItems[indexPath.row];
+    __weak typeof(self) weakSelf = self;
+    cell.toggleHandler = ^(DataPackCardCell *toggleCell) {
+        [weakSelf handleToggleOnCell:toggleCell];
+    };
+    [cell configureWithDataPack:item];
     return cell;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    // 卡片间距（Air-Design space-sm）：顶部留白 + 卡片之间留白
+    return ResourceListCardSpacing;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    return [ResourceListViewController cardSpacingHeaderView];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (self.currentMode == DataPacksManagerModeOnline) {
-        [self startVersionSelectionForOnlineRow:indexPath.row];
-    }
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (self.currentMode != DataPacksManagerModeLocal) {
-        return nil;
-    }
-
     __weak typeof(self) weakSelf = self;
-    UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
+    UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:localize(@"resman.common.delete", nil) handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
         DataPackItem *item = weakSelf.filteredLocalItems[indexPath.row];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认删除"
-                                                                        message:[NSString stringWithFormat:@"确定要删除 %@ 吗？", item.displayName ?: item.fileName]
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"resman.common.confirm_delete", nil)
+                                                                        message:[NSString stringWithFormat:localize(@"resman.common.delete_message", nil), item.displayName ?: item.fileName]
                                                                  preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
             completionHandler(NO);
         }]];
-        [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.delete", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
             NSError *error = nil;
             if (![[DataPackService sharedService] deleteDataPack:item error:&error]) {
-                [weakSelf showSimpleAlertWithTitle:@"删除失败" message:error.localizedDescription];
+                [weakSelf showSimpleAlertWithTitle:localize(@"resman.common.delete_failed", nil) message:error.localizedDescription];
                 completionHandler(NO);
                 return;
             }
@@ -530,97 +414,26 @@
 
 #pragma mark - 本地启用/禁用切换
 
-- (void)toggleSwitchChanged:(UISwitch *)sender {
-    NSInteger row = sender.tag;
-    if (row >= (NSInteger)self.filteredLocalItems.count) return;
-    DataPackItem *item = self.filteredLocalItems[row];
+- (void)handleToggleOnCell:(DataPackCardCell *)cell {
+    NSIndexPath *indexPath = [self.tableView indexPathForCell:cell];
+    if (!indexPath || indexPath.row >= (NSInteger)self.filteredLocalItems.count) return;
+    DataPackItem *item = self.filteredLocalItems[indexPath.row];
     NSError *error = nil;
     if (![[DataPackService sharedService] toggleEnableForDataPack:item error:&error]) {
-        sender.on = !sender.on;
-        [self showSimpleAlertWithTitle:@"操作失败" message:error.localizedDescription];
+        // 失败时恢复开关状态
+        [cell.toggleSwitch setOn:!cell.toggleSwitch.on animated:NO];
+        [self showSimpleAlertWithTitle:localize(@"resman.common.operation_failed", nil) message:error.localizedDescription];
     } else {
-        NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
-        UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:ip];
+        // 禁用态半透明提示
         cell.contentView.alpha = item.disabled ? 0.5 : 1.0;
     }
-}
-
-#pragma mark - 在线下载
-
-- (void)downloadButtonTapped:(UIButton *)sender {
-    [self startVersionSelectionForOnlineRow:sender.tag];
-}
-
-- (void)startVersionSelectionForOnlineRow:(NSInteger)row {
-    if (row >= (NSInteger)self.onlineSearchResults.count) return;
-    NSDictionary *data = self.onlineSearchResults[row];
-
-    DataPackItem *item = [[DataPackItem alloc] initWithOnlineData:data];
-    self.pendingDownloadItem = item;
-
-    AssetVersionViewController *vc = [[AssetVersionViewController alloc] init];
-    vc.assetType = AssetVersionTypeDataPack;
-    vc.projectID = item.onlineID;
-    vc.projectDisplayName = item.displayName;
-    vc.delegate = self;
-    [self.navigationController pushViewController:vc animated:YES];
-}
-
-#pragma mark - AssetVersionViewControllerDelegate
-
-- (void)assetVersionViewController:(AssetVersionViewController *)viewController didSelectVersion:(ModVersion *)version {
-    DataPackItem *item = self.pendingDownloadItem;
-    if (!item) return;
-
-    NSDictionary *primaryFile = version.primaryFile;
-    if (!primaryFile || ![primaryFile[@"url"] isKindOfClass:[NSString class]]) {
-        [self showSimpleAlertWithTitle:@"错误" message:@"未找到有效的下载链接。"];
-        return;
-    }
-    item.selectedVersionDownloadURL = primaryFile[@"url"];
-    item.fileName = primaryFile[@"filename"];
-    // spec Task 5.1 收尾：版本模型（复用 ModVersion）primaryFile hashes.sha1 接到下载调用
-    NSDictionary *hashes = [primaryFile[@"hashes"] isKindOfClass:[NSDictionary class]] ? primaryFile[@"hashes"] : nil;
-    NSString *sha1 = [hashes[@"sha1"] isKindOfClass:[NSString class]] ? hashes[@"sha1"] : nil;
-    item.fileSHA1 = (sha1.length > 0) ? sha1 : nil;
-
-    [self startDownloadForItem:item];
-}
-
-- (void)startDownloadForItem:(DataPackItem *)item {
-    // redesign-download-ui Task 6.3：下载进度统一由 DataPackService 注册的
-    // DownloadTaskManager 任务 + 统一进度页（autoPresentDetail 自动弹出）展示，
-    // 不再弹"正在下载" alert（无进度的转圈弹窗会与统一进度页模态冲突）。
-    [[DataPackService sharedService] downloadDataPack:item
-                                            toProfile:self.profileName
-                                            worldName:nil
-                                         expectedSHA1:item.fileSHA1
-                                             progress:nil
-                                           completion:^(BOOL success, NSError * _Nullable error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (!success || error) {
-                [self showSimpleAlertWithTitle:@"下载失败" message:error.localizedDescription ?: @"未知错误"];
-            } else {
-                UIAlertController *successAlert = [UIAlertController alertControllerWithTitle:@"下载成功"
-                                                                                      message:[NSString stringWithFormat:@"%@ 已下载到通用 datapacks 目录。\n请手动移动到对应世界目录（saves/<世界名>/datapacks/）。", item.displayName]
-                                                                               preferredStyle:UIAlertControllerStyleAlert];
-                [successAlert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-                    self.pendingDownloadItem = nil;
-                    [self.modeSwitcher setSelectedSegmentIndex:0];
-                    [self modeChanged:self.modeSwitcher];
-                    [self refreshLocalList];
-                }]];
-                [self presentViewController:successAlert animated:YES completion:nil];
-            }
-        });
-    }];
 }
 
 #pragma mark - 工具方法
 
 - (void)showSimpleAlertWithTitle:(NSString *)title message:(NSString *)message {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.ok", nil) style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 

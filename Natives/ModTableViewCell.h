@@ -1,4 +1,16 @@
+//
+//  ModTableViewCell.h
+//  Amethyst
+//
+//  Mod 卡片 Cell（继承 ResourceCardTableViewCell，Air-Design L2 标准卡片）
+//  卡片背景 / 圆角 / 阴影 / 图标容器 / 文字层级 / accessory 插槽均由基类提供，
+//  本类只负责：Mod 专属图标（jar 内嵌图标 / 加载器品牌图标）、
+//  ModItem 内容配置、启用开关、更新徽章与在线模式按钮。
+//
+
 #import <UIKit/UIKit.h>
+#import "ResourceCardTableViewCell.h"
+
 @class ModItem;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -16,31 +28,19 @@ typedef NS_ENUM(NSInteger, ModTableViewCellDisplayMode) {
 - (void)modCellDidTapDownload:(UITableViewCell *)cell;
 @end
 
-@interface ModTableViewCell : UITableViewCell
-
-// --- UI Elements ---
-@property (nonatomic, strong) UIImageView *modIconView;
-@property (nonatomic, strong) UILabel *nameLabel;
-@property (nonatomic, strong) UILabel *modVersionLabel;
-@property (nonatomic, strong) UILabel *gameVersionLabel;
-@property (nonatomic, strong) UILabel *authorLabel; // For online author
-@property (nonatomic, strong) UILabel *descLabel;
-@property (nonatomic, strong) UILabel *statsLabel; // For downloads, likes, etc.
-@property (nonatomic, strong) UILabel *categoryLabel; // For categories
-@property (nonatomic, strong) UIStackView *loaderBadgesStackView; // Container for loader icons
-
-// --- Action Buttons ---
-@property (nonatomic, strong) UISwitch *enableSwitch;
-@property (nonatomic, strong) UIButton *downloadButton; // For online mode
-@property (nonatomic, strong) UIButton *openLinkButton;
-
-@property (nonatomic, weak) id<ModTableViewCellDelegate> delegate;
+@interface ModTableViewCell : ResourceCardTableViewCell
 
 // --- Configuration ---
 - (void)configureWithMod:(ModItem *)mod displayMode:(ModTableViewCellDisplayMode)mode;
 
 // --- State Updates ---
+/// 同步启用开关状态（disabled=YES 时开关关闭且卡片内容降透明度）
 - (void)updateToggleState:(BOOL)disabled;
+
+/// 显示/隐藏更新徽章（arrow.up.circle.fill accent 色，由管理页检测更新后传入）
+- (void)setUpdateAvailable:(BOOL)available;
+
+@property (nonatomic, weak) id<ModTableViewCellDelegate> delegate;
 
 @end
 

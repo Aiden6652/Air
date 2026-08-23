@@ -65,7 +65,8 @@ extern NSString *const CurseForgeResponseSnippetKey;
 
 // ========== 指纹反查 ==========
 /// 通过 MurmurHash2 文件指纹反查 CurseForge 项目（单个）
-- (nullable NSMutableDictionary *)projectForFileHash:(NSString *)murmurHash projectType:(NSString *)projectType;
+/// @param fingerprint CurseForge MurmurHash2 指纹（对文件过滤空白字节后计算，见 CurseForgeMurmurHash）
+- (nullable NSMutableDictionary *)projectForFileHash:(NSNumber *)fingerprint projectType:(NSString *)projectType;
 
 /// 批量指纹反查（用于批量更新检查）
 - (NSArray<NSMutableDictionary *> *)fileFingerprints:(NSArray<NSNumber *> *)fingerprints;

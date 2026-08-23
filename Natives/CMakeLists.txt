@@ -387,6 +387,10 @@ add_executable(AngelAuraAmethyst
   # Version card cell (used by DownloadViewController)
   VersionCardCell.m
 
+  # Resource management shared base classes (card cell + list VC, shared by the 6 resource managers)
+  ResourceCardTableViewCell.m
+  ResourceListViewController.m
+
   # Mod-related sources (ensure implementations are compiled and linked)
   MarqueeLabel.m
   ModItem.m
@@ -410,7 +414,6 @@ add_executable(AngelAuraAmethyst
   # Shader-related sources
   ShaderItem.m
   ShaderService.m
-  ShaderTableViewCell.m
   ShaderVersion.m
   ShaderVersionTableViewCell.m
   ShaderVersionViewController.m
@@ -424,6 +427,8 @@ add_executable(AngelAuraAmethyst
 
   # CurseForge MurmurHash2 fingerprint tool
   MurmurHash2.m
+  # CurseForge MurmurHash2 指纹便捷计算（mod 检测更新反查用，过滤空白字节后计算）
+  CurseForgeMurmurHash.m
 
   # Resource Pack / Data Pack / World management (services, items, version VC, manager VCs)
   ResourcePackItem.m
@@ -448,7 +453,6 @@ add_executable(AngelAuraAmethyst
 
   # Mod update service (dual-source SHA1/MurmurHash2 reverse lookup)
   ModUpdateService.m
-  ModUpdateViewController.m
 
   # Custom icon management sources
   CustomIconManager.m

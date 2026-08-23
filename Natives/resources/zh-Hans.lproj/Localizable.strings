@@ -782,3 +782,118 @@
 "taskProgress.errorDetail.underlying" = "底层错误：%1$@";
 "taskProgress.errorDetail.retry" = "已重试：%1$ld/%2$ld";
 "taskProgress.errorDetail.stage" = "当前阶段：%1$@";
+
+// 资源管理界面通用（redesign-resource-managers：六界面 + 基类共用）
+"resman.common.cancel" = "取消";
+"resman.common.delete" = "删除";
+"resman.common.ok" = "好";
+"resman.common.done" = "完成";
+"resman.common.select" = "选择";
+"resman.common.close" = "关闭";
+"resman.common.refresh" = "刷新";
+"resman.common.notice" = "提示";
+"resman.common.select_all" = "全选";
+"resman.common.deselect_all" = "取消全选";
+"resman.common.selected_count" = "已选 %ld 项";
+"resman.common.confirm_delete" = "确认删除";
+"resman.common.delete_message" = "确定要删除 %@ 吗？";
+"resman.common.delete_message_irreversible" = "确定要删除 %@ 吗？\n此操作无法撤销。";
+"resman.common.delete_failed" = "删除失败";
+"resman.common.operation_failed" = "操作失败";
+"resman.common.cannot_import" = "无法导入";
+"resman.common.import_failed" = "导入失败";
+"resman.common.import_result" = "导入完成（成功 %1$ld 个，失败 %2$ld 个）";
+"resman.common.go_download" = "去下载";
+"resman.common.enable" = "启用";
+"resman.common.disable" = "禁用";
+"resman.common.disabled_tag" = "已禁用";
+"resman.common.disabled_format" = "%@ · 已禁用";
+"resman.common.unknown_file" = "未知文件";
+"resman.common.unknown_error" = "未知错误";
+"resman.common.pack_format" = "格式 %@";
+"resman.common.batch_delete" = "批量删除";
+"resman.common.delete_complete_failures" = "删除完成，%ld 个失败";
+
+// Mod 管理
+"resman.mods.title" = "管理 Mod";
+"resman.mods.search_placeholder" = "搜索本地 Mod...";
+"resman.mods.import" = "导入 Mod";
+"resman.mods.check_update" = "检查更新";
+"resman.mods.filter.all" = "全部";
+"resman.mods.filter.enabled" = "已启用";
+"resman.mods.filter.disabled" = "已禁用";
+"resman.mods.sort.name" = "名称";
+"resman.mods.sort.modified" = "修改时间";
+"resman.mods.empty" = "还没有 Mod";
+"resman.mods.search_empty" = "没有匹配的 Mod";
+"resman.mods.none_selected" = "未选择任何 Mod";
+"resman.mods.no_local_for_update" = "没有本地 Mod 可检查更新。";
+"resman.mods.no_version_info" = "无法获取当前版本信息。";
+"resman.mods.processing" = "处理中...";
+"resman.mods.download" = "下载";
+"resman.mods.download_count" = "%@ 次下载";
+"resman.mods.dir_not_found" = "无法定位 mods 目录";
+"resman.mods.picker_title" = "选择 Mod 文件";
+"resman.mods.link_unavailable" = "链接不可用";
+"resman.mods.link_unavailable_message" = "该 Mod 没有可用的在线链接。";
+"resman.mods.batch.toggle_complete" = "批量%@完成";
+"resman.mods.batch.result_message" = "成功 %1$ld 个，失败 %2$ld 个。";
+"resman.mods.batch.delete_message" = "确定要删除已选的 %ld 个 Mod 吗？\n此操作无法撤销。";
+"resman.mods.update.all_latest" = "所有 Mod 均为最新版本";
+"resman.mods.update.all_latest_skipped" = "所有已识别的 Mod 均为最新版本\n（%ld 个无法识别已跳过）";
+"resman.mods.update.found_title" = "发现 %ld 个可更新";
+"resman.mods.update.update_all" = "全部更新";
+"resman.mods.update.latest" = "最新";
+"resman.mods.update.more_total" = "...共 %ld 项";
+"resman.mods.update.skipped_line" = "\n%ld 个 Mod 无法识别已跳过";
+"resman.mods.update.checking" = "正在检查更新...";
+"resman.mods.update.checking_progress" = "正在检查更新（%1$ld/%2$ld）";
+"resman.mods.update.downloading" = "正在下载更新（%1$ld/%2$ld）";
+"resman.mods.update.replacing" = "正在替换文件...";
+"resman.mods.update.failed_title" = "更新失败";
+"resman.mods.update.temp_dir_failed" = "无法创建临时目录：%@";
+"resman.mods.update.done_title" = "更新完成";
+"resman.mods.update.done_message" = "成功 %1$ld / 失败 %2$ld / 跳过 %3$ld";
+
+// 数据包管理
+"resman.datapacks.title" = "管理数据包";
+"resman.datapacks.search_placeholder" = "搜索本地数据包...";
+"resman.datapacks.import" = "导入数据包";
+"resman.datapacks.tip" = "提示：数据包需放入 saves/<世界>/datapacks/ 才能生效，请手动移动到目标世界目录。";
+"resman.datapacks.dir_not_found" = "无法定位 datapacks 目录";
+"resman.datapacks.picker_title" = "选择数据包文件";
+"resman.datapacks.empty" = "还没有数据包";
+"resman.datapacks.search_empty" = "没有匹配的数据包";
+
+// 资源包管理
+"resman.resourcepacks.title" = "管理资源包";
+"resman.resourcepacks.search_placeholder" = "搜索本地资源包...";
+"resman.resourcepacks.import" = "导入资源包";
+"resman.resourcepacks.dir_not_found" = "无法定位 resourcepacks 目录";
+"resman.resourcepacks.picker_title" = "选择资源包文件";
+"resman.resourcepacks.empty" = "还没有资源包";
+"resman.resourcepacks.search_empty" = "没有匹配的资源包";
+
+// 世界管理
+"resman.worlds.title" = "管理世界";
+"resman.worlds.search_placeholder" = "搜索本地世界...";
+"resman.worlds.import" = "导入世界";
+"resman.worlds.dir_not_found" = "无法定位 saves 目录";
+"resman.worlds.picker_title" = "选择世界 zip 文件";
+"resman.worlds.empty" = "还没有世界";
+"resman.worlds.search_empty" = "没有匹配的世界";
+"resman.worlds.last_played" = "上次游玩 %@";
+"resman.worlds.importing" = "正在导入";
+"resman.worlds.delete_message" = "确定要删除世界 %@ 吗？\n此操作无法撤销。";
+
+// 光影管理
+"resman.shaders.title" = "管理光影";
+"resman.shaders.search_placeholder" = "搜索本地光影...";
+"resman.shaders.import" = "导入光影";
+"resman.shaders.dir_not_found" = "无法定位 shaderpacks 目录";
+"resman.shaders.picker_title" = "选择光影包文件";
+"resman.shaders.empty" = "还没有光影包";
+"resman.shaders.search_empty" = "没有找到本地光影";
+"resman.shaders.none_selected" = "未选择任何光影";
+"resman.shaders.delete_selected" = "删除所选";
+"resman.shaders.batch_delete_message" = "确定要删除已选的 %ld 个光影包吗？\n此操作无法撤销。";

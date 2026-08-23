@@ -1221,7 +1221,6 @@
 - (void)openModsManager {
     ModsManagerViewController *vc = [[ModsManagerViewController alloc] init];
     vc.profileName = [self currentProfileName];
-    vc.initialMode = ModsManagerModeLocal;
     [self.navigationController pushViewController:vc animated:YES];
 }
 

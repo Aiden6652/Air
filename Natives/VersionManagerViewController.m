@@ -1645,7 +1645,6 @@ static NSInteger const kSectionVersions    = 1;
     }
     ModsManagerViewController *vc = [[ModsManagerViewController alloc] init];
     vc.profileName = self.selectedProfile;
-    vc.initialMode = ModsManagerModeLocal;
     [self.navigationController pushViewController:vc animated:YES];
 }
 

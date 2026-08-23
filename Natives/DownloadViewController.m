@@ -676,7 +676,10 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.isObservingProgress = NO;
 
     [self setupUI];
-    [self switchToTab:0];
+    // 初始 tab：默认 0（版本）；资源管理界面"去下载"引导跳转时会指定对应资源类型 tab
+    NSInteger initialTab = MIN(MAX(self.initialTabIndex, 0), 6);
+    self.tabSegment.selectedSegmentIndex = initialTab;
+    [self switchToTab:initialTab];
     [self loadVersionList];
 
     [[NSNotificationCenter defaultCenter] addObserver:self

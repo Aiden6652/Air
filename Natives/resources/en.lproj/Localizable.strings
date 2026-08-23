@@ -759,4 +759,119 @@
 "taskProgress.errorDetail.domainCode" = "Domain: %1$@ (code %2$ld)";
 "taskProgress.errorDetail.underlying" = "Underlying error: %1$@";
 "taskProgress.errorDetail.retry" = "Retried: %1$ld/%2$ld";
-"taskProgress.errorDetail.stage" = "Current stage: %1$@";
+"taskProgress.errorDetail.stage" = "Current stage: %@";
+
+// 资源管理界面通用（redesign-resource-managers：六界面 + 基类共用）
+"resman.common.cancel" = "Cancel";
+"resman.common.delete" = "Delete";
+"resman.common.ok" = "OK";
+"resman.common.done" = "Done";
+"resman.common.select" = "Select";
+"resman.common.close" = "Close";
+"resman.common.refresh" = "Refresh";
+"resman.common.notice" = "Notice";
+"resman.common.select_all" = "Select All";
+"resman.common.deselect_all" = "Deselect All";
+"resman.common.selected_count" = "%ld Selected";
+"resman.common.confirm_delete" = "Confirm Deletion";
+"resman.common.delete_message" = "Are you sure you want to delete %@?";
+"resman.common.delete_message_irreversible" = "Are you sure you want to delete %@?\nThis action cannot be undone.";
+"resman.common.delete_failed" = "Delete Failed";
+"resman.common.operation_failed" = "Operation Failed";
+"resman.common.cannot_import" = "Unable to Import";
+"resman.common.import_failed" = "Import Failed";
+"resman.common.import_result" = "Import finished (%1$ld succeeded, %2$ld failed)";
+"resman.common.go_download" = "Go to Downloads";
+"resman.common.enable" = "Enable";
+"resman.common.disable" = "Disable";
+"resman.common.disabled_tag" = "Disabled";
+"resman.common.disabled_format" = "%@ · Disabled";
+"resman.common.unknown_file" = "Unknown file";
+"resman.common.unknown_error" = "Unknown error";
+"resman.common.pack_format" = "Format %@";
+"resman.common.batch_delete" = "Batch Delete";
+"resman.common.delete_complete_failures" = "Delete finished, %ld failed";
+
+// Mod 管理
+"resman.mods.title" = "Manage Mods";
+"resman.mods.search_placeholder" = "Search local mods...";
+"resman.mods.import" = "Import Mods";
+"resman.mods.check_update" = "Check for Updates";
+"resman.mods.filter.all" = "All";
+"resman.mods.filter.enabled" = "Enabled";
+"resman.mods.filter.disabled" = "Disabled";
+"resman.mods.sort.name" = "Name";
+"resman.mods.sort.modified" = "Date Modified";
+"resman.mods.empty" = "No mods yet";
+"resman.mods.search_empty" = "No matching mods";
+"resman.mods.none_selected" = "No mods selected";
+"resman.mods.no_local_for_update" = "There are no local mods to check for updates.";
+"resman.mods.no_version_info" = "Unable to get the current version info.";
+"resman.mods.processing" = "Processing...";
+"resman.mods.download" = "Download";
+"resman.mods.download_count" = "%@ downloads";
+"resman.mods.dir_not_found" = "Unable to locate the mods directory";
+"resman.mods.picker_title" = "Select mod files";
+"resman.mods.link_unavailable" = "Link Unavailable";
+"resman.mods.link_unavailable_message" = "This mod has no available online link.";
+"resman.mods.batch.toggle_complete" = "Batch %@ Complete";
+"resman.mods.batch.result_message" = "%1$ld succeeded, %2$ld failed.";
+"resman.mods.batch.delete_message" = "Delete the %ld selected mods?\nThis action cannot be undone.";
+"resman.mods.update.all_latest" = "All mods are up to date";
+"resman.mods.update.all_latest_skipped" = "All recognized mods are up to date\n(%ld unrecognized and skipped)";
+"resman.mods.update.found_title" = "%ld mods can be updated";
+"resman.mods.update.update_all" = "Update All";
+"resman.mods.update.latest" = "Latest";
+"resman.mods.update.more_total" = "...%ld items in total";
+"resman.mods.update.skipped_line" = "\n%ld mods unrecognized and skipped";
+"resman.mods.update.checking" = "Checking for updates...";
+"resman.mods.update.checking_progress" = "Checking for updates (%1$ld/%2$ld)";
+"resman.mods.update.downloading" = "Downloading updates (%1$ld/%2$ld)";
+"resman.mods.update.replacing" = "Replacing files...";
+"resman.mods.update.failed_title" = "Update Failed";
+"resman.mods.update.temp_dir_failed" = "Unable to create a temporary directory: %@";
+"resman.mods.update.done_title" = "Update Complete";
+"resman.mods.update.done_message" = "%1$ld succeeded / %2$ld failed / %3$ld skipped";
+
+// 数据包管理
+"resman.datapacks.title" = "Manage Data Packs";
+"resman.datapacks.search_placeholder" = "Search local data packs...";
+"resman.datapacks.import" = "Import Data Packs";
+"resman.datapacks.tip" = "Tip: data packs must be placed under saves/<World>/datapacks/ to take effect. Move them into the target world directory manually.";
+"resman.datapacks.dir_not_found" = "Unable to locate the datapacks directory";
+"resman.datapacks.picker_title" = "Select data pack files";
+"resman.datapacks.empty" = "No data packs found";
+"resman.datapacks.search_empty" = "No matching data packs";
+
+// 资源包管理
+"resman.resourcepacks.title" = "Manage Resource Packs";
+"resman.resourcepacks.search_placeholder" = "Search local resource packs...";
+"resman.resourcepacks.import" = "Import Resource Packs";
+"resman.resourcepacks.dir_not_found" = "Unable to locate the resourcepacks directory";
+"resman.resourcepacks.picker_title" = "Select resource pack files";
+"resman.resourcepacks.empty" = "No resource packs found";
+"resman.resourcepacks.search_empty" = "No matching resource packs";
+
+// 世界管理
+"resman.worlds.title" = "Manage Worlds";
+"resman.worlds.search_placeholder" = "Search local worlds...";
+"resman.worlds.import" = "Import Worlds";
+"resman.worlds.dir_not_found" = "Unable to locate the saves directory";
+"resman.worlds.picker_title" = "Select world zip files";
+"resman.worlds.empty" = "No worlds found";
+"resman.worlds.search_empty" = "No matching worlds";
+"resman.worlds.last_played" = "Last played %@";
+"resman.worlds.importing" = "Importing";
+"resman.worlds.delete_message" = "Are you sure you want to delete the world %@?\nThis action cannot be undone.";
+
+// 光影管理
+"resman.shaders.title" = "Manage Shaders";
+"resman.shaders.search_placeholder" = "Search local shaders...";
+"resman.shaders.import" = "Import Shaders";
+"resman.shaders.dir_not_found" = "Unable to locate the shaderpacks directory";
+"resman.shaders.picker_title" = "Select shader pack files";
+"resman.shaders.empty" = "No shader packs yet";
+"resman.shaders.search_empty" = "No local shaders found";
+"resman.shaders.none_selected" = "No shaders selected";
+"resman.shaders.delete_selected" = "Delete Selected";
+"resman.shaders.batch_delete_message" = "Delete the %ld selected shader packs?\nThis action cannot be undone.";

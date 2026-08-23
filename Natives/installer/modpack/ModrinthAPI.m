@@ -259,7 +259,12 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
 
 - (NSMutableDictionary *)projectForFileHash:(NSString *)sha1 projectType:(NSString *)projectType {
     if (sha1.length == 0) return nil;
-    NSDictionary *response = [self getEndpoint:@"version_file" params:@{@"hash": sha1}];
+    // 修复：Modrinth 文件反查 API 要求 hash 作为路径参数（GET /v2/version_file/{sha1}?algorithm=sha1）。
+    // 原实现把 hash 放进 getEndpoint 的查询参数（生成 ?hash=xxx），该路由不存在，导致反查永远 404。
+    // 参照本类 loadDetailsOfMod 中 project/%@/version 的写法，把 sha1 拼进 endpoint 路径，
+    // algorithm=sha1 作为查询参数仍由 params 生成。
+    NSString *endpoint = [NSString stringWithFormat:@"version_file/%@", sha1];
+    NSDictionary *response = [self getEndpoint:endpoint params:@{@"algorithm": @"sha1"}];
     if (![response isKindOfClass:[NSDictionary class]]) return nil;
     
     NSMutableDictionary *result = [NSMutableDictionary new];

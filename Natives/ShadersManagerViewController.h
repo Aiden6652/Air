@@ -2,11 +2,11 @@
 //  ShadersManagerViewController.h
 //  Amethyst
 //
-//  Main view controller for managing shader packs
+//  光影管理界面（本地光影列表，接入 ResourceListViewController 基类）
 //
 
 #import <UIKit/UIKit.h>
-#import "ShaderVersionViewController.h"
+#import "ResourceListViewController.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -15,16 +15,14 @@ typedef NS_ENUM(NSInteger, ShadersManagerMode) {
     ShadersManagerModeOnline
 };
 
-@interface ShadersManagerViewController : UIViewController
+@interface ShadersManagerViewController : ResourceListViewController
 
+/// 目标 profile（nil 时按 default 扫描 shaderpacks 目录）
 @property (nonatomic, copy, nullable) NSString *profileName;
 
-// Initial mode - set before presenting to start in online mode
+/// 初始模式：保留以兼容既有调用方赋值；
+/// 在线下载入口已移至统一下载界面，本界面始终为本地模式
 @property (nonatomic, assign) ShadersManagerMode initialMode;
-
-// Properties for online search
-@property (nonatomic, assign) ShadersManagerMode currentMode;
-@property (nonatomic, strong) NSMutableArray *onlineSearchResults;
 
 @end
 
