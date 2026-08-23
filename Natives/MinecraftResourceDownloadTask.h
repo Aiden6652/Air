@@ -37,6 +37,12 @@ extern NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier;
 
 - (void)finishDownloadWithErrorString:(NSString *)error;
 
+/// 取消整个下载流程（redesign-download-ui Phase 3）：
+/// 供 DownloadTaskManager.cancelRawTask: 通过 respondsToSelector:@selector(cancel)
+/// 调用——统一进度页的取消按钮取消任务时，取消内部 NSProgress 以中断流程，
+/// KVO 观察到 cancelled 后按既有路径收尾（置 Cancelled 状态并移除观察者）。
+- (void)cancel;
+
 - (void)downloadVersion:(NSDictionary *)version;
 - (void)downloadModpackFromAPI:(ModpackAPI *)api detail:(NSDictionary *)modDetail atIndex:(NSUInteger)selectedVersion;
 

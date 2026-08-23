@@ -1,5 +1,4 @@
 #import "AFNetworking.h"
-#import "MinecraftResourceDownloadTask.h"
 #import "ModpackAPI.h"
 #import "utils.h"
 
@@ -20,10 +19,6 @@
 - (NSMutableArray *)searchModWithFilters:(NSDictionary<NSString *, NSString *> *)searchFilters previousPageResult:(NSMutableArray *)prevResult {
     [self doesNotRecognizeSelector:_cmd];
     return nil;
-}
-
-- (void)downloader:(MinecraftResourceDownloadTask *)downloader submitDownloadTasksFromPackage:(NSString *)packagePath toPath:(NSString *)destPath {
-    [self doesNotRecognizeSelector:_cmd];
 }
 
 - (id)getEndpoint:(NSString *)endpoint params:(NSDictionary *)params {

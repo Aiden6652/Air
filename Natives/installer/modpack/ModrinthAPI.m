@@ -1,20 +1,23 @@
-#import "MinecraftResourceDownloadTask.h"
 #import "ModrinthAPI.h"
-#import "PLProfiles.h"
-#import "ModpackUtils.h"
-#import "UZKArchive.h"
-#import "installer/ForgeDirectInstaller.h"
-#import "installer/NeoForgeDirectInstaller.h"
-#import "MCIMMirror.h"
+#import "PLMirrorCenter.h"
+
+/// 经 PLMirrorCenter 按资源下载（AssetDownload）策略应用镜像
+/// （Modrinth CDN 文件 → MCIM 镜像），URL 为空或无法解析时回退原始字符串
+static NSString *MRAMirrorResolvedURL(NSString *urlString) {
+    if (![urlString isKindOfClass:[NSString class]] || urlString.length == 0) return urlString;
+    NSURL *resolved = [PLMirrorCenter preferredURLForOriginalURL:[NSURL URLWithString:urlString]
+                                                    resourceType:PLMirrorResourceTypeAssetDownload];
+    return resolved.absoluteString ?: urlString;
+}
 
 @implementation ModrinthAPI
 
 @dynamic reachedLastPage, lastError;
 
-/// 重写 baseURL getter，根据 MCIMMirror 偏好动态返回官方或镜像 URL
-/// 这样所有使用 self.baseURL 的请求（搜索/版本列表/详情）都会自动走镜像
+/// 重写 baseURL getter，根据 PLMirrorCenter 的资源搜索（AssetSearch）策略
+/// 动态返回官方或 MCIM 镜像 URL，这样所有使用 self.baseURL 的请求（搜索/版本列表/详情）都会自动走镜像
 - (NSString *)baseURL {
-    return [MCIMMirror modrinthAPIBaseURL];
+    return [PLMirrorCenter modrinthAPIBaseURL];
 }
 
 + (instancetype)sharedInstance {
@@ -201,7 +204,7 @@
             [names addObject:version[@"name"] ?: @"Unknown"];
             NSArray *gameVersions = version[@"game_versions"];
             [mcNames addObject:[gameVersions isKindOfClass:[NSArray class]] ? gameVersions.firstObject : @""];
-            [urls addObject:[MCIMMirror applyToURL:file[@"url"] ?: @""]];
+            [urls addObject:MRAMirrorResolvedURL(file[@"url"] ?: @"")];
             NSDictionary *hashesMap = file[@"hashes"];
             [hashes addObject:hashesMap[@"sha1"] ?: @""];
             [sizes addObject:file[@"size"] ?: @0];
@@ -229,7 +232,7 @@
     if ([file isKindOfClass:[NSDictionary class]]) {
         NSString *url = file[@"url"];
         if ([url isKindOfClass:[NSString class]] && url.length > 0) {
-            return [MCIMMirror applyToURL:url];
+            return MRAMirrorResolvedURL(url);
         }
     }
     return @"";
@@ -265,7 +268,7 @@
     result[@"projectType"] = projectType ?: @"mod";
     result[@"version"] = response[@"version_number"] ?: @"";
     result[@"fileName"] = response[@"filename"] ?: @"";
-    result[@"downloadUrl"] = [MCIMMirror applyToURL:[response[@"files"] firstObject][@"url"]] ?: @"";
+    result[@"downloadUrl"] = MRAMirrorResolvedURL([response[@"files"] firstObject][@"url"]) ?: @"";
     return result;
 }
 
@@ -606,171 +609,9 @@
     [task resume];
 }
 
-#pragma mark - 整合包下载 (完整处理)
-
-- (void)downloader:(MinecraftResourceDownloadTask *)downloader
-submitDownloadTasksFromPackage:(NSString *)packagePath
-            toPath:(NSString *)destPath {
-    NSError *error;
-    UZKArchive *archive = [[UZKArchive alloc] initWithPath:packagePath error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to open modpack package: %@", error.localizedDescription]];
-        return;
-    }
-    
-    NSData *indexData = [archive extractDataFromFile:@"modrinth.index.json" error:&error];
-    NSDictionary *indexDict = [NSJSONSerialization JSONObjectWithData:indexData options:kNilOptions error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to parse modrinth.index.json: %@", error.localizedDescription]];
-        return;
-    }
-    
-    NSArray *indexFiles = [indexDict[@"files"] isKindOfClass:[NSArray class]] ? indexDict[@"files"] : @[];
-    downloader.progress.totalUnitCount = indexFiles.count;
-    NSUInteger skippedEmptyURL = 0;
-    NSUInteger skippedServerOnly = 0;
-    for (NSDictionary *indexFile in indexFiles) {
-        if (![indexFile isKindOfClass:[NSDictionary class]]) {
-            downloader.progress.completedUnitCount++;
-            continue;
-        }
-        // env 字段过滤：与 ModpackImportService 一致，跳过 env.client=="unsupported" 的服务端专用文件。
-        NSDictionary *env = indexFile[@"env"];
-        NSString *clientEnv = env[@"client"];
-        if ([clientEnv isKindOfClass:[NSString class]] && [clientEnv isEqualToString:@"unsupported"]) {
-            skippedServerOnly++;
-            downloader.progress.completedUnitCount++;
-            NSLog(@"[ModrinthAPI] Skipping server-only file: %@", indexFile[@"path"]);
-            continue;
-        }
-        NSString *rawUrl = [indexFile[@"downloads"] isKindOfClass:[NSArray class]] ? [indexFile[@"downloads"] firstObject] : nil;
-        // 应用 MCIM 镜像（如果启用），加速国内整合包文件下载
-        NSString *url = [MCIMMirror applyToURL:rawUrl];
-        NSString *sha = indexFile[@"hashes"][@"sha1"];
-        NSString *path = [destPath stringByAppendingPathComponent:indexFile[@"path"]];
-        NSUInteger size = [indexFile[@"fileSize"] unsignedLongLongValue];
-        // 关键修复：URL 为空时不能静默 completedUnitCount++ 跳过，否则用户不会感知缺失，
-        // 但又没有可下载的链接。改为记录警告并推进进度（避免卡死），但不视为致命错误。
-        // 阶段5修复（参照 FCL）：同时将缺失 URL 的文件记入 failedFiles，最终汇总报告
-        // 给用户，避免"下载不完全"问题被静默隐藏。
-        if (!url || ![url isKindOfClass:[NSString class]] || url.length == 0) {
-            skippedEmptyURL++;
-            downloader.progress.completedUnitCount++;
-            NSLog(@"[ModrinthAPI] Warning: Modrinth file %@ missing download URL, skipping", indexFile[@"path"]);
-            @synchronized(downloader.failedFiles) {
-                [downloader.failedFiles addObject:@{
-                    @"name": indexFile[@"path"] ?: @"(unknown)",
-                    @"error": @"缺少 download URL（modrinth.index.json 中 downloads 为空）"
-                }];
-            }
-            continue;
-        }
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:url size:size sha:sha altName:nil toPath:path];
-        if (task) {
-            [downloader.fileList addObject:indexFile[@"path"]];
-            [task resume];
-        } else if (!downloader.progress.cancelled) {
-            downloader.progress.completedUnitCount++;
-        } else {
-            return;
-        }
-    }
-    if (skippedEmptyURL > 0 || skippedServerOnly > 0) {
-        NSLog(@"[ModrinthAPI] Modpack download: skipped %lu empty URLs, %lu server-only files", (unsigned long)skippedEmptyURL, (unsigned long)skippedServerOnly);
-    }
-    
-    [ModpackUtils archive:archive extractDirectory:@"overrides" toPath:destPath error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract overrides: %@", error.localizedDescription]];
-        return;
-    }
-    
-    [ModpackUtils archive:archive extractDirectory:@"client-overrides" toPath:destPath error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract client-overrides: %@", error.localizedDescription]];
-        return;
-    }
-    
-    [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
-
-    NSDictionary<NSString *, NSString *> *depInfo = [ModpackUtils infoForDependencies:indexDict[@"dependencies"]];
-    NSString *profileName = indexDict[@"name"] ?: destPath.lastPathComponent;
-    NSString *gameDirRelative = [NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent];
-    NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
-    NSString *iconBase64 = [NSString stringWithFormat:@"data:image/png;base64,%@",
-                            [[NSData dataWithContentsOfFile:tmpIconPath] base64EncodedStringWithOptions:0]];
-
-    // 立即设置 profile，确保整合包安装后能从 profile 列表中看到（即使加载器安装失败）
-    PLProfiles.current.profiles[profileName] = @{
-        @"gameDir": gameDirRelative,
-        @"name": profileName,
-        @"lastVersionId": depInfo[@"id"] ?: @"",
-        @"icon": iconBase64
-    }.mutableCopy;
-    PLProfiles.current.selectedProfileName = profileName;
-
-    if (depInfo[@"json"]) {
-        // Fabric/Quilt：直接下载 version JSON 并触发版本完整下载
-        NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("POJAV_GAME_DIR"), depInfo[@"id"]];
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:0 sha:nil altName:nil toPath:jsonPath success:^{
-            [downloader downloadVersion:@{@"id": depInfo[@"id"]}];
-        }];
-        [task resume];
-    } else if (depInfo[@"installer"] && [(NSString *)depInfo[@"installer"] length] > 0) {
-        // Forge/NeoForge：下载 installer.jar 并调用直装器写入完整的 version.json + 下载库
-        // 之前不处理这个分支会导致整合包安装后只设置 profile 但不下载版本 JSON，
-        // 启动时报"找不到版本信息"。
-        NSString *versionId = depInfo[@"id"];
-        NSString *loader = depInfo[@"loader"];
-        NSString *customGameDir = destPath;  // 整合包隔离目录（mods/saves/configs）
-        NSString *installerPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
-                                   [NSString stringWithFormat:@"%@-installer.jar", versionId]];
-
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"installer"]
-                                                                   size:0 sha:nil altName:nil
-                                                                 toPath:installerPath success:^{
-            // 直装器是同步且耗时的，放到后台线程执行，避免阻塞主线程
-            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-                NSError *installError = nil;
-                BOOL installSuccess = NO;
-                if ([loader isEqualToString:@"NeoForge"]) {
-                    installSuccess = [NeoForgeDirectInstaller installNeoForgeFromInstaller:installerPath
-                                                                                  versionId:versionId
-                                                                              customGameDir:customGameDir
-                                                                        skipRegisterVersion:YES
-                                                                                   progress:nil
-                                                                                     error:&installError];
-                } else {
-                    installSuccess = [ForgeDirectInstaller installForgeFromInstaller:installerPath
-                                                                           versionId:versionId
-                                                                       customGameDir:customGameDir
-                                                                 skipRegisterVersion:YES
-                                                                            progress:nil
-                                                                               error:&installError];
-                }
-                // 清理临时 installer.jar
-                [NSFileManager.defaultManager removeItemAtPath:installerPath error:nil];
-                if (!installSuccess) {
-                    NSLog(@"[ModrinthAPI] %@ direct install failed: %@", loader, installError.localizedDescription);
-                    // 写入占位 JSON，启动时显式报错而非误装作 vanilla
-                    [ModpackUtils writePlaceholderVersionJSONForVersionId:versionId
-                                                          minecraftVersion:depInfo[@"minecraftVersion"]
-                                                                    loader:loader
-                                                            loaderVersion:depInfo[@"loaderVersion"]
-                                                                     error:installError];
-                } else {
-                    NSLog(@"[ModrinthAPI] %@ direct install succeeded, version.json written: %@", loader, versionId);
-                    // 阶段5修复（参照 FCL ModpackHelper.ensureCompleteVersion）：
-                    // 直装器只写入了 loader 的 version.json + Forge/NeoForge 库，
-                    // 但原版 MC 的 libraries 和 assets 还没下载。
-                    // 触发 downloadVersion: 让 MinecraftResourceDownloadTask 下载完整版本文件。
-                    // downloadVersion: 内部会处理 inheritsFrom，对已存在的文件自动跳过。
-                    [downloader downloadVersion:@{@"id": versionId}];
-                }
-            });
-        }];
-        [task resume];
-    }
-}
+// Task 5.10：在线整合包下载路径统一——zip 下载完成后由
+// MinecraftResourceDownloadTask.importDownloadedModpackPackage:detail: 复用
+// ModpackImportService 统一导入（解析/解压/依赖下载/加载器/游戏文件/profile），
+// 此处不再维护 API 侧的整合包解包双轨逻辑。
 
 @end

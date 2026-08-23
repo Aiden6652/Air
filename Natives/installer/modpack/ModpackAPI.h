@@ -14,7 +14,8 @@
 - (void)loadDetailsOfMod:(NSMutableDictionary *)item;
 
 - (void)installModpackFromDetail:(NSDictionary *)modDetail atIndex:(NSUInteger)selectedVersion;
-- (void)downloader:(MinecraftResourceDownloadTask *)downloader submitDownloadTasksFromPackage:(NSString *)packagePath toPath:(NSString *)destPath;
+// Task 5.10：在线整合包下载已统一走 ModpackImportService 导入流程，
+// submitDownloadTasksFromPackage:toPath: 已删除。
 
 - (id)getEndpoint:(NSString *)endpoint params:(NSDictionary *)params;
 

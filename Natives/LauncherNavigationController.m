@@ -3,10 +3,10 @@
 #import "AFNetworking.h"
 #import "ALTServerConnection.h"
 #import "CustomControlsViewController.h"
-#import "DownloadProgressViewController.h"
 #import "DownloadTasksViewController.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
+#import "PLTaskProgressViewController.h"
 #import "JavaGUIViewController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
@@ -32,7 +32,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 }
 
 @property(nonatomic) MinecraftResourceDownloadTask* task;
-@property(nonatomic) DownloadProgressViewController* progressVC;
 @property(nonatomic) PLPickerView* versionPickerView;
 @property(nonatomic) UITextField* versionTextField;
 @property(nonatomic) int profileSelectedAt;
@@ -44,6 +43,9 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 @property(nonatomic, strong) UIButton *downloadCenterButton;
 @property(nonatomic, strong) UIActivityIndicatorView *downloadCenterActivityIndicator;
 @property(nonatomic, strong) UILabel *downloadCenterProgressLabel;
+// 进行中任务数徽标（redesign-download-ui Task 2.4）：红色圆形小徽标
+// 叠在按钮左侧下载图标右上角，显示进行中（下载中/排队中）任务数
+@property(nonatomic, strong) UILabel *downloadCenterBadgeLabel;
 @property(nonatomic, weak) DownloadTasksViewController *presentedDownloadCenterVC;
 // 标记用户是否手动关闭了下载中心（避免下载任务更新时反复自动弹出）
 @property(nonatomic, assign) BOOL userDismissedDownloadCenter;
@@ -93,11 +95,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     UIView *targetToolbar = self.toolbar;
     [targetToolbar addSubview:self.versionTextField];
 
-    self.progressViewMain = [[UIProgressView alloc] initWithFrame:CGRectMake(0, 0, self.toolbar.frame.size.width, 4)];
-    self.progressViewMain.autoresizingMask = AUTORESIZE_MASKS;
-    self.progressViewMain.hidden = YES;
-    [targetToolbar addSubview:self.progressViewMain];
-
     self.buttonInstall = [UIButton buttonWithType:UIButtonTypeSystem];
     setButtonPointerInteraction(self.buttonInstall);
     [self.buttonInstall setTitle:localize(@"Play", nil) forState:UIControlStateNormal];
@@ -109,14 +106,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     self.buttonInstall.enabled = NO;
     [self.buttonInstall addTarget:self action:@selector(performInstallOrShowDetails:) forControlEvents:UIControlEventPrimaryActionTriggered];
     [targetToolbar addSubview:self.buttonInstall];
-
-    self.progressText = [[UILabel alloc] initWithFrame:self.versionTextField.frame];
-    self.progressText.adjustsFontSizeToFitWidth = YES;
-    self.progressText.autoresizingMask = AUTORESIZE_MASKS;
-    self.progressText.font = [self.progressText.font fontWithSize:16];
-    self.progressText.textAlignment = NSTextAlignmentCenter;
-    self.progressText.userInteractionEnabled = NO;
-    [targetToolbar addSubview:self.progressText];
 
     // ===== 下载中心入口按钮（参照 FCL/ZL2/HMCL 下载进度弹窗入口）=====
     // 在工具栏左侧添加一个"下载中心"按钮，当有下载任务时显示，
@@ -158,6 +147,21 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     self.downloadCenterProgressLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [self.downloadCenterButton addSubview:self.downloadCenterProgressLabel];
 
+    // 进行中任务数徽标（redesign-download-ui Task 2.4）：红色圆形小徽标叠在
+    // 左侧下载图标右上角（app 图标徽标风格），无进行中任务时隐藏。
+    // 按钮内部已无空余空间（图标+百分比+指示器排满），叠图标视觉损耗最小。
+    self.downloadCenterBadgeLabel = [[UILabel alloc] init];
+    self.downloadCenterBadgeLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightBold];
+    self.downloadCenterBadgeLabel.textColor = [UIColor whiteColor];
+    self.downloadCenterBadgeLabel.backgroundColor = [UIColor systemRedColor];
+    self.downloadCenterBadgeLabel.textAlignment = NSTextAlignmentCenter;
+    self.downloadCenterBadgeLabel.layer.cornerRadius = 8.0;
+    self.downloadCenterBadgeLabel.layer.masksToBounds = YES;
+    self.downloadCenterBadgeLabel.frame = CGRectMake(iconSize - 10, 0, 16, 16);
+    self.downloadCenterBadgeLabel.autoresizingMask = UIViewAutoresizingFlexibleRightMargin;
+    self.downloadCenterBadgeLabel.hidden = YES;
+    [self.downloadCenterButton addSubview:self.downloadCenterBadgeLabel];
+
     [self fetchRemoteVersionList];
     [NSNotificationCenter.defaultCenter addObserver:self
         selector:@selector(receiveNotification:)
@@ -188,7 +192,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         [self setInteractionEnabled:NO forDownloading:NO];
         id callback = ^(id status, BOOL success) {
             status = [status description];
-            self.progressText.text = status;
             if (status == nil) {
                 [self setInteractionEnabled:YES forDownloading:NO];
             } else if (!success) {
@@ -245,13 +248,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         versionManifestURL = @"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     }
     
-    [manager GET:versionManifestURL parameters:nil headers:nil progress:^(NSProgress * _Nonnull progress) {
-        // AFNetworking 的 progress 回调在后台线程执行，必须回主线程更新 UI，
-        // 否则会触发 "modifying the autolayout engine from a background thread" 崩溃
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressViewMain.progress = progress.fractionCompleted;
-        });
-    } success:^(NSURLSessionTask *task, NSDictionary *responseObject) {
+    [manager GET:versionManifestURL parameters:nil headers:nil progress:nil success:^(NSURLSessionTask *task, NSDictionary *responseObject) {
         [remoteVersionList addObjectsFromArray:responseObject[@"versions"]];
         NSDebugLog(@"[VersionList] Got %d versions", remoteVersionList.count);
         setPrefObject(@"internal.latest_version", responseObject[@"latest"]);
@@ -332,12 +329,10 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 /// 处理下载任务更新通知（进度变化、新任务注册等）
 /// 当收到通知时仅更新下载中心按钮的状态，不再自动弹出下载中心界面。
 ///
-/// 修改说明（修复下载版本时出现两个进度显示的问题）：
-///   之前此方法会在检测到活跃下载任务时自动弹出 DownloadTasksViewController（下载中心界面），
-///   同时启动器自身在 launchMinecraft: 中会自动弹出 DownloadProgressViewController
-///   （FCL/ZL2 风格单任务进度），导致两个进度显示同时出现。
-///   现在统一为 FCL/ZL2/HMCL 风格：版本下载开始时自动弹出 DownloadProgressViewController，
-///   DownloadTasksViewController 仅保留为手动打开（通过下载中心按钮）。
+/// redesign-download-ui Phase 3：单任务进度展示统一由任务注册时置
+/// autoPresentDetail=YES 的 DownloadTaskItem 触发 DownloadTaskManager
+/// 自动弹出统一进度页（PLTaskProgressViewController）；下载中心
+/// DownloadTasksViewController 仅保留为手动打开（通过下载中心按钮）。
 - (void)handleDownloadTaskUpdate:(NSNotification *)notification {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self updateDownloadCenterButton];
@@ -366,6 +361,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
     if (allTasks.count == 0) {
         self.downloadCenterButton.hidden = YES;
+        self.downloadCenterBadgeLabel.hidden = YES;
         [self.downloadCenterActivityIndicator stopAnimating];
         return;
     }
@@ -386,6 +382,14 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         } else if (task.state != DownloadTaskStateCompleted) {
             allCompleted = NO;
         }
+    }
+
+    // 进行中任务数徽标（redesign-download-ui Task 2.4）：有进行中任务时显示数量
+    if (hasActive) {
+        self.downloadCenterBadgeLabel.text = activeCount > 99 ? @"99+" : [NSString stringWithFormat:@"%ld", (long)activeCount];
+        self.downloadCenterBadgeLabel.hidden = NO;
+    } else {
+        self.downloadCenterBadgeLabel.hidden = YES;
     }
 
     if (hasActive) {
@@ -470,13 +474,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
             view.enabled = enabled;
         }
     }
-    // 启动游戏的完整性检查/下载：始终显示进度（HMCL 风格进度条+文本），
-    // 不再被悬浮球设置隐藏，确保用户在启动前能"一模一样"地看到完整性检查进度。
-    BOOL showProgressUI = YES;
-    self.progressViewMain.hidden = enabled || !showProgressUI;
-    if (!showProgressUI) {
-        self.progressText.text = nil;
-    }
     if (downloading) {
         [self.buttonInstall setTitle:localize(enabled ? @"Play" : @"Details", nil) forState:UIControlStateNormal];
         self.buttonInstall.alpha = 1;
@@ -524,47 +521,37 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                                                    context:ProgressObserverContext];
                 } @catch (NSException *e) {}
                 weakSelf.task = nil;
-                weakSelf.progressVC = nil;
             });
         };
         [self.task downloadVersion:object];
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressViewMain.observedProgress = self.task.progress;
             [self.task.progress addObserver:self
                 forKeyPath:@"fractionCompleted"
                 options:NSKeyValueObservingOptionInitial
                 context:ProgressObserverContext];
 
-            // 自动弹出 FCL/ZL2 风格的单任务进度对话框（参照 FCL 启动下载时自动显示进度对话框）
-            // 之前通过 DownloadTaskManager 通知自动弹出 DownloadTasksViewController（下载中心界面），
-            // 导致两个进度显示同时出现。现在统一使用 DownloadProgressViewController。
-            if (!weakSelf.progressVC) {
-                weakSelf.progressVC = [[DownloadProgressViewController alloc] initWithTask:weakSelf.task];
-            }
-            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:weakSelf.progressVC];
-            nav.modalPresentationStyle = UIModalPresentationFormSheet;
-            // 检查是否已有模态视图弹出，避免覆盖重要弹窗（如账号登录）
-            UIViewController *topVC = weakSelf;
-            while (topVC.presentedViewController) {
-                topVC = topVC.presentedViewController;
-            }
-            if (!topVC.presentedViewController) {
-                [topVC presentViewController:nav animated:YES completion:nil];
-            }
+            // redesign-download-ui Phase 3 Task 3.4：启动下载的进度页已由任务内部
+            // 阶段上报（MinecraftResourceDownloadTask.downloadVersion: 注册任务并
+            // 置 autoPresentDetail=YES）自动弹出统一进度页，此处不再手动 present 旧进度 VC。
         });
     });
 }
 
 - (void)performInstallOrShowDetails:(UIButton *)sender {
     if (self.task) {
-        // 显示下载进度详情（悬浮球已移除）
-        if (!self.progressVC) {
-            self.progressVC = [[DownloadProgressViewController alloc] initWithTask:self.task];
+        // redesign-download-ui Phase 3 Task 3.4：Details 按钮改为打开统一进度页。
+        // 任务由 MinecraftResourceDownloadTask 内部注册到 DownloadTaskManager，
+        // 此处按 rawTask 反查 taskId 后呈现统一进度页。
+        NSString *taskId = nil;
+        for (DownloadTaskItem *item in [DownloadTaskManager sharedManager].allTasks) {
+            if (item.rawTask == self.task) {
+                taskId = item.taskId;
+                break;
+            }
         }
-        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:self.progressVC];
-        nav.modalPresentationStyle = UIModalPresentationPopover;
-        nav.popoverPresentationController.sourceView = sender;
-        [self presentViewController:nav animated:YES completion:nil];
+        if (taskId) {
+            [PLTaskProgressViewController presentForTaskId:taskId];
+        }
     } else {
         [self launchMinecraft:sender];
     }
@@ -595,16 +582,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        // 启动游戏的完整性检查/下载：始终显示进度（HMCL 风格进度条+文本）
-        BOOL showProgressUI = YES;
-        if (showProgressUI) {
-            self.progressText.text = progress.localizedAdditionalDescription;
-        }
-
         if (!progress.finished) return;
-        [self.progressVC dismissViewControllerAnimated:NO completion:nil];
 
-        self.progressViewMain.observedProgress = nil;
         // 关键修复（KVO 泄漏）：下载完成时移除 KVO 观察者。
         // 之前不移除，导致每次下载都在 self.task.progress 上累积一个观察者，
         // 多次下载后 progress 变化会触发多次 observeValueForKeyPath，UI 异常。
@@ -644,12 +623,10 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                                                    context:ProgressObserverContext];
                 } @catch (NSException *e) {}
                 weakSelf.task = nil;
-                weakSelf.progressVC = nil;
             });
         };
         [self.task downloadModpackFromAPI:notification.object detail:userInfo[@"detail"] atIndex:[userInfo[@"index"] unsignedLongValue]];
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressViewMain.observedProgress = self.task.progress;
             [self.task.progress addObserver:self
                 forKeyPath:@"fractionCompleted"
                 options:NSKeyValueObservingOptionInitial
@@ -687,8 +664,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         // Assuming 16.7-17.3.1. SideStore still lacks this URL scheme at the time of writing, so it only jumps to SideStore.
         [UIApplication.sharedApplication openURL:[NSURL URLWithString:[NSString stringWithFormat:@"sidestore://sidejit-enable?pid=%d", getpid()]] options:@{} completionHandler:nil];
     }
-
-    self.progressText.text = localize(@"launcher.wait_jit.title", nil);
 
     UIAlertController* alert = [UIAlertController alertControllerWithTitle:localize(@"launcher.wait_jit.title", nil)
         message:hasTrollStoreJIT ? localize(@"launcher.wait_jit_trollstore.message", nil) : localize(@"launcher.wait_jit.message", nil)

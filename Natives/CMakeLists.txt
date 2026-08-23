@@ -325,12 +325,16 @@ add_executable(AngelAuraAmethyst
   InlineMessageView.m
   DownloadTaskItem.m
   DownloadTaskManager.m
+  PLTaskStage.m
+  PLTaskProgressViewController.m
   DownloadTasksViewController.m
+  DownloadHistoryViewController.m
+  DownloadHistoryStore.m
+  PLDownloadClient.m
+  PLMirrorCenter.m
   AppDelegate.m
   CustomControlsViewController.m
   CustomControlsViewController+UndoManager.m
-  DownloadProgressViewController.m
-  DownloadProgressCardView.m
   FileListViewController.m
   GameSurfaceView.m
   JavaGUIViewController.m
@@ -357,7 +361,6 @@ add_executable(AngelAuraAmethyst
   LauncherPrefGameDirViewController.m
   LauncherPrefManageJREViewController.m
   LauncherProfileEditorViewController.m
-  LauncherProfilesViewController.m
   LauncherSplitViewController.m
   MinecraftResourceDownloadTask.m
   MinecraftResourceUtils.m
@@ -381,7 +384,7 @@ add_executable(AngelAuraAmethyst
   ios_uikit_bridge.m
   utils.m
 
-  # Version card cell (shared between DownloadViewController and LauncherProfilesViewController)
+  # Version card cell (used by DownloadViewController)
   VersionCardCell.m
 
   # Mod-related sources (ensure implementations are compiled and linked)
@@ -403,9 +406,6 @@ add_executable(AngelAuraAmethyst
 
   # 统一的项目图标加载器（双层缓存+降采样+并发控制+CDN镜像，参照 FCL Glide + ZL2 Coil）
   IconLoader.m
-
-  # MCIM 模组镜像源工具类（参考 ZalithLauncher 2 MCIMMirror.kt）
-  MCIMMirror.m
 
   # Shader-related sources
   ShaderItem.m

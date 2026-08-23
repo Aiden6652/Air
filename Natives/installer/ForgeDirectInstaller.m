@@ -19,6 +19,7 @@
 
 #import "ForgeDirectInstaller.h"
 #import "PLProfiles.h"
+#import "PLMirrorCenter.h"
 #import "utils.h"
 #import "LauncherPreferences.h"
 #import "MinecraftResourceUtils.h"
@@ -273,6 +274,49 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
     return resultData;
 }
 
+/// 带候选轮换与简单退避的同步下载：经 PLMirrorCenter（GameFile 类型）生成
+/// 官方/镜像候选 URL，最多尝试 3 次，每次失败后在候选间轮换（官方↔镜像），
+/// 重试间隔线性退避（0.5s / 1s）。用于父版本 manifest / version JSON 等
+/// 小体积关键元数据下载，替代原先"单次请求、无重试、bmclapi 分支硬编码"的行为，
+/// 同时消除"偏好为 mcim 时不走镜像直接回退官方"的不一致（PLMirrorCenter 已把
+/// mcim/bmclapi 意图统一映射为 BMCLAPI 镜像候选）。
++ (NSData *)downloadDataForURL:(NSURL *)url error:(NSError **)error {
+    if (!url) {
+        if (error) {
+            *error = [NSError errorWithDomain:ForgeDirectInstallerErrorDomain
+                                         code:ForgeDirectInstallerErrorWriteFailed
+                                     userInfo:@{NSLocalizedDescriptionKey: @"nil url"}];
+        }
+        return nil;
+    }
+    NSArray<NSURL *> *candidates = [PLMirrorCenter candidateURLsForOriginalURL:url
+                                                                   resourceType:PLMirrorResourceTypeGameFile];
+    if (candidates.count == 0) candidates = @[url];
+
+    NSData *data = nil;
+    NSError *lastError = nil;
+    // 简单退避：最多 3 次尝试，候选轮换（第 i 次取 candidates[i % count]）
+    for (NSInteger attempt = 0; attempt < 3 && !data; attempt++) {
+        if (attempt > 0) {
+            [NSThread sleepForTimeInterval:0.5 * attempt];
+        }
+        NSURL *candidate = candidates[attempt % candidates.count];
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:candidate];
+        request.timeoutInterval = 30.0;
+        request.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+        [request setValue:@"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15" forHTTPHeaderField:@"User-Agent"];
+
+        NSError *attemptError = nil;
+        data = [self downloadDataForRequest:request error:&attemptError];
+        if (!data) {
+            lastError = attemptError;
+            NSLog(@"[ForgeDirect] Attempt %ld failed for %@: %@", (long)attempt, candidate.absoluteString, attemptError.localizedDescription ?: @"unknown");
+        }
+    }
+    if (!data && error) *error = lastError;
+    return data;
+}
+
 /// 参照 FCL/HMCL：确保父版本（vanilla MC）的 version JSON 已存在。
 /// Forge/NeoForge 的 version.json 含 "inheritsFrom": "1.20.1" 等字段，启动时 Java 端
 /// Tools.getVersionInfo() 会读取 versions/{inheritsFrom}/{inheritsFrom}.json 与当前版本合并。
@@ -297,15 +341,10 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
 
     NSLog(@"[ForgeDirect] Parent version JSON missing, downloading: %@", parentVersionId);
 
-    // 2. 拉取 Mojang 版本清单
-    NSString *downloadSource = getPrefObject(@"general.download_source");
-    BOOL useBMCLAPI = [downloadSource isEqualToString:@"bmclapi"];
-    NSString *manifestURL = useBMCLAPI
-        ? @"https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json"
-        : @"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-
-    NSURL *url = [NSURL URLWithString:manifestURL];
-    if (!url) {
+    // 2. 拉取 Mojang 版本清单（统一走 PLMirrorCenter GameFile 候选：官方/镜像轮换重试，
+    //    消除旧实现"偏好为 mcim 时不走镜像"的不一致）
+    NSURL *manifestURL = [NSURL URLWithString:@"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"];
+    if (!manifestURL) {
         if (error) {
             *error = [NSError errorWithDomain:ForgeDirectInstallerErrorDomain
                                          code:ForgeDirectInstallerErrorWriteFailed
@@ -314,12 +353,7 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
         return NO;
     }
 
-    NSMutableURLRequest *manifestRequest = [NSMutableURLRequest requestWithURL:url];
-    manifestRequest.timeoutInterval = 30.0;
-    manifestRequest.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-    [manifestRequest setValue:@"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15" forHTTPHeaderField:@"User-Agent"];
-
-    NSData *manifestData = [self downloadDataForRequest:manifestRequest error:error];
+    NSData *manifestData = [self downloadDataForURL:manifestURL error:error];
     if (!manifestData) {
         NSLog(@"[ForgeDirect] Failed to download version manifest: %@", error ? [*error localizedDescription] : @"unknown");
         return NO;
@@ -353,17 +387,10 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
         return NO;
     }
 
-    // BMCLAPI 镜像：替换 Mojang 官方域名为 BMCLAPI 域名
-    if (useBMCLAPI) {
-        versionJSONURL = [versionJSONURL stringByReplacingOccurrencesOfString:@"piston-meta.mojang.com"
-                                                                    withString:@"bmclapi2.bangbang93.com"];
-        versionJSONURL = [versionJSONURL stringByReplacingOccurrencesOfString:@"launchermeta.mojang.com"
-                                                                    withString:@"bmclapi2.bangbang93.com"];
-    }
-
     NSLog(@"[ForgeDirect] Downloading parent version JSON from: %@", versionJSONURL);
 
-    // 4. 下载 version JSON
+    // 4. 下载 version JSON（统一走 PLMirrorCenter GameFile 候选：官方/镜像轮换重试，
+    //    无论 manifest 从哪个源取得，此处 URL 均为官方域名，由候选机制完成镜像映射）
     NSURL *jsonURL = [NSURL URLWithString:versionJSONURL];
     if (!jsonURL) {
         if (error) {
@@ -374,12 +401,7 @@ NSString *const ForgeDirectInstallerErrorDomain = @"ForgeDirectInstallerErrorDom
         return NO;
     }
 
-    NSMutableURLRequest *jsonRequest = [NSMutableURLRequest requestWithURL:jsonURL];
-    jsonRequest.timeoutInterval = 30.0;
-    jsonRequest.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-    [jsonRequest setValue:@"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15" forHTTPHeaderField:@"User-Agent"];
-
-    NSData *jsonData = [self downloadDataForRequest:jsonRequest error:error];
+    NSData *jsonData = [self downloadDataForURL:jsonURL error:error];
     if (!jsonData) {
         NSLog(@"[ForgeDirect] Failed to download parent version JSON: %@", error ? [*error localizedDescription] : @"unknown");
         return NO;

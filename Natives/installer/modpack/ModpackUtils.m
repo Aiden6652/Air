@@ -1,7 +1,6 @@
 #import "installer/FabricUtils.h"
 #import "ModpackUtils.h"
-#import "LauncherPreferences.h"
-#import "PLPreferences.h"
+#import "PLMirrorCenter.h"
 
 @implementation ModpackUtils
 
@@ -72,35 +71,31 @@
 + (nullable NSString *)installerURLForLoader:(NSString *)loader
                                loaderVersion:(NSString *)loaderVersion
                             minecraftVersion:(NSString *)minecraftVersion {
-    NSString *downloadSource = [PLPreferences currentDownloadSourceForType:@"forge"];
-    BOOL useBMCLAPI = [downloadSource isEqualToString:@"bmclapi"];
+    // 统一经 PLMirrorCenter（ModLoader 类型）按当前策略取首选 URL：
+    // mirror_first → BMCLAPI /maven（替换原硬编码 BMCLAPI 拼接），
+    // official_first → 官方 maven 原样返回；策略键 download.modLoaderSource，
+    // 未设置时由 PLMirrorCenter 回退旧键 general.download_source
+    NSString *officialURL = nil;
 
     if ([loader isEqualToString:@"Forge"]) {
         // Forge versionString = "<mc>-<loaderVersion>"，例如 "1.20.1-47.3.0"
         NSString *versionString = [NSString stringWithFormat:@"%@-%@", minecraftVersion, loaderVersion];
-        if (useBMCLAPI) {
-            return [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/%@/forge-%@-installer.jar", versionString, versionString];
-        }
-        return [NSString stringWithFormat:@"https://maven.minecraftforge.net/net/minecraftforge/forge/%@/forge-%@-installer.jar", versionString, versionString];
-    }
-
-    if ([loader isEqualToString:@"NeoForge"]) {
+        officialURL = [NSString stringWithFormat:@"https://maven.minecraftforge.net/net/minecraftforge/forge/%@/forge-%@-installer.jar", versionString, versionString];
+    } else if ([loader isEqualToString:@"NeoForge"]) {
         // NeoForge 1.20.1 早期版本 artifactId 是 net.neoforged:forge，之后是 net.neoforged:neoforge
         // loaderVersion 例如 "47.1.0"（1.20.1）或 "20.6.119-beta"（1.20.6+）
         BOOL isLegacyForgeArtifact = [minecraftVersion isEqualToString:@"1.20.1"];
         if (isLegacyForgeArtifact) {
-            if (useBMCLAPI) {
-                return [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/net/neoforged/forge/%@/forge-%@-installer.jar", loaderVersion, loaderVersion];
-            }
-            return [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/forge/%@/forge-%@-installer.jar", loaderVersion, loaderVersion];
+            // 官方 maven 路径必须包含 /releases/，否则 404
+            officialURL = [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/forge/%@/forge-%@-installer.jar", loaderVersion, loaderVersion];
+        } else {
+            officialURL = [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/neoforge/%@/neoforge-%@-installer.jar", loaderVersion, loaderVersion];
         }
-        if (useBMCLAPI) {
-            return [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/net/neoforged/neoforge/%@/neoforge-%@-installer.jar", loaderVersion, loaderVersion];
-        }
-        return [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/neoforge/%@/neoforge-%@-installer.jar", loaderVersion, loaderVersion];
     }
 
-    return nil;
+    if (!officialURL) return nil;
+    return [[PLMirrorCenter preferredURLForOriginalURL:[NSURL URLWithString:officialURL]
+                                          resourceType:PLMirrorResourceTypeModLoader] absoluteString];
 }
 
 + (NSInteger)javaMajorVersionForMC:(NSString *)mcVersion {

@@ -48,6 +48,17 @@ NSString *const PREF_MOD_MIRROR = @"general.mod_mirror";
             // 首页公告磁贴预览级别：full（标题+日期+摘要）/ summary（标题+摘要）/ title_only（仅标题）
             @"announcement_preview_level": @"summary",
         }.mutableCopy,
+        // 分类镜像策略（值 official_first / mirror_first，由 PLMirrorCenter 统一读取，
+        // 未迁移时 PLMirrorCenter 会回退旧键 general.download_source）
+        @"download": @{
+            @"fileSource": @"official_first",
+            @"assetSearchSource": @"official_first",
+            @"assetDownloadSource": @"official_first",
+            @"modLoaderSource": @"official_first",
+            // 一次性迁移哨兵：YES 表示旧键 download_source 已迁移到上述 4 键，
+            // 防止用户手动改新键后被重复迁移覆盖（见 LauncherPreferences.m migrateDownloadSourcePreferences）
+            @"sourceMigrated": @NO,
+        }.mutableCopy,
         @"video": @{ // Video & Audio
             @"renderer": @"auto",
             @"resolution": @(100),

@@ -2,11 +2,12 @@
 #import "ForgeInstallViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
-#import "WFWorkflowProgressView.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
 #import "BackgroundManager.h"
-#include <dlfcn.h>
+#import "DownloadTaskManager.h"
+#import "DownloadTaskItem.h"
+#import "PLTaskStages.h"
 
 NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain";
 
@@ -134,8 +135,10 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
 @property(nonatomic, strong) UISearchController *searchController;
 @property(nonatomic, strong) NSString *searchText;
 @property(atomic) AFURLSessionManager *afManager;
-@property(nonatomic) WFWorkflowProgressView *progressView;
+// redesign-download-ui Phase 4 Task 4.2：移除 WFWorkflowProgressView（私有框架，审核风险），
+// installer jar 下载进度改由 DownloadTaskManager 统一任务驱动
 @property(nonatomic, strong) NSString *currentVendor;
+@property(nonatomic, strong) NSString *installerTaskId;
 
 @property(nonatomic) NSDictionary *endpoints;
 @property(nonatomic) NSMutableArray<NSNumber *> *visibilityList;
@@ -201,11 +204,6 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
     [self.refreshControl addTarget:self action:@selector(refreshVersions) forControlEvents:UIControlEventValueChanged];
     [self.tableView addSubview:self.refreshControl];
 
-    dlopen("/System/Library/PrivateFrameworks/WorkflowUIServices.framework/WorkflowUIServices", RTLD_GLOBAL);
-    self.progressView = [[NSClassFromString(@"WFWorkflowProgressView") alloc] initWithFrame:CGRectMake(0, 0, 30, 30)];
-    self.progressView.resolvedTintColor = self.view.tintColor;
-    [self.progressView addTarget:self action:@selector(actionCancelDownload) forControlEvents:UIControlEventTouchUpInside];
-
     self.endpoints = @{
         @"Forge": @{
             @"installer": @"https://maven.minecraftforge.net/net/minecraftforge/forge/%1$@/forge-%1$@-installer.jar",
@@ -266,6 +264,11 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
         self.currentDownloadIndexPath = nil;
     }
     [self.afManager invalidateSessionCancelingTasks:YES resetSession:NO];
+    // redesign-download-ui Phase 4：同步取消统一任务管理器中的 installer 下载任务
+    if (self.installerTaskId) {
+        [[DownloadTaskManager sharedManager] cancelTaskWithId:self.installerTaskId];
+        self.installerTaskId = nil;
+    }
     showDialog(@"Download Cancelled", @"The download has been cancelled.");
 }
 
@@ -1114,18 +1117,28 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
     NSString *versionString = self.selectedVersionString;
     if (!versionString) return;
 
+    // 修复 Forge installer 下载 404（参考 ZL2 ForgeVersions.getDownloadUrl 的
+    // "<inherit>-<fileVersion>" 复合格式规则）：
+    // ModLoaderInstallViewController 传入的 presetVersionString 是纯 Forge 版本号
+    // （如 "47.2.0"），而官方 maven / BMCLAPI 的 installer 路径必须是复合格式
+    // "<mcVersion>-<forgeVersion>"（如 "1.20.1-47.2.0"），缺失前缀时 URL 必然 404。
+    // 此处检测前缀缺失时补全；NeoForge 不适用（其 maven 路径本就是纯版本号格式）。
+    if ([self.currentVendor isEqualToString:@"Forge"] && self.gameVersion.length > 0) {
+        NSString *compoundPrefix = [NSString stringWithFormat:@"%@-", self.gameVersion];
+        if (![versionString hasPrefix:compoundPrefix] &&
+            ![versionString hasPrefix:self.gameVersion]) {
+            versionString = [compoundPrefix stringByAppendingString:versionString];
+            // 回写：后续直装（ForgeDirectInstaller 解析 inheritsFrom）与
+            // completion 回调均使用复合格式
+            self.selectedVersionString = versionString;
+        }
+    }
+
     self.selectedScheme = scheme;
     NSIndexPath *indexPath = [self indexPathForVersionString:versionString];
     self.currentDownloadIndexPath = indexPath;
     self.tableView.allowsSelection = NO;
     [self switchToLoadingState];
-    self.progressView.fractionCompleted = 0;
-
-    if (indexPath) {
-        ForgeVersionCell *cell = (ForgeVersionCell *)[self.tableView cellForRowAtIndexPath:indexPath];
-        cell.accessoryView = self.progressView;
-        cell.accessoryType = UITableViewCellAccessoryNone;
-    }
 
     NSString *jarURL;
     NSString *downloadSource = getPrefObject(@"general.download_source");
@@ -1143,7 +1156,14 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
             jarURL = [NSString stringWithFormat:self.endpoints[self.currentVendor][@"installer"], versionString];
         }
     } else {
-        jarURL = [NSString stringWithFormat:self.endpoints[self.currentVendor][@"installer"], versionString];
+        // Forge：参考 ZL2 BMCLAPI 镜像替换规则
+        // （https://maven.minecraftforge.net → https://bmclapi2.bangbang93.com/maven），
+        // 用户偏好 BMCLAPI 时走镜像下载，避免国内直连官方 maven 失败
+        if (useBMCLAPI) {
+            jarURL = [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/%@/forge-%@-installer.jar", versionString, versionString];
+        } else {
+            jarURL = [NSString stringWithFormat:self.endpoints[self.currentVendor][@"installer"], versionString];
+        }
     }
     NSString *outPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
                          [NSString stringWithFormat:@"%@-installer-%@.jar",
@@ -1151,11 +1171,40 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
                           [[NSProcessInfo processInfo] globallyUniqueString]]];
     NSDebugLog(@"[%@ Installer] Downloading %@", self.currentVendor, jarURL);
 
+    // redesign-download-ui Phase 4 Task 4.2：installer jar 下载注册为统一下载任务，
+    // PLTaskStagesSingleFile 单阶段 + autoPresentDetail 自动弹出统一进度页
+    NSString *taskName = [NSString stringWithFormat:@"%@-installer-%@", self.currentVendor, versionString];
+    NSString *source = downloadSource ?: @"official";
+    DownloadTaskItem *taskItem = [[DownloadTaskManager sharedManager]
+        registerTaskWithResourceType:DownloadTaskResourceTypeModloader
+                        resourceName:taskName
+                         displayName:[NSString stringWithFormat:@"%@ Installer %@", self.currentVendor, versionString]
+                      downloadSource:source
+                             rawTask:nil
+                      supportsResume:NO
+                             iconURL:nil];
+    if (taskItem) {
+        taskItem.downloadURL = jarURL;
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId stages:PLTaskStagesSingleFile()];
+        taskItem.autoPresentDetail = YES;
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId state:DownloadTaskStateDownloading];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId stageAtIndex:0 status:PLTaskStageStatusRunning];
+        self.installerTaskId = taskItem.taskId;
+    }
+    NSString *taskId = self.installerTaskId;
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+
     self.afManager = [AFURLSessionManager new];
+    // rawTask 挂接 AF 下载任务：统一进度页的取消/暂停按钮可作用于该 task
     NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:jarURL]];
     NSURLSessionDownloadTask *downloadTask = [self.afManager downloadTaskWithRequest:request progress:^(NSProgress * _Nonnull progress){
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressView.fractionCompleted = progress.fractionCompleted;
+            if (!taskId) return;
+            [manager updateTaskWithId:taskId
+                              progress:progress.fractionCompleted
+                          totalBytes:progress.totalUnitCount
+                       downloadedBytes:progress.completedUnitCount];
+            [manager updateTaskWithId:taskId stageAtIndex:0 progress:progress.fractionCompleted message:nil];
         });
     } destination:^NSURL *(NSURL *targetPath, NSURLResponse *response) {
         [NSFileManager.defaultManager removeItemAtPath:outPath error:nil];
@@ -1169,6 +1218,16 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
             self.currentDownloadIndexPath = nil;
 
             if (error) {
+                if (taskId) {
+                    if (error.code == NSURLErrorCancelled) {
+                        [manager setTaskWithId:taskId state:DownloadTaskStateCancelled];
+                    } else {
+                        [manager updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                        [manager updateTaskWithId:taskId error:error];
+                        [manager setTaskWithId:taskId state:DownloadTaskStateFailed];
+                    }
+                    self.installerTaskId = nil;
+                }
                 if (error.code != NSURLErrorCancelled) {
                     NSDebugLog(@"Error: %@", error);
                     showDialog(localize(@"Error", nil), error.localizedDescription);
@@ -1178,6 +1237,12 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
                     self.completionHandler(NO, nil, error);
                 }
                 return;
+            }
+
+            if (taskId) {
+                [manager updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusCompleted];
+                [manager setTaskWithId:taskId state:DownloadTaskStateCompleted];
+                self.installerTaskId = nil;
             }
 
             NSString *profileName = [NSString stringWithFormat:@"%@-%@", self.currentVendor, versionString];
@@ -1194,6 +1259,10 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
             [self switchToReadyState];
         });
     }];
+
+    if (taskItem) {
+        taskItem.rawTask = downloadTask;
+    }
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         [downloadTask resume];

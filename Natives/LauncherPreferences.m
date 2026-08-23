@@ -27,6 +27,46 @@ void toggleIsolatedPref(BOOL forceEnable) {
     [pref toggleIsolationForced:forceEnable];
 }
 
+#pragma mark Download source migration
+
+/// 一次性迁移：旧键 general.download_source → 新版 4 个分类镜像策略键
+///
+/// 迁移规则：
+///   official            → 4 键全部 official_first（官方优先）
+///   bmclapi / mcim      → 4 键全部 mirror_first（镜像优先）
+///     （bmclapi 与 mcim 都是"走国内镜像"的用户意愿：bmclapi 覆盖文件/加载器、
+///       mcim 覆盖资源搜索/下载，新模型中 PLMirrorCenter 已按资源类型把
+///       mirror_first 映射到对应镜像体系，故统一保留"走镜像"意愿）
+///
+/// 执行条件：旧键存在 且 未迁移过（哨兵键 download.sourceMigrated）。
+/// 说明：4 个新键在 PLPreferences defaults 中注册了默认值 official_first，
+/// 加载后无法通过"键是否为 nil"区分默认值与用户设置，故用哨兵键保证一次性；
+/// 哨兵也避免了"用户手动把新键改回 official_first 后，下次启动被旧键再次覆盖"。
+///
+/// 迁移完成后保留旧键不删（向后兼容：尚未切换到 PLMirrorCenter 的旧读取方仍可使用）。
+void migrateDownloadSourcePreferences(void) {
+    if ([getPrefObject(@"download.sourceMigrated") boolValue]) return;
+
+    NSString *legacy = getPrefObject(@"general.download_source");
+    if (![legacy isKindOfClass:[NSString class]] || legacy.length == 0) return;
+
+    // bmclapi / mcim 均视为镜像意图，其余值（official / 未知）按官方优先处理
+    BOOL mirrorFirst = [legacy isEqualToString:@"bmclapi"] || [legacy isEqualToString:@"mcim"];
+    NSString *value = mirrorFirst ? @"mirror_first" : @"official_first";
+
+    NSArray<NSString *> *newKeys = @[
+        @"download.fileSource",
+        @"download.assetSearchSource",
+        @"download.assetDownloadSource",
+        @"download.modLoaderSource"
+    ];
+    for (NSString *key in newKeys) {
+        setPrefObject(key, value);
+    }
+    setPrefObject(@"download.sourceMigrated", @YES);
+    NSLog(@"[Preferences] Migrated general.download_source(%@) -> %@ for 4 mirror policy keys", legacy, value);
+}
+
 id getPrefObject(NSString *key) {
     return [pref getObject:key];
 }

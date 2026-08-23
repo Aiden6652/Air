@@ -746,41 +746,25 @@
 
     itemToDownload.selectedVersionDownloadURL = primaryFile[@"url"];
     itemToDownload.fileName = primaryFile[@"filename"];
+    // spec Task 5.1 收尾：版本模型 primaryFile hashes.sha1 接到下载调用，启用 SHA1 校验
+    NSDictionary *hashes = [primaryFile[@"hashes"] isKindOfClass:[NSDictionary class]] ? primaryFile[@"hashes"] : nil;
+    NSString *sha1 = [hashes[@"sha1"] isKindOfClass:[NSString class]] ? hashes[@"sha1"] : nil;
+    itemToDownload.fileSHA1 = (sha1.length > 0) ? sha1 : nil;
 
     [self startDownloadForItem:itemToDownload];
 }
 
 - (void)startDownloadForItem:(ModItem *)item {
-    // 始终显示单独下载进度（悬浮球已移除）
-    BOOL showProgressUI = YES;
-    UIAlertController *downloadingAlert = nil;
-    if (showProgressUI) {
-        downloadingAlert = [UIAlertController alertControllerWithTitle:@"正在下载"
-                                                                                  message:[NSString stringWithFormat:@"%@...", item.displayName]
-                                                                           preferredStyle:UIAlertControllerStyleAlert];
-
-        UIActivityIndicatorView *indicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
-        indicator.translatesAutoresizingMaskIntoConstraints = NO;
-        [downloadingAlert.view addSubview:indicator];
-        [NSLayoutConstraint activateConstraints:@[
-            [indicator.centerXAnchor constraintEqualToAnchor:downloadingAlert.view.centerXAnchor],
-            [indicator.centerYAnchor constraintEqualToAnchor:downloadingAlert.view.centerYAnchor constant:20]
-        ]];
-        [indicator startAnimating];
-
-        [self presentViewController:downloadingAlert animated:YES completion:nil];
-    }
-
-    [[ModService sharedService] downloadMod:item toProfile:self.profileName completion:^(NSError * _Nullable error) {
+    // redesign-download-ui Task 6.3：下载进度统一由 ModService 注册的
+    // DownloadTaskManager 任务 + 统一进度页（autoPresentDetail 自动弹出）展示，
+    // 不再弹"正在下载" alert（无进度的转圈弹窗会与统一进度页模态冲突）。
+    [[ModService sharedService] downloadMod:item
+                                   toProfile:self.profileName
+                                expectedSHA1:item.fileSHA1
+                                    progress:nil
+                                  completion:^(NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            // First, dismiss the "downloading" alert
-            if (downloadingAlert) {
-                [downloadingAlert dismissViewControllerAnimated:YES completion:^{
-                    [self showDownloadResultAlertForItem:item error:error];
-                }];
-            } else {
-                [self showDownloadResultAlertForItem:item error:error];
-            }
+            [self showDownloadResultAlertForItem:item error:error];
         });
     }];
 }

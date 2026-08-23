@@ -70,11 +70,8 @@ extern NSString *const CurseForgeResponseSnippetKey;
 /// 批量指纹反查（用于批量更新检查）
 - (NSArray<NSMutableDictionary *> *)fileFingerprints:(NSArray<NSNumber *> *)fingerprints;
 
-// ========== 整合包处理 ==========
-/// 解析 CurseForge 整合包（manifest.json），批量提交下载任务
-- (void)downloader:(MinecraftResourceDownloadTask *)downloader
-submitDownloadTasksFromPackage:(NSString *)packagePath
-            toPath:(NSString *)destPath;
+// Task 5.10：在线整合包下载已统一走 ModpackImportService 导入流程，
+// submitDownloadTasksFromPackage:toPath: 双轨实现已删除。
 
 @end
 

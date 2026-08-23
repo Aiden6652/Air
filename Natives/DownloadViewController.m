@@ -6,6 +6,7 @@
 #import "IconLoader.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
+#import "PLTaskStages.h"
 #import "InlineMessageView.h"
 #import "installer/modpack/ModrinthAPI.h"
 #import "installer/modpack/CurseForgeAPI.h"
@@ -18,7 +19,6 @@
 #import "LauncherPreferences.h"
 #import "VersionCardCell.h"
 #import "MinecraftResourceDownloadTask.h"
-#import "DownloadProgressViewController.h"
 #import "ModItem.h"
 #import "ModVersionViewController.h"
 #import "ModVersion.h"
@@ -51,7 +51,6 @@
 #import "ios_uikit_bridge.h"
 #import "ALTServerConnection.h"
 #import "ModLoaderIconHelper.h"
-#import "DownloadProgressCardView.h"
 
 #include <sys/time.h>
 #include <SystemConfiguration/SystemConfiguration.h>
@@ -452,361 +451,10 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 // LoaderCell 与 LoaderSelectionViewController 已迁移至 installer/ModLoaderInstallViewController.m
 // 参照 FCL (FoldCraftLauncher) 的 InstallerListPage + VersionInstallInfoPage 重构
 
+// redesign-download-ui Phase 3 Task 3.2：私有 InstallerProgressViewController（约 400 行）已删除，
+// 安装类/整合包/资源下载进度统一由 DownloadTaskManager 阶段上报驱动
+// PLTaskProgressViewController（统一进度页）自动弹出展示。
 
-#pragma mark - Installer Progress View Controller (FCL 风格进度展示)
-
-@interface InstallerProgressViewController : UIViewController
-// 进度 0.0~1.0；<0 表示不确定模式（仅显示转圈，用于无法测算进度的网络请求阶段）
-@property (nonatomic, assign) double progress;
-@property (nonatomic, copy, nullable) NSString *stageMessage;
-@property (nonatomic, copy, nullable) NSString *titleText;
-@property (nonatomic, copy, nullable) void (^cancelHandler)(void);
-
-// ===== 阶段12新增：FCL/ZL2 风格增强字段 =====
-// 类别图标（SF Symbol 名称），如 "cube.box.fill"=原版 / "wand.and.stars"=Fabric / "archivebox.fill"=整合包
-@property (nonatomic, copy, nullable) NSString *categoryIconName;
-// 类别图标颜色（不设则使用 accentColor）
-@property (nonatomic, strong, nullable) UIColor *categoryIconColor;
-// 详情信息行（如 "42.3 MB / 102.5 MB • 3.2 MB/s"），不设则隐藏
-@property (nonatomic, copy, nullable) NSString *detailInfoText;
-// 剩余时间文本（如 "剩余 18秒"），不设则隐藏
-@property (nonatomic, copy, nullable) NSString *etaText;
-// 阶段步骤列表：每个元素为 NSDictionary，含 @"title"(NSString) 和 @"status"(NSNumber: 0=未开始 1=进行中 2=已完成)
-@property (nonatomic, copy, nullable) NSArray<NSDictionary *> *stageSteps;
-@end
-
-@interface InstallerProgressViewController ()
-@property (nonatomic, strong) UIView *cardView;
-@property (nonatomic, strong) UIImageView *iconView; // 类别图标（48x48）
-@property (nonatomic, strong) UILabel *titleLabel;
-@property (nonatomic, strong) UILabel *percentLabel;
-@property (nonatomic, strong) UIProgressView *progressBar;
-@property (nonatomic, strong) UILabel *detailInfoLabel; // 文件大小 + 速度
-@property (nonatomic, strong) UILabel *etaLabel; // 剩余时间
-@property (nonatomic, strong) UIView *stagesContainer; // 阶段步骤容器
-@property (nonatomic, strong) UIStackView *stagesStack; // 阶段步骤垂直排列
-@property (nonatomic, strong) UILabel *stageLabel;
-@property (nonatomic, strong) UIActivityIndicatorView *indeterminateIndicator;
-@end
-
-@implementation InstallerProgressViewController
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    // 适配自定义启动器背景（参照 ForgeInstallViewController）
-    [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(refreshBackgroundEffect)
-                                                 name:@"BackgroundUIEffectChanged"
-                                               object:nil];
-
-    // 取消按钮（替代返回按钮，避免误以为已完成）
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel
-                                                                                          target:self
-                                                                                          action:@selector(cancelTapped)];
-    self.navigationItem.hidesBackButton = YES;
-
-    [self setupUI];
-    [self updateUI];
-}
-
-- (void)refreshBackgroundEffect {
-    // 透明背景下无需额外操作
-}
-
-- (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-}
-
-- (void)setupUI {
-    self.cardView = [[UIView alloc] init];
-    self.cardView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.cardView.backgroundColor = [UIColor clearColor];
-    [[BackgroundManager sharedManager] applyEffectToView:self.cardView];
-    self.cardView.layer.cornerRadius = 16;
-    self.cardView.layer.masksToBounds = YES;
-    [self.view addSubview:self.cardView];
-
-    // ===== 类别图标（48x48，参照 FCL 安装页顶部的类别图标）=====
-    self.iconView = [[UIImageView alloc] init];
-    self.iconView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.iconView.contentMode = UIViewContentModeScaleAspectFit;
-    self.iconView.tintColor = accentColor();
-    self.iconView.image = [UIImage systemImageNamed:@"cube.box.fill"];
-    self.iconView.hidden = YES; // 默认隐藏，设置了 categoryIconName 后显示
-    [self.cardView addSubview:self.iconView];
-
-    self.titleLabel = [[UILabel alloc] init];
-    self.titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
-    self.titleLabel.textAlignment = NSTextAlignmentCenter;
-    self.titleLabel.numberOfLines = 0;
-    self.titleLabel.text = @"正在安装";
-    [self.cardView addSubview:self.titleLabel];
-
-    self.percentLabel = [[UILabel alloc] init];
-    self.percentLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.percentLabel.font = [UIFont systemFontOfSize:36 weight:UIFontWeightHeavy];
-    self.percentLabel.textAlignment = NSTextAlignmentCenter;
-    // 使用启动器主题强调色（accentColor），与启动按钮/菜单选中态保持一致。
-    // 用户在设置中切换主题色后，进度百分比会同步变色（FCL auto_tint 风格）。
-    self.percentLabel.textColor = accentColor();
-    self.percentLabel.text = @"0%";
-    [self.cardView addSubview:self.percentLabel];
-
-    self.indeterminateIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
-    self.indeterminateIndicator.translatesAutoresizingMaskIntoConstraints = NO;
-    self.indeterminateIndicator.hidesWhenStopped = YES;
-    self.indeterminateIndicator.hidden = YES;
-    [self.cardView addSubview:self.indeterminateIndicator];
-
-    self.progressBar = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
-    self.progressBar.translatesAutoresizingMaskIntoConstraints = NO;
-    self.progressBar.progress = 0.0;
-    // 进度条填充色跟随主题强调色（accentColor），与百分比数字、启动按钮统一
-    self.progressBar.progressTintColor = accentColor();
-    [self.cardView addSubview:self.progressBar];
-
-    // ===== 详情信息行（文件大小 + 速度，参照 FCL 安装页的文件信息行）=====
-    self.detailInfoLabel = [[UILabel alloc] init];
-    self.detailInfoLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.detailInfoLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    self.detailInfoLabel.textAlignment = NSTextAlignmentCenter;
-    self.detailInfoLabel.textColor = [UIColor secondaryLabelColor];
-    self.detailInfoLabel.hidden = YES; // 默认隐藏，设置了 detailInfoText 后显示
-    [self.cardView addSubview:self.detailInfoLabel];
-
-    // ===== 剩余时间（ETA，参照 FCL 安装页的剩余时间显示）=====
-    self.etaLabel = [[UILabel alloc] init];
-    self.etaLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.etaLabel.font = [UIFont systemFontOfSize:12];
-    self.etaLabel.textAlignment = NSTextAlignmentCenter;
-    self.etaLabel.textColor = [UIColor tertiaryLabelColor];
-    self.etaLabel.hidden = YES; // 默认隐藏，设置了 etaText 后显示
-    [self.cardView addSubview:self.etaLabel];
-
-    // ===== 阶段步骤容器（参照 FCL 的安装步骤列表，显示 ✓/◐/○ 状态）=====
-    self.stagesContainer = [[UIView alloc] init];
-    self.stagesContainer.translatesAutoresizingMaskIntoConstraints = NO;
-    self.stagesContainer.hidden = YES; // 默认隐藏，设置了 stageSteps 后显示
-    [self.cardView addSubview:self.stagesContainer];
-
-    self.stagesStack = [[UIStackView alloc] init];
-    self.stagesStack.translatesAutoresizingMaskIntoConstraints = NO;
-    self.stagesStack.axis = UILayoutConstraintAxisVertical;
-    self.stagesStack.spacing = 8;
-    self.stagesStack.alignment = UIStackViewAlignmentLeading;
-    self.stagesStack.distribution = UIStackViewDistributionFill;
-    [self.stagesContainer addSubview:self.stagesStack];
-
-    self.stageLabel = [[UILabel alloc] init];
-    self.stageLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.stageLabel.font = [UIFont systemFontOfSize:14];
-    self.stageLabel.textAlignment = NSTextAlignmentCenter;
-    self.stageLabel.textColor = [UIColor secondaryLabelColor];
-    self.stageLabel.numberOfLines = 0;
-    self.stageLabel.text = @"准备中...";
-    [self.cardView addSubview:self.stageLabel];
-
-    // 使用容器视图 + 垂直 stack 来组织所有内容，使 stagesContainer 可动态显隐
-    // 布局策略：从上到下依次排列，stagesContainer 底部约束到 stageLabel 顶部
-    // cardView 底部约束到 stageLabel 底部，stagesContainer 隐藏时高度自动为 0
-    [NSLayoutConstraint activateConstraints:@[
-        [self.cardView.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
-        [self.cardView.leadingAnchor constraintEqualToAnchor:self.view.layoutMarginsGuide.leadingAnchor],
-        [self.cardView.trailingAnchor constraintEqualToAnchor:self.view.layoutMarginsGuide.trailingAnchor],
-
-        // 类别图标：顶部 24pt，居中，48x48
-        [self.iconView.topAnchor constraintEqualToAnchor:self.cardView.topAnchor constant:24],
-        [self.iconView.centerXAnchor constraintEqualToAnchor:self.cardView.centerXAnchor],
-        [self.iconView.widthAnchor constraintEqualToConstant:48],
-        [self.iconView.heightAnchor constraintEqualToConstant:48],
-
-        // titleLabel：图标下方 12pt（图标隐藏时通过约束仍正常布局）
-        [self.titleLabel.topAnchor constraintEqualToAnchor:self.iconView.bottomAnchor constant:12],
-        [self.titleLabel.leadingAnchor constraintEqualToAnchor:self.cardView.leadingAnchor constant:16],
-        [self.titleLabel.trailingAnchor constraintEqualToAnchor:self.cardView.trailingAnchor constant:-16],
-
-        [self.percentLabel.topAnchor constraintEqualToAnchor:self.titleLabel.bottomAnchor constant:20],
-        [self.percentLabel.leadingAnchor constraintEqualToAnchor:self.cardView.leadingAnchor constant:16],
-        [self.percentLabel.trailingAnchor constraintEqualToAnchor:self.cardView.trailingAnchor constant:-16],
-
-        [self.indeterminateIndicator.topAnchor constraintEqualToAnchor:self.titleLabel.bottomAnchor constant:20],
-        [self.indeterminateIndicator.centerXAnchor constraintEqualToAnchor:self.cardView.centerXAnchor],
-
-        [self.progressBar.topAnchor constraintEqualToAnchor:self.percentLabel.bottomAnchor constant:16],
-        [self.progressBar.leadingAnchor constraintEqualToAnchor:self.cardView.leadingAnchor constant:16],
-        [self.progressBar.trailingAnchor constraintEqualToAnchor:self.cardView.trailingAnchor constant:-16],
-        [self.progressBar.heightAnchor constraintEqualToConstant:8],
-
-        // 详情信息行：进度条下方 10pt
-        [self.detailInfoLabel.topAnchor constraintEqualToAnchor:self.progressBar.bottomAnchor constant:10],
-        [self.detailInfoLabel.leadingAnchor constraintEqualToAnchor:self.cardView.leadingAnchor constant:16],
-        [self.detailInfoLabel.trailingAnchor constraintEqualToAnchor:self.cardView.trailingAnchor constant:-16],
-
-        // ETA：详情信息行下方 4pt
-        [self.etaLabel.topAnchor constraintEqualToAnchor:self.detailInfoLabel.bottomAnchor constant:4],
-        [self.etaLabel.leadingAnchor constraintEqualToAnchor:self.cardView.leadingAnchor constant:16],
-        [self.etaLabel.trailingAnchor constraintEqualToAnchor:self.cardView.trailingAnchor constant:-16],
-
-        // 阶段步骤容器：ETA 下方 12pt
-        [self.stagesContainer.topAnchor constraintEqualToAnchor:self.etaLabel.bottomAnchor constant:12],
-        [self.stagesContainer.leadingAnchor constraintEqualToAnchor:self.cardView.leadingAnchor constant:20],
-        [self.stagesContainer.trailingAnchor constraintEqualToAnchor:self.cardView.trailingAnchor constant:-20],
-
-        // stagesStack 充满 stagesContainer
-        [self.stagesStack.topAnchor constraintEqualToAnchor:self.stagesContainer.topAnchor],
-        [self.stagesStack.leadingAnchor constraintEqualToAnchor:self.stagesContainer.leadingAnchor],
-        [self.stagesStack.trailingAnchor constraintEqualToAnchor:self.stagesContainer.trailingAnchor],
-        [self.stagesStack.bottomAnchor constraintEqualToAnchor:self.stagesContainer.bottomAnchor],
-
-        // stageLabel：阶段步骤容器下方 12pt
-        [self.stageLabel.topAnchor constraintEqualToAnchor:self.stagesContainer.bottomAnchor constant:12],
-        [self.stageLabel.leadingAnchor constraintEqualToAnchor:self.cardView.leadingAnchor constant:16],
-        [self.stageLabel.trailingAnchor constraintEqualToAnchor:self.cardView.trailingAnchor constant:-16],
-        [self.stageLabel.bottomAnchor constraintEqualToAnchor:self.cardView.bottomAnchor constant:-24]
-    ]];
-}
-
-- (void)setTitleText:(NSString *)titleText {
-    _titleText = [titleText copy];
-    self.titleLabel.text = titleText ?: @"正在安装";
-    self.title = titleText ?: @"正在安装";
-}
-
-- (void)setStageMessage:(NSString *)stageMessage {
-    _stageMessage = [stageMessage copy];
-    [self updateUI];
-}
-
-- (void)setProgress:(double)progress {
-    _progress = progress;
-    [self updateUI];
-}
-
-- (void)setCategoryIconName:(NSString *)categoryIconName {
-    _categoryIconName = [categoryIconName copy];
-    if (categoryIconName.length > 0) {
-        self.iconView.image = [UIImage systemImageNamed:categoryIconName];
-        self.iconView.hidden = NO;
-    } else {
-        self.iconView.hidden = YES;
-    }
-}
-
-- (void)setCategoryIconColor:(UIColor *)categoryIconColor {
-    _categoryIconColor = categoryIconColor;
-    self.iconView.tintColor = categoryIconColor ?: accentColor();
-}
-
-- (void)setDetailInfoText:(NSString *)detailInfoText {
-    _detailInfoText = [detailInfoText copy];
-    if (detailInfoText.length > 0) {
-        self.detailInfoLabel.text = detailInfoText;
-        self.detailInfoLabel.hidden = NO;
-    } else {
-        self.detailInfoLabel.hidden = YES;
-    }
-}
-
-- (void)setEtaText:(NSString *)etaText {
-    _etaText = [etaText copy];
-    if (etaText.length > 0) {
-        self.etaLabel.text = etaText;
-        self.etaLabel.hidden = NO;
-    } else {
-        self.etaLabel.hidden = YES;
-    }
-}
-
-- (void)setStageSteps:(NSArray<NSDictionary *> *)stageSteps {
-    _stageSteps = [stageSteps copy];
-    [self rebuildStagesStack];
-}
-
-/// 重建阶段步骤列表（参照 FCL 的安装步骤列表）
-/// 每行包含状态图标（✓/◐/○）+ 步骤标题，状态用不同颜色区分
-- (void)rebuildStagesStack {
-    // 清除旧的步骤行
-    [self.stagesStack.arrangedSubviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
-
-    if (!self.stageSteps || self.stageSteps.count == 0) {
-        self.stagesContainer.hidden = YES;
-        return;
-    }
-
-    self.stagesContainer.hidden = NO;
-    for (NSDictionary *step in self.stageSteps) {
-        NSString *title = [step[@"title"] isKindOfClass:[NSString class]] ? step[@"title"] : @"";
-        NSInteger status = [step[@"status"] integerValue]; // 0=未开始 1=进行中 2=已完成
-
-        UILabel *stepLabel = [[UILabel alloc] init];
-        stepLabel.translatesAutoresizingMaskIntoConstraints = NO;
-        stepLabel.font = [UIFont systemFontOfSize:13];
-        stepLabel.numberOfLines = 0;
-
-        NSString *symbolName;
-        UIColor *statusColor;
-        switch (status) {
-            case 2: // 已完成
-                symbolName = @"checkmark.circle.fill";
-                statusColor = [UIColor systemGreenColor];
-                break;
-            case 1: // 进行中
-                symbolName = @"circle.dotted";
-                statusColor = accentColor();
-                break;
-            default: // 未开始
-                symbolName = @"circle";
-                statusColor = [UIColor tertiaryLabelColor];
-                break;
-        }
-
-        // 使用 NSAttributedString 构建带图标的步骤行
-        NSTextAttachment *attachment = [[NSTextAttachment alloc] init];
-        attachment.image = [[UIImage systemImageNamed:symbolName] imageWithTintColor:statusColor renderingMode:UIImageRenderingModeAlwaysOriginal];
-        attachment.bounds = CGRectMake(0, -2, 16, 16);
-        NSAttributedString *iconAttr = [NSAttributedString attributedStringWithAttachment:attachment];
-        NSMutableAttributedString *attrString = [[NSMutableAttributedString alloc] initWithAttributedString:iconAttr];
-        [attrString appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"  %@", title]
-                                                                         attributes:@{
-            NSFontAttributeName: [UIFont systemFontOfSize:13],
-            NSForegroundColorAttributeName: (status == 0) ? [UIColor tertiaryLabelColor] : [UIColor labelColor]
-        }]];
-        stepLabel.attributedText = attrString;
-        [self.stagesStack addArrangedSubview:stepLabel];
-    }
-}
-
-- (void)updateUI {
-    if (self.progress < 0) {
-        // 不确定模式：隐藏进度条与百分比，只显示转圈
-        self.progressBar.hidden = YES;
-        self.percentLabel.hidden = YES;
-        self.indeterminateIndicator.hidden = NO;
-        [self.indeterminateIndicator startAnimating];
-    } else {
-        self.progressBar.hidden = NO;
-        self.percentLabel.hidden = NO;
-        self.indeterminateIndicator.hidden = YES;
-        [self.indeterminateIndicator stopAnimating];
-        double clamped = MAX(0.0, MIN(1.0, self.progress));
-        NSInteger percent = (NSInteger)(clamped * 100);
-        self.percentLabel.text = [NSString stringWithFormat:@"%ld%%", (long)percent];
-        [self.progressBar setProgress:(float)clamped animated:YES];
-    }
-    self.stageLabel.text = self.stageMessage ?: @"";
-}
-
-- (void)cancelTapped {
-    if (self.cancelHandler) {
-        self.cancelHandler();
-    } else {
-        [self.navigationController popViewControllerAnimated:YES];
-    }
-}
-
-@end
 
 #pragma mark - DownloadViewController
 
@@ -848,10 +496,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 @property (nonatomic, assign) BOOL hasUserTouchedFilters;
 
 @property (nonatomic, strong) MinecraftResourceDownloadTask *downloadTask;
-@property (nonatomic, strong) DownloadProgressViewController *progressVC;
 @property (nonatomic, strong) InlineMessageView *downloadingAlert;
-// 参照 FCL/ZL2/HMCL 的下载进度卡片，替代转圈圈的 loadingIndicator
-@property (nonatomic, strong) DownloadProgressCardView *progressCardView;
 
 @property (nonatomic, assign) BOOL isObservingProgress;
 
@@ -942,18 +587,12 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 // 整合包版本选择回调时临时持有的整合包字典（ModVersionViewController 回调使用，与 Mod 共用 VC 但下载流程不同）
 @property (nonatomic, strong, nullable) NSDictionary *pendingModpackDict;
 
-// 模组加载器安装进度 VC（FCL 风格进度展示，替代转圈 alert）
-@property (nonatomic, strong) InstallerProgressViewController *installerProgressVC;
-
-// 原版前置安装（FCL 风格：安装模组加载器前先装好对应原版）
+// 原版前置安装（FCL 风格：安装模组加载器前先装好对应原版）。
+// redesign-download-ui Phase 3：进度展示由 MinecraftResourceDownloadTask 内部阶段上报
+// 驱动统一进度页，无需持有任何进度 VC。
 @property (nonatomic, strong) MinecraftResourceDownloadTask *vanillaPreinstallTask;
-@property (nonatomic, strong) InstallerProgressViewController *vanillaPreinstallProgressVC;
 @property (nonatomic, assign) BOOL isObservingVanillaPreinstall;
 @property (nonatomic, copy, nullable) void (^vanillaPreinstallCompletion)(BOOL success);
-// 改进2（参照 ZL2 统一进度流）：YES 表示原版预装是加载器安装的前置步骤，
-// 完成后不 pop 预装 VC，而是转交给 self.installerProgressVC，由后续 install* 方法复用，
-// 实现"原版 + 加载器"在同一进度页连续推进，避免出现两个独立进度页。
-@property (nonatomic, assign) BOOL vanillaPreinstallForLoader;
 
 @end
 
@@ -3171,79 +2810,80 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         // 注意：ensureVanillaInstalled: 在 JSON 已存在时会直接跳过，避免重复下载；
         //   downloadVanillaVersion: 内部也会通过 createDownloadTask: 的 SHA1 校验跳过已下载文件。
         //
-        // 修复"点击安装按钮没反应"：
-        // 当 version JSON 不存在（首次安装）时，ensureVanillaInstalled: → ensureVanillaVersionJSONExists:
-        // 会在后台线程下载 version manifest + version JSON，期间可能需要数秒到 30 秒。
-        // 在此期间 ModLoaderInstallViewController 已被 pop，用户看到空白页面，感觉"没反应"。
-        // 修复：在调用 ensureVanillaInstalled: 之前先显示进度卡片，让用户立即看到反馈。
-        //      JSON 已存在时 ensureVanillaInstalled: 同步返回，progressCardView 会被
-        //      startVersionDownload: 中清理旧卡片的逻辑正确处理。
-        if (self.progressCardView) {
-            [self.progressCardView dismiss];
-            self.progressCardView = nil;
-        }
-        // 参照 ZL2：vanilla 分支也用"准备运行环境"文案，与加载器前置预装保持一致
-        NSString *vanillaTitle = [NSString stringWithFormat:@"正在准备运行环境 %@", versionId];
-        self.progressCardView = [DownloadProgressCardView showInParentView:self.view title:vanillaTitle];
-        [self.progressCardView startDownloadWithTitle:vanillaTitle
-                                              subtitle:@"Minecraft 原版"];
-        [self.progressCardView updateProgress:-1 downloaded:0 total:-1 speed:0 eta:-1 currentFile:@"正在获取版本信息..."];
-
+        // redesign-download-ui Phase 4：进度展示统一由 MinecraftResourceDownloadTask
+        // 内部注册的下载任务（autoPresentDetail=YES）自动弹出统一进度页，
+        // 此处不再创建底部悬浮进度卡片。
         __weak typeof(self) weakSelf = self;
         [self ensureVanillaInstalled:version completion:^(BOOL success) {
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
             if (success) {
-                // ensureVanillaInstalled: 完成后，startVersionDownload: 会清理旧卡片并创建新的
                 [strongSelf downloadVanillaVersion:version];
             } else {
-                // 失败时清理进度卡片并显示错误
-                if (strongSelf.progressCardView) {
-                    NSError *err = [NSError errorWithDomain:@"DownloadError" code:-1
-                                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法安装原版 %@，请检查网络后重试", versionId]}];
-                    [strongSelf.progressCardView failWithError:err];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showError:[NSString stringWithFormat:@"无法安装原版 %@，请检查网络后重试", versionId]];
             }
         }];
         return;
     }
 
-    // 参照 FCL：安装模组加载器前，先完整安装对应的原版（client.jar + libraries + assets）。
-    // Fabric/Quilt/OptiFine 的版本 JSON 含 "inheritsFrom" 字段，启动时 Java 端
-    // Tools.getVersionInfo() 会读取 versions/{inheritsFrom}/{inheritsFrom}.json 合并。
-    // 若用户尚未安装原版，启动会因 FileNotFoundException 崩溃；仅下载 JSON 不够，
-    // 还需下载 client.jar/资源/库，否则首次启动仍要现下、体验割裂。
-    // Forge/NeoForge 直装器内部已有 ensureParentVersionExists 逻辑（仅 JSON），此处补全完整原版。
-    //
-    // 改进2（参照 ZL2 统一进度流）：设置 vanillaPreinstallForLoader=YES，让原版预装完成后
-    // 不 pop 进度页，而是转交给后续 install* 方法复用，实现"原版 + 加载器"在同一进度页连续推进。
-    self.vanillaPreinstallForLoader = YES;
-    __weak typeof(self) weakSelf = self;
-    [self ensureVanillaInstalled:version completion:^(BOOL success) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) return;
-        if (!success) {
-            [strongSelf showError:[NSString stringWithFormat:@"无法安装原版 %@，请检查网络后重试", versionId]];
-            return;
+    // 用户决策（参考 ZL2 的保守策略）：安装模组加载器前检测对应原版是否已安装，
+    // 未安装时不再自动代装原版，而是提醒用户先手动安装原版。
+    // 原因：原版自动预装 + 加载器安装的复合流程中，若原版安装失败/被中断，
+    // 加载器版本虽写入但继承的原版缺失，实例管理会出现"找不到刚安装的版本"等问题；
+    // 提醒方式让用户明确先完成原版安装，流程更可控。
+    // 注：加载器版本 JSON 均含 "inheritsFrom" 字段，启动时 Java 端会读取
+    // versions/{inheritsFrom}/{inheritsFrom}.json 合并，原版缺失会导致启动崩溃。
+    if (![self isVanillaVersionInstalled:versionId]) {
+        NSDictionary *loaderDisplayNames = @{
+            @"fabric": @"Fabric",
+            @"forge": @"Forge",
+            @"neoforge": @"NeoForge",
+            @"quilt": @"Quilt",
+            @"optifine": @"OptiFine"
+        };
+        NSString *loaderDisplayName = loaderDisplayNames[loaderType] ?: loaderType;
+        UIAlertController *alert = [UIAlertController
+            alertControllerWithTitle:@"未安装原版"
+                             message:[NSString stringWithFormat:
+                                      @"安装 %@ 前需要先安装原版 %@。\n\n请先在「下载」页面安装该原版版本，完成后再安装模组加载器。",
+                                      loaderDisplayName, versionId]
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"知道了"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([loaderType isEqualToString:@"fabric"]) {
+            [self installFabric:versionId loaderVersion:loaderVersion installAPI:installFabricAPI];
+        } else if ([loaderType isEqualToString:@"forge"]) {
+            [self installForge:versionId installOptiFine:installOptiFine loaderVersion:loaderVersion];
+        } else if ([loaderType isEqualToString:@"neoforge"]) {
+            [self installNeoForge:versionId loaderVersion:loaderVersion];
+        } else if ([loaderType isEqualToString:@"quilt"]) {
+            [self installQuilt:versionId loaderVersion:loaderVersion];
+        } else if ([loaderType isEqualToString:@"optifine"]) {
+            [self installOptiFineAsPatch:versionId loaderVersion:loaderVersion];
+        } else {
+            [self showError:[NSString stringWithFormat:@"%@ 安装器暂未实现", loaderType]];
         }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if ([loaderType isEqualToString:@"fabric"]) {
-                [strongSelf installFabric:versionId loaderVersion:loaderVersion installAPI:installFabricAPI];
-            } else if ([loaderType isEqualToString:@"forge"]) {
-                [strongSelf installForge:versionId installOptiFine:installOptiFine loaderVersion:loaderVersion];
-            } else if ([loaderType isEqualToString:@"neoforge"]) {
-                [strongSelf installNeoForge:versionId loaderVersion:loaderVersion];
-            } else if ([loaderType isEqualToString:@"quilt"]) {
-                [strongSelf installQuilt:versionId loaderVersion:loaderVersion];
-            } else if ([loaderType isEqualToString:@"optifine"]) {
-                [strongSelf installOptiFineAsPatch:versionId loaderVersion:loaderVersion];
-            } else {
-                [strongSelf showError:[NSString stringWithFormat:@"%@ 安装器暂未实现", loaderType]];
-            }
-        });
-    }];
+    });
+}
+
+/// 检测指定原版版本是否已安装（versions/{versionId}/{versionId}.json 存在即视为已安装，
+/// 与版本列表扫描 versions/ 目录的判定标准一致）。
+- (BOOL)isVanillaVersionInstalled:(NSString *)versionId {
+    if (versionId.length == 0) return NO;
+    NSString *gameDir = @(getenv("POJAV_GAME_DIR"));
+    if (gameDir.length == 0) {
+        gameDir = @(getenv("POJAV_HOME"));
+    }
+    if (gameDir.length == 0) return NO;
+    NSString *versionJsonPath = [gameDir stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"versions/%@/%@.json", versionId, versionId]];
+    return [NSFileManager.defaultManager fileExistsAtPath:versionJsonPath];
 }
 
 /// 参照 FCL：确保原版版本的 version JSON 已存在。
@@ -3397,7 +3037,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 /// 参照 FCL：安装模组加载器前，先完整安装对应的原版（version JSON + libraries + assets）。
 /// 若原版已安装（versions/{id}/{id}.json 存在于 POJAV_GAME_DIR），直接 completion(YES)。
 /// 否则：1) 确保 version JSON 存在；2) 用 MinecraftResourceDownloadTask 下载完整原版文件（库+资源）；
-/// 3) 通过 InstallerProgressViewController 显示 FCL 风格进度。
+/// 3) 进度展示由 MinecraftResourceDownloadTask 内部的阶段上报驱动统一进度页自动弹出
+///    （redesign-download-ui Phase 3 Task 3.1：downloadVersion: 内注册 6 阶段 + autoPresentDetail）。
 /// 注：client.jar 由 Java 端启动时按需下载，此处不检查；MinecraftResourceDownloadTask
 /// 下载时会对已存在且 SHA1 正确的文件跳过，因此重复调用安全。
 - (void)ensureVanillaInstalled:(NSDictionary *)version completion:(void (^)(BOOL success))completion {
@@ -3431,7 +3072,6 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                                    [NSString stringWithFormat:@"%@.jar", versionId]];
         if ([NSFileManager.defaultManager fileExistsAtPath:clientJarPath]) {
             NSLog(@"[DownloadVC] Vanilla %@ already installed (JSON + jar exist), skip preinstall", versionId);
-            self.vanillaPreinstallForLoader = NO; // 不会进入 KVO 转交分支，重置标志
             if (completion) completion(YES);
             return;
         }
@@ -3453,55 +3093,19 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             return;
         }
         if (!jsonSuccess) {
-            strongSelf.vanillaPreinstallForLoader = NO; // 重置转交标志
             strongSelf.vanillaPreinstallCompletion = nil;
             if (completion) completion(NO);
             return;
         }
 
-        // 3. 创建 FCL 风格进度 VC 并 push
+        // 3. 创建下载任务（redesign-download-ui Phase 3：进度页由任务阶段上报自动弹出，
+        //    取消由统一进度页 → DownloadTaskManager.cancelTaskWithId → task.cancel 处理）
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) s = weakSelf;
             if (!s) {
                 if (completion) completion(NO);
                 return;
             }
-            InstallerProgressViewController *progressVC = [[InstallerProgressViewController alloc] init];
-            // 参照 ZL2：原版预装是加载器安装的前置步骤，文案应体现"准备运行环境"而非"安装原版"
-            progressVC.titleText = [NSString stringWithFormat:@"正在准备运行环境 %@", versionId];
-            progressVC.stageMessage = @"正在下载运行所需文件...";
-            progressVC.progress = -1; // 初始不确定模式，待拿到总字节数后切换为确定模式
-            // 阶段12增强：类别图标 + 阶段步骤列表（参照 FCL 原版安装步骤）
-            progressVC.categoryIconName = @"cube.box.fill";
-            progressVC.categoryIconColor = [UIColor systemGreenColor];
-            progressVC.stageSteps = @[
-                @{@"title": @"获取版本清单", @"status": @2},
-                @{@"title": @"下载版本 JSON", @"status": @2},
-                @{@"title": @"下载游戏库文件", @"status": @1},
-                @{@"title": @"下载资源文件", @"status": @0},
-                @{@"title": @"验证文件完整性", @"status": @0},
-            ];
-            progressVC.cancelHandler = ^{
-                __strong typeof(weakSelf) ss = weakSelf;
-                if (!ss) return;
-                if (ss.vanillaPreinstallTask) {
-                    if (ss.isObservingVanillaPreinstall) {
-                        @try {
-                            [ss.vanillaPreinstallTask.progress removeObserver:ss forKeyPath:@"fractionCompleted"];
-                        } @catch (NSException *exception) {
-                            NSLog(@"[DownloadVC] vanillaPreinstall cancel: removeObserver failed: %@", exception.reason);
-                        }
-                        ss.isObservingVanillaPreinstall = NO;
-                    }
-                    [ss.vanillaPreinstallTask.progress cancel];
-                    ss.vanillaPreinstallTask = nil;
-                }
-                ss.vanillaPreinstallForLoader = NO; // 重置转交标志
-                ss.vanillaPreinstallProgressVC = nil;
-                ss.vanillaPreinstallCompletion = nil;
-            };
-            s.vanillaPreinstallProgressVC = progressVC;
-            [s.navigationController pushViewController:progressVC animated:YES];
 
             // 4. 创建下载任务
             MinecraftResourceDownloadTask *task = [MinecraftResourceDownloadTask new];
@@ -3520,12 +3124,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                         }
                         ss.isObservingVanillaPreinstall = NO;
                     }
-                    if (ss.vanillaPreinstallProgressVC && [ss.navigationController.viewControllers containsObject:ss.vanillaPreinstallProgressVC]) {
-                        [ss.navigationController popViewControllerAnimated:YES];
-                    }
                     ss.vanillaPreinstallTask = nil;
-                    ss.vanillaPreinstallForLoader = NO; // 重置转交标志
-                    ss.vanillaPreinstallProgressVC = nil;
                     void (^cb)(BOOL) = ss.vanillaPreinstallCompletion;
                     ss.vanillaPreinstallCompletion = nil;
                     if (cb) cb(NO);
@@ -3577,27 +3176,14 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 - (void)startVersionDownload:(NSDictionary *)version {
     __weak DownloadViewController *weakSelf = self;
 
-    // 参照 FCL/ZL2/HMCL：使用下载进度卡片替代转圈圈和纯文字进度
-    // 清理旧的进度卡片（如果存在）
-    if (self.progressCardView) {
-        [self.progressCardView dismiss];
-        self.progressCardView = nil;
-    }
     if (self.downloadingAlert) {
         [self.downloadingAlert dismiss];
         self.downloadingAlert = nil;
     }
 
-    NSString *versionId = version[@"id"] ?: @"版本";
-    NSString *versionType = version[@"type"] ?: @"";
-    NSString *subtitle = [versionType isEqualToString:@"release"] ? @"Minecraft 正式版" :
-                         [versionType isEqualToString:@"snapshot"] ? @"Minecraft 测试版" : @"Minecraft";
-
-    // 创建并显示下载进度卡片
-    self.progressCardView = [DownloadProgressCardView showInParentView:self.view
-                                                                 title:[NSString stringWithFormat:@"正在下载 %@", versionId]];
-    [self.progressCardView startDownloadWithTitle:[NSString stringWithFormat:@"正在下载 %@", versionId]
-                                          subtitle:subtitle];
+    // redesign-download-ui Phase 4：进度展示统一由 MinecraftResourceDownloadTask
+    // 内部注册的下载任务（原版 6 阶段 + autoPresentDetail=YES）自动弹出统一进度页，
+    // 此处不再创建底部悬浮进度卡片，仅保留 KVO 完成收尾。
 
     // 重新赋值 downloadTask 前，先移除旧 task 的 KVO 观察者。
     // 否则 dealloc 时 self.downloadTask.progress 已是新对象，removeObserver 会抛
@@ -3614,20 +3200,6 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.downloadTask = [MinecraftResourceDownloadTask new];
     self.downloadTask.maxRetryCount = 3;
 
-    self.downloadTask.retryCallback = ^(NSInteger retryCount, NSInteger maxRetryCount) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (weakSelf.progressCardView) {
-                // 重试时显示不确定模式（转圈），提示用户正在重试
-                [weakSelf.progressCardView updateProgress:-1
-                                               downloaded:0
-                                                     total:-1
-                                                    speed:0
-                                                      eta:-1
-                                              currentFile:[NSString stringWithFormat:@"下载失败，正在重试 (%ld/%ld)...", (long)retryCount, (long)maxRetryCount]];
-            }
-        });
-    };
-
     self.downloadTask.handleError = ^{
         dispatch_async(dispatch_get_main_queue(), ^{
             if (weakSelf.isObservingProgress) {
@@ -3639,16 +3211,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                 weakSelf.isObservingProgress = NO;
             }
             weakSelf.view.userInteractionEnabled = YES;
-
-            // 使用进度卡片显示失败状态
-            if (weakSelf.progressCardView) {
-                NSError *error = [NSError errorWithDomain:@"DownloadError" code:-1
-                                                 userInfo:@{NSLocalizedDescriptionKey: @"版本下载失败，请检查网络连接"}];
-                [weakSelf.progressCardView failWithError:error];
-                weakSelf.progressCardView = nil;
-            }
             weakSelf.downloadTask = nil;
-            weakSelf.progressVC = nil;
         });
     };
 
@@ -3684,6 +3247,28 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     [self installFabricLikeLoader:gameVersion loaderVersion:loaderVersion installAPI:NO vendor:@"quilt"];
 }
 
+#pragma mark - Installer Task Registration (redesign-download-ui Phase 3 Task 3.2)
+
+/// 注册安装类任务到统一下载管理器并配置阶段列表与自动弹出统一进度页。
+/// 返回 taskId（注册失败返回 nil）。resourceType 默认 Modloader。
+- (NSString *)registerInstallerTaskWithResourceName:(NSString *)resourceName
+                                         displayName:(NSString *)displayName
+                                               stages:(NSArray<PLTaskStage *> *)stages {
+    NSString *source = getPrefObject(@"general.download_source") ?: @"official";
+    DownloadTaskItem *item = [[DownloadTaskManager sharedManager]
+        registerTaskWithResourceType:DownloadTaskResourceTypeModloader
+                        resourceName:resourceName
+                         displayName:displayName
+                      downloadSource:source
+                             rawTask:nil
+                      supportsResume:NO
+                             iconURL:nil];
+    if (!item) return nil;
+    [[DownloadTaskManager sharedManager] setTaskWithId:item.taskId stages:stages];
+    item.autoPresentDetail = YES;
+    return item.taskId;
+}
+
 /// Fabric/Quilt 共用的 meta API 安装实现
 /// - vendor: @"fabric" 或 @"quilt"，决定 meta URL 与显示文案
 - (void)installFabricLikeLoader:(NSString *)gameVersion loaderVersion:(NSString *)loaderVersion installAPI:(BOOL)installAPI vendor:(NSString *)vendor {
@@ -3693,55 +3278,34 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                                  : @"https://meta.fabricmc.net/v2/versions/loader";
     NSString *loaderTag = isQuilt ? @"quilt" : @"fabric";
 
-    // 改进2（参照 ZL2 统一进度流）：复用原版预装转交的进度 VC（若存在），
-    // 否则创建新 VC；标题统一为"正在准备运行环境"，步骤列表合并展示原版已完成步骤。
-    InstallerProgressViewController *progressVC = [self obtainInstallerProgressVC];
-    progressVC.titleText = [NSString stringWithFormat:@"正在准备运行环境 %@", gameVersion];
-    progressVC.progress = -1; // 不确定模式，正在拉取 profile JSON
-    progressVC.stageMessage = [NSString stringWithFormat:@"正在获取 %@ profile...\n游戏版本: %@  加载器: %@", displayName, gameVersion, loaderVersion];
-    // 阶段12增强：加载器图标 + 阶段步骤列表（使用 ModLoaderIconHelper 统一图标）
-    progressVC.categoryIconName = [ModLoaderIconHelper symbolNameForLoader:loaderTag];
-    progressVC.categoryIconColor = [ModLoaderIconHelper brandColorForLoader:loaderTag];
-    // 合并步骤列表：原版5步标记完成 + 加载器安装步骤
-    progressVC.stageSteps = @[
-        @{@"title": @"获取版本清单", @"status": @2},
-        @{@"title": @"下载版本 JSON", @"status": @2},
-        @{@"title": @"下载游戏库文件", @"status": @2},
-        @{@"title": @"下载资源文件", @"status": @2},
-        @{@"title": @"验证文件完整性", @"status": @2},
-        @{@"title": @"获取加载器 profile", @"status": @1},
-        @{@"title": @"下载加载器库文件", @"status": @0},
-        @{@"title": @"写入版本 JSON", @"status": @0},
-    ];
+    // redesign-download-ui Phase 3 Task 3.2：注册任务 + 阶段上报 + 自动弹统一进度页，
+    // 替代私有 InstallerProgressViewController。原版预装（若发生）是独立任务独立进度页，
+    // 加载器安装仅上报自身 3 步（获取 profile→下载加载器库→写入版本 JSON）。
+    // 阶段下标与 PLTaskStagesFabricExtra() 一致。
+    static const NSUInteger kFabricStageProfile = 0;
+    static const NSUInteger kFabricStageLoaderLibs = 1;
+    static const NSUInteger kFabricStageWriteJSON = 2;
+
+    NSString *fabricTaskName = [NSString stringWithFormat:@"%@-%@-%@", loaderTag, gameVersion, loaderVersion];
+    __block NSString *fabricTaskId = [self registerInstallerTaskWithResourceName:fabricTaskName
+                                                                      displayName:[NSString stringWithFormat:@"%@ %@ (%@)", displayName, loaderVersion, gameVersion]
+                                                                            stages:PLTaskStagesFabricExtra()];
+    if (!fabricTaskId) {
+        [self showError:[NSString stringWithFormat:@"%@ 安装任务注册失败", displayName]];
+        return;
+    }
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+    // 阶段0：获取加载器 profile（profile JSON 较小，进度不确定）
+    [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageProfile status:PLTaskStageStatusRunning];
+    [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageProfile progress:-1
+                                   message:[NSString stringWithFormat:@"游戏版本: %@  加载器: %@", gameVersion, loaderVersion]];
+    [manager updateTaskWithId:fabricTaskId currentStageIndex:kFabricStageProfile];
 
     __weak typeof(self) weakSelf = self;
     __block NSURLSessionDataTask *dataTask = nil;
-    progressVC.cancelHandler = ^{
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (dataTask) [dataTask cancel];
-        if (strongSelf) {
-            [strongSelf.navigationController popViewControllerAnimated:YES];
-            strongSelf.installerProgressVC = nil;
-        }
-    };
-
-    // 注：push 已由 obtainInstallerProgressVC 在新建时完成，复用时不重复 push
 
     NSString *urlString = [NSString stringWithFormat:@"%@/%@/%@/profile/json", metaBase, gameVersion, loaderVersion];
     NSURL *url = [NSURL URLWithString:urlString];
-
-    // 注册到统一下载任务管理器
-    NSString *source = getPrefObject(@"general.download_source") ?: @"official";
-    NSString *fabricTaskName = [NSString stringWithFormat:@"%@-%@-%@", loaderTag, gameVersion, loaderVersion];
-    DownloadTaskItem *fabricTaskItem = [[DownloadTaskManager sharedManager]
-        registerTaskWithResourceType:DownloadTaskResourceTypeModloader
-                        resourceName:fabricTaskName
-                         displayName:[NSString stringWithFormat:@"%@ %@ (%@)", displayName, loaderVersion, gameVersion]
-                      downloadSource:source
-                             rawTask:nil
-                      supportsResume:YES
-                             iconURL:nil];
-    __block NSString *fabricTaskId = fabricTaskItem.taskId;
 
     // profile JSON 较小，使用 dataTask；进度通过阶段驱动（无法精确测算）
     dataTask = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -3750,6 +3314,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             if (!strongSelf) return;
 
             if (error) {
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageProfile status:PLTaskStageStatusFailed];
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageProfile progress:0 message:error.localizedDescription];
                 if (error.code == NSURLErrorCancelled) {
                     [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId completedWithError:nil];
                     [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId state:DownloadTaskStateCancelled];
@@ -3762,32 +3328,29 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             }
 
             if (!data) {
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageProfile status:PLTaskStageStatusFailed];
                 NSError *err = [NSError errorWithDomain:@"FabricInstall" code:2 userInfo:@{NSLocalizedDescriptionKey: @"返回数据为空"}];
                 [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId completedWithError:err];
                 [strongSelf finishInstallerProgressWithError:[NSString stringWithFormat:@"%@ 安装失败: 返回数据为空", displayName]];
                 return;
             }
 
-            [[DownloadTaskManager sharedManager] updateTaskWithId:fabricTaskId progress:0.5 totalBytes:-1 downloadedBytes:0];
-
-            // 解析 JSON
-            strongSelf.installerProgressVC.progress = 0.5;
-            strongSelf.installerProgressVC.stageMessage = [NSString stringWithFormat:@"正在解析 %@ 配置...", displayName];
-
+            // 解析 JSON（阶段0 收尾）
             NSError *jsonError;
             NSDictionary *profileJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
             if (!profileJson || jsonError) {
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageProfile status:PLTaskStageStatusFailed];
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageProfile progress:0 message:jsonError.localizedDescription];
                 NSError *err = [NSError errorWithDomain:@"FabricInstall" code:3 userInfo:@{NSLocalizedDescriptionKey: jsonError.localizedDescription ?: @"解析失败"}];
                 [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId completedWithError:err];
                 [strongSelf finishInstallerProgressWithError:[NSString stringWithFormat:@"解析 %@ 配置失败", displayName]];
                 return;
             }
+            [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageProfile status:PLTaskStageStatusCompleted];
 
-            [[DownloadTaskManager sharedManager] updateTaskWithId:fabricTaskId progress:0.7 totalBytes:-1 downloadedBytes:0];
-
-            // 写入版本 JSON
-            strongSelf.installerProgressVC.progress = 0.7;
-            strongSelf.installerProgressVC.stageMessage = @"正在写入版本文件...";
+            // 写入版本 JSON（阶段2）
+            [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageWriteJSON status:PLTaskStageStatusRunning];
+            [manager updateTaskWithId:fabricTaskId currentStageIndex:kFabricStageWriteJSON];
 
             NSString *versionId = profileJson[@"id"];
             NSString *jsonPath = [NSString stringWithFormat:@"%s/versions/%@/%@.json", getenv("POJAV_GAME_DIR"), versionId, versionId];
@@ -3800,18 +3363,15 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             NSData *jsonData = [NSJSONSerialization dataWithJSONObject:profileJson options:NSJSONWritingPrettyPrinted error:&saveError];
             [jsonData writeToFile:jsonPath options:NSDataWritingAtomic error:&saveError];
             if (saveError) {
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageWriteJSON status:PLTaskStageStatusFailed];
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageWriteJSON progress:0 message:saveError.localizedDescription];
                 NSError *err = [NSError errorWithDomain:@"FabricInstall" code:4 userInfo:@{NSLocalizedDescriptionKey: saveError.localizedDescription}];
                 [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId completedWithError:err];
                 [strongSelf finishInstallerProgressWithError:[NSString stringWithFormat:@"保存配置失败: %@", saveError.localizedDescription]];
                 return;
             }
 
-            [[DownloadTaskManager sharedManager] updateTaskWithId:fabricTaskId progress:0.85 totalBytes:-1 downloadedBytes:0];
-
-            // 注册 profile
-            strongSelf.installerProgressVC.progress = 0.85;
-            strongSelf.installerProgressVC.stageMessage = @"正在注册配置...";
-
+            // 注册 profile（阶段2 收尾）
             NSMutableDictionary *profile = [NSMutableDictionary dictionary];
             profile[@"name"] = versionId;
             profile[@"lastVersionId"] = versionId;
@@ -3822,19 +3382,24 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             profile[@"created"] = [NSDate date].description;
             [PLProfiles.current saveProfile:profile withName:versionId];
             PLProfiles.current.selectedProfileName = versionId;
+            [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageWriteJSON status:PLTaskStageStatusCompleted];
 
-            // 仅 Fabric 安装 Fabric API；Quilt 用 QSL/QFAPI，不安装
+            // 仅 Fabric 安装 Fabric API；Quilt 用 QSL/QFAPI，不安装（阶段1 Skipped）
             if (installAPI && !isQuilt) {
-                strongSelf.installerProgressVC.progress = 0.9;
-                strongSelf.installerProgressVC.stageMessage = @"正在下载 Fabric API...";
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageLoaderLibs status:PLTaskStageStatusRunning];
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageLoaderLibs progress:-1 message:@"正在下载 Fabric API..."];
+                [manager updateTaskWithId:fabricTaskId currentStageIndex:kFabricStageLoaderLibs];
                 [strongSelf downloadFabricAPI:gameVersion completion:^(BOOL success, NSError *apiError) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         __strong typeof(weakSelf) strongSelf2 = weakSelf;
                         if (!strongSelf2) return;
                         if (success) {
+                            [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageLoaderLibs status:PLTaskStageStatusCompleted];
                             [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId completedWithError:nil];
                             [strongSelf2 finishInstallerProgressWithSuccess:[NSString stringWithFormat:@"%@ %@ 安装成功\nFabric API 已自动安装", displayName, loaderVersion]];
                         } else {
+                            [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageLoaderLibs status:PLTaskStageStatusFailed];
+                            [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageLoaderLibs progress:0 message:apiError.localizedDescription];
                             NSError *err = [NSError errorWithDomain:@"FabricInstall" code:5 userInfo:@{NSLocalizedDescriptionKey: apiError.localizedDescription ?: @"Fabric API 下载失败"}];
                             [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId completedWithError:err];
                             [strongSelf2 finishInstallerProgressWithSuccess:[NSString stringWithFormat:@"%@ %@ 安装成功\nFabric API 安装失败: %@", displayName, loaderVersion, apiError.localizedDescription ?: @"未知错误"]];
@@ -3842,27 +3407,25 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                     });
                 }];
             } else {
+                [manager updateTaskWithId:fabricTaskId stageAtIndex:kFabricStageLoaderLibs status:PLTaskStageStatusSkipped];
                 [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId completedWithError:nil];
                 [strongSelf finishInstallerProgressWithSuccess:[NSString stringWithFormat:@"%@ %@ 安装成功", displayName, loaderVersion]];
             }
         });
     }];
+    DownloadTaskItem *fabricTaskItem = [[DownloadTaskManager sharedManager] taskWithId:fabricTaskId];
     fabricTaskItem.rawTask = dataTask;
     [[DownloadTaskManager sharedManager] setTaskWithId:fabricTaskId state:DownloadTaskStateDownloading];
     [dataTask resume];
 }
 
-// 安装进度 VC 完成时的统一处理：进度满 → 短暂展示 → pop 并显示成功提示
+// 安装完成时的统一处理（redesign-download-ui Phase 3：统一进度页自动展示完成态并自动关闭，
+// 这里仅负责成功提示与版本列表刷新）
 - (void)finishInstallerProgressWithSuccess:(NSString *)message {
-    if (!self.installerProgressVC) return;
-    self.installerProgressVC.progress = 1.0;
-    self.installerProgressVC.stageMessage = @"安装完成";
     __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
-        [strongSelf.navigationController popViewControllerAnimated:YES];
-        strongSelf.installerProgressVC = nil;
         [strongSelf showSuccessMessage:message];
         // 关键修复（issue #61）：Fabric/Forge/NeoForge/OptiFine 安装完成后未发送 ReloadProfileList 通知，
         // 导致"已安装的版本"列表不刷新、新版本卡片不显示、加载器图标也不显示。
@@ -3883,32 +3446,15 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     });
 }
 
-// 安装进度 VC 失败时的统一处理：显示错误 → pop
+// 安装失败时的统一处理（redesign-download-ui Phase 3：统一进度页展示失败态，
+// 这里仅负责内容区错误提示）
 - (void)finishInstallerProgressWithError:(NSString *)errorMessage {
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
-        if (strongSelf.installerProgressVC) {
-            [strongSelf.navigationController popViewControllerAnimated:YES];
-            strongSelf.installerProgressVC = nil;
-        }
         [strongSelf showError:errorMessage];
     });
-}
-
-/// 改进2（参照 ZL2 统一进度流）：获取加载器安装进度 VC。
-/// 若 self.installerProgressVC 已存在（由原版预装完成后转交而来），直接复用之，
-/// 不再创建新 VC、不再 push，实现"原版 + 加载器"在同一进度页连续推进；
-/// 否则按原逻辑创建新 VC 并 push。
-- (InstallerProgressViewController *)obtainInstallerProgressVC {
-    if (self.installerProgressVC) {
-        return self.installerProgressVC;
-    }
-    InstallerProgressViewController *progressVC = [[InstallerProgressViewController alloc] init];
-    self.installerProgressVC = progressVC;
-    [self.navigationController pushViewController:progressVC animated:YES];
-    return progressVC;
 }
 
 - (void)downloadFabricAPI:(NSString *)gameVersion completion:(void (^)(BOOL success, NSError *error))completion {
@@ -4224,28 +3770,28 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             }
 
             if (selectedScheme == 1 && filePath.length > 0) {
-                // 直装方案：复用/创建进度 VC，由 ForgeDirectInstaller 的 progress 回调驱动
-                NSLog(@"[ForgeDirect] DownloadViewController: starting direct install with progress UI");
-                // 改进2（参照 ZL2 统一进度流）：复用原版预装转交的进度 VC（若存在）
-                InstallerProgressViewController *progressVC = [strongSelf2 obtainInstallerProgressVC];
-                progressVC.titleText = [NSString stringWithFormat:@"正在准备运行环境 %@", gameVersion];
-                progressVC.progress = 0.0;
-                progressVC.stageMessage = @"准备中...";
-                // 阶段12增强：Forge 图标 + 阶段步骤列表
-                progressVC.categoryIconName = [ModLoaderIconHelper symbolNameForLoader:@"forge"];
-                progressVC.categoryIconColor = [ModLoaderIconHelper brandColorForLoader:@"forge"];
-                // 合并步骤列表：原版5步标记完成 + Forge 安装步骤
-                progressVC.stageSteps = @[
-                    @{@"title": @"获取版本清单", @"status": @2},
-                    @{@"title": @"下载版本 JSON", @"status": @2},
-                    @{@"title": @"下载游戏库文件", @"status": @2},
-                    @{@"title": @"下载资源文件", @"status": @2},
-                    @{@"title": @"验证文件完整性", @"status": @2},
-                    @{@"title": @"解析安装器 JAR", @"status": @1},
-                    @{@"title": @"下载 Forge 库文件", @"status": @0},
-                    @{@"title": @"写入版本 JSON", @"status": @0},
-                ];
-                // 注：push 已由 obtainInstallerProgressVC 在新建时完成，复用时不重复 push
+                // 直装方案（redesign-download-ui Phase 3 Task 3.2/3.3）：注册任务 + 阶段上报 +
+                // 自动弹统一进度页，ForgeDirectInstaller 的 progress 回调桥接为阶段上报
+                NSLog(@"[ForgeDirect] DownloadViewController: starting direct install with unified progress UI");
+                // 阶段下标与 PLTaskStagesForgeExtra() 一致：下载安装器→解析依赖→安装加载器
+                static const NSUInteger kForgeStageInstaller = 0;
+                static const NSUInteger kForgeStageResolve = 1;
+                static const NSUInteger kForgeStageInstall = 2;
+
+                NSString *forgeTaskId = [strongSelf2 registerInstallerTaskWithResourceName:[NSString stringWithFormat:@"forge-%@-%@", gameVersion, profileName]
+                                                                                  displayName:[NSString stringWithFormat:@"Forge %@ (%@)", profileName ?: @"", gameVersion]
+                                                                                        stages:PLTaskStagesForgeExtra()];
+                if (!forgeTaskId) {
+                    [strongSelf2 showError:@"Forge 安装任务注册失败"];
+                    return;
+                }
+                DownloadTaskManager *forgeManager = [DownloadTaskManager sharedManager];
+                // 阶段0 下载安装器：installer jar 已由 ForgeInstallViewController 下载完成，直接标记
+                [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageInstaller status:PLTaskStageStatusCompleted];
+                // 阶段1 解析依赖：读取 install_profile.json / 解析 JSON（installer 进度 0~0.15）
+                [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageResolve status:PLTaskStageStatusRunning];
+                [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageResolve progress:0 message:nil];
+                [forgeManager updateTaskWithId:forgeTaskId currentStageIndex:kForgeStageResolve];
 
                 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                     NSError *directError = nil;
@@ -4253,11 +3799,25 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                                                                            versionId:profileName
                                                                              progress:^(double progress, NSString *stageMessage) {
                         dispatch_async(dispatch_get_main_queue(), ^{
-                            __strong typeof(weakSelf) strongSelf3 = weakSelf;
-                            if (!strongSelf3 || !strongSelf3.installerProgressVC) return;
-                            strongSelf3.installerProgressVC.progress = progress;
-                            NSString *stage = stageMessage ?: @"";
-                            strongSelf3.installerProgressVC.stageMessage = [NSString stringWithFormat:@"%@ - %.0f%%", stage, progress * 100];
+                            // 阶段桥接（Task 3.3，不改安装器回调签名）：
+                            // p<0.15 解析依赖；p>=0.15 安装加载器（映射回 0~1 阶段进度）
+                            if (progress < 0.15) {
+                                [forgeManager updateTaskWithId:forgeTaskId
+                                                   stageAtIndex:kForgeStageResolve
+                                                      progress:MIN(progress / 0.15, 1.0)
+                                                       message:stageMessage];
+                            } else {
+                                if (progress >= 0.2) {
+                                    [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageResolve status:PLTaskStageStatusCompleted];
+                                    [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageInstall status:PLTaskStageStatusRunning];
+                                    [forgeManager updateTaskWithId:forgeTaskId currentStageIndex:kForgeStageInstall];
+                                }
+                                double installProgress = MIN((progress - 0.15) / 0.85, 1.0);
+                                [forgeManager updateTaskWithId:forgeTaskId
+                                                   stageAtIndex:kForgeStageInstall
+                                                      progress:installProgress
+                                                       message:stageMessage];
+                            }
                         });
                     }
                                                                                error:&directError];
@@ -4266,13 +3826,21 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                         __strong typeof(weakSelf) strongSelf3 = weakSelf;
                         if (!strongSelf3) return;
                         if (!installed) {
+                            [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageInstall status:PLTaskStageStatusFailed];
+                            [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageInstall progress:0 message:directError.localizedDescription];
+                            NSError *err = [NSError errorWithDomain:@"ForgeDirectInstall" code:1 userInfo:@{NSLocalizedDescriptionKey: directError.localizedDescription ?: @"未知错误"}];
+                            [[DownloadTaskManager sharedManager] setTaskWithId:forgeTaskId completedWithError:err];
                             [strongSelf3 finishInstallerProgressWithError:[NSString stringWithFormat:@"Forge 直装失败: %@", directError.localizedDescription ?: @"未知错误"]];
                             return;
                         }
+                        // 直装成功：收敛全部阶段状态
+                        [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageResolve status:PLTaskStageStatusCompleted];
+                        [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageInstall status:PLTaskStageStatusCompleted];
+                        [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageInstall progress:1 message:nil];
+                        [[DownloadTaskManager sharedManager] setTaskWithId:forgeTaskId completedWithError:nil];
                         // 直装成功后，若用户勾选了 OptiFine，继续下载（之前的实现这里直接 return 漏掉了 OptiFine）
                         if (installOptiFine) {
-                            strongSelf3.installerProgressVC.stageMessage = @"正在下载 OptiFine...";
-                            strongSelf3.installerProgressVC.progress = -1; // OptiFine 下载无法精确测算，进入不确定模式
+                            [forgeManager updateTaskWithId:forgeTaskId stageAtIndex:kForgeStageInstall progress:1 message:@"正在下载 OptiFine..."];
                             [strongSelf3 downloadOptiFine:gameVersion completion:^(BOOL optiSuccess, NSError *optiError) {
                                 dispatch_async(dispatch_get_main_queue(), ^{
                                     __strong typeof(weakSelf) strongSelf4 = weakSelf;
@@ -4470,49 +4038,28 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 
     NSString *versionId = [NSString stringWithFormat:@"%@-OptiFine_%@_%@", gameVersion, optiType, optiPatch];
 
-    // 改进2（参照 ZL2 统一进度流）：复用原版预装转交的进度 VC（若存在）
-    InstallerProgressViewController *progressVC = [self obtainInstallerProgressVC];
-    progressVC.titleText = [NSString stringWithFormat:@"正在准备运行环境 %@", gameVersion];
-    progressVC.progress = -1;
-    progressVC.stageMessage = [NSString stringWithFormat:@"正在下载 OptiFine %@_%@...", optiType, optiPatch];
-    // 阶段12增强：OptiFine 图标 + 阶段步骤列表
-    progressVC.categoryIconName = [ModLoaderIconHelper symbolNameForLoader:@"optifine"];
-    progressVC.categoryIconColor = [ModLoaderIconHelper brandColorForLoader:@"optifine"];
-    // 合并步骤列表：原版5步标记完成 + OptiFine 安装步骤
-    progressVC.stageSteps = @[
-        @{@"title": @"获取版本清单", @"status": @2},
-        @{@"title": @"下载版本 JSON", @"status": @2},
-        @{@"title": @"下载游戏库文件", @"status": @2},
-        @{@"title": @"下载资源文件", @"status": @2},
-        @{@"title": @"验证文件完整性", @"status": @2},
-        @{@"title": @"下载 OptiFine JAR", @"status": @1},
-        @{@"title": @"安装 OptiFine", @"status": @0},
-        @{@"title": @"写入版本 JSON", @"status": @0},
-    ];
+    // redesign-download-ui Phase 3 Task 3.2：注册任务 + 阶段上报 + 自动弹统一进度页。
+    // 阶段映射（PLTaskStagesForgeExtra 3 步）：下载安装器=下载 OptiFine JAR，
+    // 解析依赖=Skipped（OptiFine 无依赖解析），安装加载器=写入版本 JSON + 注册 profile。
+    static const NSUInteger kOptiFineStageInstaller = 0;
+    static const NSUInteger kOptiFineStageResolve = 1;
+    static const NSUInteger kOptiFineStageInstall = 2;
+
+    NSString *taskName = [NSString stringWithFormat:@"optifine-%@-%@-%@", gameVersion, optiType, optiPatch];
+    NSString *taskId = [self registerInstallerTaskWithResourceName:taskName
+                                                        displayName:[NSString stringWithFormat:@"OptiFine %@_%@ (%@)", optiType, optiPatch, gameVersion]
+                                                              stages:PLTaskStagesForgeExtra()];
+    if (!taskId) {
+        [self showError:@"OptiFine 安装任务注册失败"];
+        return;
+    }
+    DownloadTaskManager *optiManager = [DownloadTaskManager sharedManager];
+    [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstaller status:PLTaskStageStatusRunning];
+    [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstaller progress:-1
+                                 message:[NSString stringWithFormat:@"正在下载 OptiFine %@_%@...", optiType, optiPatch]];
+    [optiManager updateTaskWithId:taskId currentStageIndex:kOptiFineStageInstaller];
 
     __weak typeof(self) weakSelf = self;
-    progressVC.cancelHandler = ^{
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (strongSelf) {
-            [strongSelf.navigationController popViewControllerAnimated:YES];
-            strongSelf.installerProgressVC = nil;
-        }
-    };
-
-    // 注：push 已由 obtainInstallerProgressVC 在新建时完成，复用时不重复 push
-
-    // 注册到下载任务管理器
-    NSString *source = getPrefObject(@"general.download_source") ?: @"official";
-    NSString *taskName = [NSString stringWithFormat:@"optifine-%@-%@-%@", gameVersion, optiType, optiPatch];
-    DownloadTaskItem *taskItem = [[DownloadTaskManager sharedManager]
-        registerTaskWithResourceType:DownloadTaskResourceTypeModloader
-                        resourceName:taskName
-                         displayName:[NSString stringWithFormat:@"OptiFine %@_%@ (%@)", optiType, optiPatch, gameVersion]
-                      downloadSource:source
-                             rawTask:nil
-                      supportsResume:NO
-                             iconURL:nil];
-    __block NSString *taskId = taskItem.taskId;
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         // 1. 下载 OptiFine jar
@@ -4535,6 +4082,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         }
 
         if (!jarData || downloadError) {
+            [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstaller status:PLTaskStageStatusFailed];
+            [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstaller progress:0 message:downloadError.localizedDescription];
             NSError *err = [NSError errorWithDomain:@"OptiFineInstall" code:1 userInfo:@{NSLocalizedDescriptionKey: downloadError.localizedDescription ?: @"下载 OptiFine 失败"}];
             [[DownloadTaskManager sharedManager] setTaskWithId:taskId completedWithError:err];
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -4545,13 +4094,13 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             return;
         }
 
+        // jar 下载完成：阶段0 完成，阶段1 跳过，阶段2（写入版本文件）进行中
+        [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstaller status:PLTaskStageStatusCompleted];
+        [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageResolve status:PLTaskStageStatusSkipped];
+        [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall status:PLTaskStageStatusRunning];
+        [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall progress:0 message:@"正在写入版本文件..."];
+        [optiManager updateTaskWithId:taskId currentStageIndex:kOptiFineStageInstall];
         [[DownloadTaskManager sharedManager] updateTaskWithId:taskId progress:0.5 totalBytes:-1 downloadedBytes:0];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (!strongSelf) return;
-            strongSelf.installerProgressVC.progress = 0.5;
-            strongSelf.installerProgressVC.stageMessage = @"正在写入版本文件...";
-        });
 
         // 2. 创建版本目录
         const char *env = getenv("POJAV_GAME_DIR");
@@ -4574,6 +4123,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         NSError *writeError = nil;
         [jarData writeToFile:optifineJarAbsPath options:NSDataWritingAtomic error:&writeError];
         if (writeError) {
+            [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall status:PLTaskStageStatusFailed];
+            [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall progress:0 message:writeError.localizedDescription];
             NSError *err = [NSError errorWithDomain:@"OptiFineInstall" code:2 userInfo:@{NSLocalizedDescriptionKey: writeError.localizedDescription}];
             [[DownloadTaskManager sharedManager] setTaskWithId:taskId completedWithError:err];
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -4622,6 +4173,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             // 父版本不存在，提示用户先安装原版
             NSError *err = [NSError errorWithDomain:@"OptiFineInstall" code:3
                                          userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到原版 %@ 的版本信息。请先在下载页面安装原版 %@，然后再安装 OptiFine。", gameVersion, gameVersion]}];
+            [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall status:PLTaskStageStatusFailed];
+            [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall progress:0 message:err.localizedDescription];
             [[DownloadTaskManager sharedManager] setTaskWithId:taskId completedWithError:err];
             dispatch_async(dispatch_get_main_queue(), ^{
                 __strong typeof(weakSelf) strongSelf = weakSelf;
@@ -4632,12 +4185,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         }
 
         [[DownloadTaskManager sharedManager] updateTaskWithId:taskId progress:0.85 totalBytes:-1 downloadedBytes:0];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (!strongSelf) return;
-            strongSelf.installerProgressVC.progress = 0.85;
-            strongSelf.installerProgressVC.stageMessage = @"正在注册配置...";
-        });
+        [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall progress:0.7 message:@"正在注册配置..."];
 
         // 5. 注册 profile
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -4653,6 +4201,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             [PLProfiles.current saveProfile:profile withName:versionId];
             PLProfiles.current.selectedProfileName = versionId;
 
+            [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall status:PLTaskStageStatusCompleted];
+            [optiManager updateTaskWithId:taskId stageAtIndex:kOptiFineStageInstall progress:1 message:nil];
             [[DownloadTaskManager sharedManager] setTaskWithId:taskId completedWithError:nil];
             [strongSelf finishInstallerProgressWithSuccess:[NSString stringWithFormat:@"OptiFine 安装成功\n版本: %@\n配置文件: %@", versionId, versionId]];
         });
@@ -4699,28 +4249,28 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             }
 
             if (selectedScheme == 1 && filePath.length > 0) {
-                // 直装方案：复用/创建进度 VC，由 NeoForgeDirectInstaller 的 progress 回调驱动
-                NSLog(@"[NeoForgeDirect] DownloadViewController: starting direct install with progress UI");
-                // 改进2（参照 ZL2 统一进度流）：复用原版预装转交的进度 VC（若存在）
-                InstallerProgressViewController *progressVC = [strongSelf2 obtainInstallerProgressVC];
-                progressVC.titleText = [NSString stringWithFormat:@"正在准备运行环境 %@", gameVersion];
-                progressVC.progress = 0.0;
-                progressVC.stageMessage = @"准备中...";
-                // 阶段12增强：NeoForge 图标 + 阶段步骤列表
-                progressVC.categoryIconName = [ModLoaderIconHelper symbolNameForLoader:@"neoforge"];
-                progressVC.categoryIconColor = [ModLoaderIconHelper brandColorForLoader:@"neoforge"];
-                // 合并步骤列表：原版5步标记完成 + NeoForge 安装步骤
-                progressVC.stageSteps = @[
-                    @{@"title": @"获取版本清单", @"status": @2},
-                    @{@"title": @"下载版本 JSON", @"status": @2},
-                    @{@"title": @"下载游戏库文件", @"status": @2},
-                    @{@"title": @"下载资源文件", @"status": @2},
-                    @{@"title": @"验证文件完整性", @"status": @2},
-                    @{@"title": @"解析安装器 JAR", @"status": @1},
-                    @{@"title": @"下载 NeoForge 库文件", @"status": @0},
-                    @{@"title": @"写入版本 JSON", @"status": @0},
-                ];
-                // 注：push 已由 obtainInstallerProgressVC 在新建时完成，复用时不重复 push
+                // 直装方案（redesign-download-ui Phase 3 Task 3.2/3.3）：注册任务 + 阶段上报 +
+                // 自动弹统一进度页，NeoForgeDirectInstaller 的 progress 回调桥接为阶段上报
+                NSLog(@"[NeoForgeDirect] DownloadViewController: starting direct install with unified progress UI");
+                // 阶段下标与 PLTaskStagesForgeExtra() 一致：下载安装器→解析依赖→安装加载器
+                static const NSUInteger kNeoStageInstaller = 0;
+                static const NSUInteger kNeoStageResolve = 1;
+                static const NSUInteger kNeoStageInstall = 2;
+
+                NSString *neoTaskId = [strongSelf2 registerInstallerTaskWithResourceName:[NSString stringWithFormat:@"neoforge-%@-%@", gameVersion, profileName]
+                                                                                displayName:[NSString stringWithFormat:@"NeoForge %@ (%@)", profileName ?: @"", gameVersion]
+                                                                                      stages:PLTaskStagesForgeExtra()];
+                if (!neoTaskId) {
+                    [strongSelf2 showError:@"NeoForge 安装任务注册失败"];
+                    return;
+                }
+                DownloadTaskManager *neoManager = [DownloadTaskManager sharedManager];
+                // 阶段0 下载安装器：installer jar 已由 ForgeInstallViewController 下载完成，直接标记
+                [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageInstaller status:PLTaskStageStatusCompleted];
+                // 阶段1 解析依赖：解压内嵌 maven / 解析依赖（installer 进度 0~0.2）
+                [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageResolve status:PLTaskStageStatusRunning];
+                [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageResolve progress:0 message:nil];
+                [neoManager updateTaskWithId:neoTaskId currentStageIndex:kNeoStageResolve];
 
                 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                     NSError *directError = nil;
@@ -4728,11 +4278,25 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                                                                                    versionId:profileName
                                                                                     progress:^(double progress, NSString *stageMessage) {
                         dispatch_async(dispatch_get_main_queue(), ^{
-                            __strong typeof(weakSelf) strongSelf3 = weakSelf;
-                            if (!strongSelf3 || !strongSelf3.installerProgressVC) return;
-                            strongSelf3.installerProgressVC.progress = progress;
-                            NSString *stage = stageMessage ?: @"";
-                            strongSelf3.installerProgressVC.stageMessage = [NSString stringWithFormat:@"%@ - %.0f%%", stage, progress * 100];
+                            // 阶段桥接（Task 3.3，不改安装器回调签名）：
+                            // p<0.2 解析依赖；p>=0.2 安装加载器（映射回 0~1 阶段进度）
+                            if (progress < 0.2) {
+                                [neoManager updateTaskWithId:neoTaskId
+                                                   stageAtIndex:kNeoStageResolve
+                                                      progress:MIN(progress / 0.2, 1.0)
+                                                       message:stageMessage];
+                            } else {
+                                if (progress >= 0.25) {
+                                    [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageResolve status:PLTaskStageStatusCompleted];
+                                    [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageInstall status:PLTaskStageStatusRunning];
+                                    [neoManager updateTaskWithId:neoTaskId currentStageIndex:kNeoStageInstall];
+                                }
+                                double installProgress = MIN((progress - 0.2) / 0.8, 1.0);
+                                [neoManager updateTaskWithId:neoTaskId
+                                                   stageAtIndex:kNeoStageInstall
+                                                      progress:installProgress
+                                                       message:stageMessage];
+                            }
                         });
                     }
                                                                                        error:&directError];
@@ -4741,8 +4305,16 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                         __strong typeof(weakSelf) strongSelf3 = weakSelf;
                         if (!strongSelf3) return;
                         if (installed) {
+                            [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageResolve status:PLTaskStageStatusCompleted];
+                            [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageInstall status:PLTaskStageStatusCompleted];
+                            [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageInstall progress:1 message:nil];
+                            [[DownloadTaskManager sharedManager] setTaskWithId:neoTaskId completedWithError:nil];
                             [strongSelf3 finishInstallerProgressWithSuccess:[NSString stringWithFormat:@"NeoForge 直装成功\n配置文件: %@", profileName ?: gameVersion]];
                         } else {
+                            [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageInstall status:PLTaskStageStatusFailed];
+                            [neoManager updateTaskWithId:neoTaskId stageAtIndex:kNeoStageInstall progress:0 message:directError.localizedDescription];
+                            NSError *err = [NSError errorWithDomain:@"NeoForgeDirectInstall" code:1 userInfo:@{NSLocalizedDescriptionKey: directError.localizedDescription ?: @"未知错误"}];
+                            [[DownloadTaskManager sharedManager] setTaskWithId:neoTaskId completedWithError:err];
                             [strongSelf3 finishInstallerProgressWithError:[NSString stringWithFormat:@"NeoForge 直装失败: %@", directError.localizedDescription ?: @"未知错误"]];
                         }
                     });
@@ -4856,24 +4428,11 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         return;
     }
 
-    // 修复: 改为 push 进度 VC (FCL 风格)，替代转圈 alert
-    InstallerProgressViewController *progressVC = [[InstallerProgressViewController alloc] init];
-    progressVC.titleText = [NSString stringWithFormat:@"正在下载整合包 %@", modpack[@"title"] ?: @""];
-    progressVC.progress = -1;
-    progressVC.stageMessage = @"正在下载整合包文件...";
-    // 阶段12增强：整合包图标 + 阶段步骤列表（参照 FCL 整合包安装流程）
-    progressVC.categoryIconName = @"archivebox.fill";
-    progressVC.categoryIconColor = [UIColor systemOrangeColor];
-    progressVC.stageSteps = @[
-        @{@"title": @"下载整合包文件", @"status": @1},
-        @{@"title": @"解析整合包结构", @"status": @0},
-        @{@"title": @"安装原版 Minecraft", @"status": @0},
-        @{@"title": @"下载 Mod 文件", @"status": @0},
-        @{@"title": @"安装模组加载器", @"status": @0},
-        @{@"title": @"写入配置文件", @"status": @0},
-    ];
-    [self.navigationController pushViewController:progressVC animated:YES];
-
+    // redesign-download-ui Phase 3 Task 3.2：删除私有 InstallerProgressViewController，
+    // 改为注册 Modpack 任务 + PLTaskStagesModpack() 6 阶段 + autoPresentDetail
+    // 自动弹出统一进度页（PLTaskProgressViewController）。
+    // 阶段映射：0=解析整合包(含 zip 下载) 1=解压文件(parse 内部完成)
+    //           2=下载依赖文件(导入 p<0.3) 3=安装加载器(0.3-0.7) 4=下载游戏文件(原版预装) 5=完成配置(0.7-1.0)
     NSURL *url = [NSURL URLWithString:downloadURL];
     NSString *downloadSource = getPrefObject(@"general.download_source") ?: @"official";
     __block DownloadTaskItem *taskItem = nil;
@@ -4903,8 +4462,10 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                             attemptDownload();
                         });
                     } else {
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                              stageAtIndex:0
+                                                                  status:PLTaskStageStatusFailed];
                         [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId completedWithError:downloadError];
-                        [strongSelf2.navigationController popViewControllerAnimated:YES];
                         [strongSelf2 showError:[NSString stringWithFormat:@"Modpack download failed (retried %ld times): %@", (long)downloadAttempt, downloadError.localizedDescription ?: @"Unknown error"]];
                     }
                     return;
@@ -4925,33 +4486,29 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                         });
                         return;
                     }
+                    [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                              stageAtIndex:0
+                                                                  status:PLTaskStageStatusFailed];
                     [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId completedWithError:moveError];
-                    [strongSelf2.navigationController popViewControllerAnimated:YES];
                     [strongSelf2 showError:moveError.localizedDescription];
                     return;
                 }
 
-                [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId completedWithError:nil];
-
-                // 复用 ModpackImportService 完成解析和导入
-                progressVC.progress = 0.1;
-                progressVC.stageMessage = @"正在解析整合包...";
-                // 阶段12增强：更新步骤状态（下载完成，解析中）
-                progressVC.stageSteps = @[
-                    @{@"title": @"下载整合包文件", @"status": @2},
-                    @{@"title": @"解析整合包结构", @"status": @1},
-                    @{@"title": @"安装原版 Minecraft", @"status": @0},
-                    @{@"title": @"下载 Mod 文件", @"status": @0},
-                    @{@"title": @"安装模组加载器", @"status": @0},
-                    @{@"title": @"写入配置文件", @"status": @0},
-                ];
+                // zip 下载完成 → 进入解析阶段（任务整体保持 Downloading，导入完成才标记 Completed）
+                [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                          stageAtIndex:0
+                                                               progress:-1
+                                                              message:@"正在解析整合包..."];
                 ModpackImportService *importService = [[ModpackImportService alloc] init];
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
                 NSError *parseError = nil;
                 NSDictionary *modpackInfo = [importService parseModpackAtURL:[NSURL fileURLWithPath:tempPath] error:&parseError];
                 if (!modpackInfo) {
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        [self.navigationController popViewControllerAnimated:YES];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:0
+                                                                      status:PLTaskStageStatusFailed];
+                        [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId completedWithError:parseError];
                         [self showError:parseError.localizedDescription ?: @"解析整合包失败"];
                     });
                     return;
@@ -4974,16 +4531,18 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                 }
                 if ([mcVersion isKindOfClass:[NSString class]] && mcVersion.length > 0) {
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        // 更新进度：解析完成，准备安装原版
-                        progressVC.stageSteps = @[
-                            @{@"title": @"下载整合包文件", @"status": @2},
-                            @{@"title": @"解析整合包结构", @"status": @2},
-                            @{@"title": @"安装原版 Minecraft", @"status": @1},
-                            @{@"title": @"下载 Mod 文件", @"status": @0},
-                            @{@"title": @"安装模组加载器", @"status": @0},
-                            @{@"title": @"写入配置文件", @"status": @0},
-                        ];
-                        progressVC.stageMessage = [NSString stringWithFormat:@"正在安装原版 Minecraft %@...", mcVersion];
+                        // 解析 + 解压完成，进入原版预装（阶段4 下载游戏文件）
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:0 status:PLTaskStageStatusCompleted];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:1 status:PLTaskStageStatusCompleted];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:4 status:PLTaskStageStatusRunning];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:4
+                                                                       progress:-1
+                                                                      message:[NSString stringWithFormat:@"正在安装原版 Minecraft %@...", mcVersion]];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId currentStageIndex:4];
 
                         // 调用原版预安装（ensureVanillaInstalled 会检查是否已安装，已安装则直接跳过）
                         NSDictionary *vanillaVersion = @{@"id": mcVersion};
@@ -4993,43 +4552,48 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                             if (!strongSelf) return;
                             if (!vanillaSuccess) {
                                 dispatch_async(dispatch_get_main_queue(), ^{
-                                    [strongSelf.navigationController popViewControllerAnimated:YES];
+                                    [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                              stageAtIndex:4
+                                                                                  status:PLTaskStageStatusFailed];
+                                    [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId
+                                                                    completedWithError:[NSError errorWithDomain:@"DownloadError" code:-1
+                                                                                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法安装原版 %@", mcVersion]}]];
                                     [strongSelf showError:[NSString stringWithFormat:@"无法安装原版 %@，请检查网络后重试", mcVersion]];
                                 });
                                 return;
                             }
-                            // 原版安装完成，继续导入整合包
+                            // 原版安装完成，继续导入整合包（进入阶段2 下载依赖文件）
                             dispatch_async(dispatch_get_main_queue(), ^{
-                                progressVC.stageSteps = @[
-                                    @{@"title": @"下载整合包文件", @"status": @2},
-                                    @{@"title": @"解析整合包结构", @"status": @2},
-                                    @{@"title": @"安装原版 Minecraft", @"status": @2},
-                                    @{@"title": @"下载 Mod 文件", @"status": @1},
-                                    @{@"title": @"安装模组加载器", @"status": @0},
-                                    @{@"title": @"写入配置文件", @"status": @0},
-                                ];
-                                progressVC.stageMessage = @"正在下载 Mod 文件...";
+                                [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                          stageAtIndex:4 status:PLTaskStageStatusCompleted];
+                                [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                          stageAtIndex:2 status:PLTaskStageStatusRunning];
+                                [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                          stageAtIndex:2
+                                                                               progress:-1
+                                                                              message:@"正在下载 Mod 文件..."];
+                                [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId currentStageIndex:2];
                             });
                             // 在后台线程执行整合包导入
                             dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-                                [strongSelf importModpackWithService:importService info:mutableInfo progressVC:progressVC tempPath:tempPath];
+                                [strongSelf importModpackWithService:importService info:mutableInfo taskId:taskItem.taskId tempPath:tempPath];
                             });
                         }];
                     });
                 } else {
-                    // 无法提取游戏版本，跳过原版预安装，直接导入
+                    // 无法提取游戏版本，跳过原版预安装（阶段4 标记 Skipped），直接导入
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        progressVC.stageMessage = @"未检测到游戏版本，跳过原版安装，开始导入整合包...";
-                        progressVC.stageSteps = @[
-                            @{@"title": @"下载整合包文件", @"status": @2},
-                            @{@"title": @"解析整合包结构", @"status": @2},
-                            @{@"title": @"安装原版 Minecraft", @"status": @2},
-                            @{@"title": @"下载 Mod 文件", @"status": @1},
-                            @{@"title": @"安装模组加载器", @"status": @0},
-                            @{@"title": @"写入配置文件", @"status": @0},
-                        ];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:0 status:PLTaskStageStatusCompleted];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:1 status:PLTaskStageStatusCompleted];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:4 status:PLTaskStageStatusSkipped];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                                  stageAtIndex:2 status:PLTaskStageStatusRunning];
+                        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId currentStageIndex:2];
                     });
-                    [self importModpackWithService:importService info:mutableInfo progressVC:progressVC tempPath:tempPath];
+                    [self importModpackWithService:importService info:mutableInfo taskId:taskItem.taskId tempPath:tempPath];
                 }
             });
         });
@@ -5045,6 +4609,15 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                                      rawTask:task
                               supportsResume:YES
                                      iconURL:modpack[@"imageUrl"]];
+            [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId stages:PLTaskStagesModpack()];
+            [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                      stageAtIndex:0
+                                                          status:PLTaskStageStatusRunning];
+            [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId
+                                                      stageAtIndex:0
+                                                           progress:-1
+                                                          message:@"正在下载整合包文件..."];
+            taskItem.autoPresentDetail = YES;
             [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId state:DownloadTaskStateDownloading];
         }
 
@@ -5058,12 +4631,13 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 /// 阶段14：整合包导入辅助方法
 /// 参照 FCL/ZL2/HMCL：原版预安装完成后（或跳过后），执行实际的整合包导入流程。
 /// 包含：调用 ModpackImportService 下载 mod 文件、安装加载器、写入配置，
-/// 并通过 progressVC 实时展示 6 步进度（含原版安装步骤标记为已完成）。
+/// 并通过 DownloadTaskManager 阶段上报实时驱动统一进度页（redesign-download-ui Phase 3）。
 /// 导入完成后清理临时文件，并在主线程展示成功/失败结果。
 /// 注：此方法应在后台线程调用（QOS_CLASS_USER_INITIATED），进度回调内部自行 dispatch 到主线程。
+/// ModpackImportService 进度区间：0.1-0.3=下载mods(阶段2), 0.3-0.7=安装加载器(阶段3), 0.7-1.0=写配置(阶段5)
 - (void)importModpackWithService:(ModpackImportService *)importService
                             info:(NSDictionary *)info
-                      progressVC:(InstallerProgressViewController *)progressVC
+                           taskId:(NSString *)taskId
                         tempPath:(NSString *)tempPath {
     NSError *importError = nil;
     __weak typeof(self) weakSelf = self;
@@ -5072,49 +4646,35 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
         dispatch_async(dispatch_get_main_queue(), ^{
-            progressVC.progress = p;
-            progressVC.stageMessage = stage;
-            // 阶段14增强：6 步进度列表（含"安装原版 Minecraft"标记为已完成）
-            // ModpackImportService 进度区间：0.1-0.3=下载mods, 0.3-0.7=安装加载器, 0.7-1.0=写配置
-            NSArray *steps;
+            DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
             if (p < 0.3) {
-                steps = @[
-                    @{@"title": @"下载整合包文件", @"status": @2},
-                    @{@"title": @"解析整合包结构", @"status": @2},
-                    @{@"title": @"安装原版 Minecraft", @"status": @2},
-                    @{@"title": @"下载 Mod 文件", @"status": @1},
-                    @{@"title": @"安装模组加载器", @"status": @0},
-                    @{@"title": @"写入配置文件", @"status": @0},
-                ];
+                // 阶段2 下载依赖文件进行中
+                [manager updateTaskWithId:taskId
+                              stageAtIndex:2
+                                   progress:p / 0.3
+                                  message:stage];
             } else if (p < 0.7) {
-                steps = @[
-                    @{@"title": @"下载整合包文件", @"status": @2},
-                    @{@"title": @"解析整合包结构", @"status": @2},
-                    @{@"title": @"安装原版 Minecraft", @"status": @2},
-                    @{@"title": @"下载 Mod 文件", @"status": @2},
-                    @{@"title": @"安装模组加载器", @"status": @1},
-                    @{@"title": @"写入配置文件", @"status": @0},
-                ];
+                // 阶段2 完成，阶段3 安装加载器进行中
+                [manager updateTaskWithId:taskId stageAtIndex:2 status:PLTaskStageStatusCompleted];
+                [manager updateTaskWithId:taskId
+                              stageAtIndex:3
+                                   progress:(p - 0.3) / 0.4
+                                  message:stage];
+                [manager updateTaskWithId:taskId currentStageIndex:3];
             } else if (p < 1.0) {
-                steps = @[
-                    @{@"title": @"下载整合包文件", @"status": @2},
-                    @{@"title": @"解析整合包结构", @"status": @2},
-                    @{@"title": @"安装原版 Minecraft", @"status": @2},
-                    @{@"title": @"下载 Mod 文件", @"status": @2},
-                    @{@"title": @"安装模组加载器", @"status": @2},
-                    @{@"title": @"写入配置文件", @"status": @1},
-                ];
+                // 阶段3 完成，阶段5 完成配置进行中
+                [manager updateTaskWithId:taskId stageAtIndex:3 status:PLTaskStageStatusCompleted];
+                [manager updateTaskWithId:taskId
+                              stageAtIndex:5
+                                   progress:(p - 0.7) / 0.3
+                                  message:stage];
+                [manager updateTaskWithId:taskId currentStageIndex:5];
             } else {
-                steps = @[
-                    @{@"title": @"下载整合包文件", @"status": @2},
-                    @{@"title": @"解析整合包结构", @"status": @2},
-                    @{@"title": @"安装原版 Minecraft", @"status": @2},
-                    @{@"title": @"下载 Mod 文件", @"status": @2},
-                    @{@"title": @"安装模组加载器", @"status": @2},
-                    @{@"title": @"写入配置文件", @"status": @2},
-                ];
+                // 全部阶段完成
+                [manager updateTaskWithId:taskId stageAtIndex:2 status:PLTaskStageStatusCompleted];
+                [manager updateTaskWithId:taskId stageAtIndex:3 status:PLTaskStageStatusCompleted];
+                [manager updateTaskWithId:taskId stageAtIndex:5 status:PLTaskStageStatusCompleted];
             }
-            progressVC.stageSteps = steps;
         });
     } error:&importError];
 
@@ -5124,125 +4684,29 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
+        DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
         if (success) {
-            progressVC.progress = 1.0;
-            progressVC.stageMessage = @"安装完成";
-            progressVC.stageSteps = @[
-                @{@"title": @"下载整合包文件", @"status": @2},
-                @{@"title": @"解析整合包结构", @"status": @2},
-                @{@"title": @"安装原版 Minecraft", @"status": @2},
-                @{@"title": @"下载 Mod 文件", @"status": @2},
-                @{@"title": @"安装模组加载器", @"status": @2},
-                @{@"title": @"写入配置文件", @"status": @2},
-            ];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                __strong typeof(weakSelf) s = weakSelf;
-                if (!s) return;
-                [s.navigationController popViewControllerAnimated:YES];
-                NSString *loader = info[@"loader"];
-                NSString *msg = [NSString stringWithFormat:@"整合包 %@ 安装完成", info[@"name"]];
-                if ([loader isEqualToString:@"Forge"] || [loader isEqualToString:@"NeoForge"]) {
-                    msg = [msg stringByAppendingFormat:@"\n\n注意: 此整合包使用 %@ %@ 加载器，请先通过下载界面手动安装该加载器版本。", loader, info[@"loaderVersion"]];
-                }
-                [s showSuccessMessage:msg];
-            });
+            [manager setTaskWithId:taskId completedWithError:nil];
+            NSString *loader = info[@"loader"];
+            NSString *msg = [NSString stringWithFormat:@"整合包 %@ 安装完成", info[@"name"]];
+            if ([loader isEqualToString:@"Forge"] || [loader isEqualToString:@"NeoForge"]) {
+                msg = [msg stringByAppendingFormat:@"\n\n注意: 此整合包使用 %@ %@ 加载器，请先通过下载界面手动安装该加载器版本。", loader, info[@"loaderVersion"]];
+            }
+            [strongSelf showSuccessMessage:msg];
         } else {
-            [strongSelf.navigationController popViewControllerAnimated:YES];
+            // 失败时将当前运行中的阶段（2/3/5）标记为 Failed
+            [manager updateTaskWithId:taskId stageAtIndex:2 status:PLTaskStageStatusFailed];
+            [manager updateTaskWithId:taskId stageAtIndex:3 status:PLTaskStageStatusFailed];
+            [manager updateTaskWithId:taskId stageAtIndex:5 status:PLTaskStageStatusFailed];
+            [manager setTaskWithId:taskId completedWithError:importError];
             [strongSelf showError:importError.localizedDescription ?: @"导入失败"];
         }
     });
 }
 
-- (void)installModpackFromFile:(NSString *)filePath modpack:(NSDictionary *)modpack {
-    // 修复: 此方法已废弃，在线下载流程改用 startModpackInstallation:modpack: 统一走 ModpackImportService
-    // 保留以防其他地方调用，但内部也走 ModpackImportService
-    InstallerProgressViewController *progressVC = [[InstallerProgressViewController alloc] init];
-    progressVC.titleText = @"正在导入整合包";
-    progressVC.progress = -1;
-    progressVC.stageMessage = @"正在解析整合包...";
-    // 阶段12增强：整合包导入图标 + 阶段步骤列表
-    progressVC.categoryIconName = @"archivebox.fill";
-    progressVC.categoryIconColor = [UIColor systemOrangeColor];
-    progressVC.stageSteps = @[
-        @{@"title": @"解析整合包结构", @"status": @1},
-        @{@"title": @"下载 Mod 文件", @"status": @0},
-        @{@"title": @"安装模组加载器", @"status": @0},
-        @{@"title": @"写入配置文件", @"status": @0},
-    ];
-    [self.navigationController pushViewController:progressVC animated:YES];
-
-    ModpackImportService *importService = [[ModpackImportService alloc] init];
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSError *parseError = nil;
-        NSDictionary *modpackInfo = [importService parseModpackAtURL:[NSURL fileURLWithPath:filePath] error:&parseError];
-        if (!modpackInfo) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.navigationController popViewControllerAnimated:YES];
-                [self showError:parseError.localizedDescription ?: @"解析失败"];
-            });
-            return;
-        }
-        NSError *importError = nil;
-        BOOL success = [importService importModpack:modpackInfo
-                                           progress:^(double p, NSString *stage) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                progressVC.progress = p;
-                progressVC.stageMessage = stage;
-                // 阶段12增强：根据进度动态更新步骤状态
-                NSArray *steps;
-                if (p < 0.3) {
-                    steps = @[
-                        @{@"title": @"解析整合包结构", @"status": @2},
-                        @{@"title": @"下载 Mod 文件", @"status": @1},
-                        @{@"title": @"安装模组加载器", @"status": @0},
-                        @{@"title": @"写入配置文件", @"status": @0},
-                    ];
-                } else if (p < 0.7) {
-                    steps = @[
-                        @{@"title": @"解析整合包结构", @"status": @2},
-                        @{@"title": @"下载 Mod 文件", @"status": @2},
-                        @{@"title": @"安装模组加载器", @"status": @1},
-                        @{@"title": @"写入配置文件", @"status": @0},
-                    ];
-                } else if (p < 1.0) {
-                    steps = @[
-                        @{@"title": @"解析整合包结构", @"status": @2},
-                        @{@"title": @"下载 Mod 文件", @"status": @2},
-                        @{@"title": @"安装模组加载器", @"status": @2},
-                        @{@"title": @"写入配置文件", @"status": @1},
-                    ];
-                } else {
-                    steps = @[
-                        @{@"title": @"解析整合包结构", @"status": @2},
-                        @{@"title": @"下载 Mod 文件", @"status": @2},
-                        @{@"title": @"安装模组加载器", @"status": @2},
-                        @{@"title": @"写入配置文件", @"status": @2},
-                    ];
-                }
-                progressVC.stageSteps = steps;
-            });
-        } error:&importError];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (success) {
-                progressVC.progress = 1.0;
-                progressVC.stageMessage = @"导入完成";
-                progressVC.stageSteps = @[
-                    @{@"title": @"解析整合包结构", @"status": @2},
-                    @{@"title": @"下载 Mod 文件", @"status": @2},
-                    @{@"title": @"安装模组加载器", @"status": @2},
-                    @{@"title": @"写入配置文件", @"status": @2},
-                ];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [self.navigationController popViewControllerAnimated:YES];
-                    [self showSuccessMessage:[NSString stringWithFormat:@"整合包 %@ 导入完成", modpackInfo[@"name"]]];
-                });
-            } else {
-                [self.navigationController popViewControllerAnimated:YES];
-                [self showError:importError.localizedDescription ?: @"导入失败"];
-            }
-        });
-    });
-}
+// installModpackFromFile:modpack: 已删除（redesign-download-ui Phase 3 Task 3.2 / Phase 6 规划）：
+// 该方法无任何调用方（在线下载流程统一走 startModpackInstallation:modpack: → ModpackImportService，
+// 本地导入走 ModpackImportViewController → ModpackImportService）。
 
 #pragma mark - UITableView DataSource
 
@@ -5623,6 +5087,16 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 
 #pragma mark - ModVersionViewControllerDelegate
 
+/// 从版本模型 primaryFile 提取 SHA1（Modrinth files[].hashes.sha1 / CurseForge 构造的同等结构）。
+/// 结构异常或缺失时返回 nil（保持无校验行为，靠 zip EOCD 兜底）。
+static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
+    NSDictionary *hashes = primaryFile[@"hashes"];
+    if (![hashes isKindOfClass:[NSDictionary class]]) return nil;
+    NSString *sha1 = hashes[@"sha1"];
+    if ([sha1 isKindOfClass:[NSString class]] && sha1.length > 0) return sha1;
+    return nil;
+}
+
 - (void)modVersionViewController:(ModVersionViewController *)viewController didSelectVersion:(ModVersion *)version {
     NSDictionary *primaryFile = version.primaryFile;
     if (!primaryFile || ![primaryFile[@"url"] isKindOfClass:[NSString class]]) {
@@ -5644,6 +5118,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     ModItem *itemToDownload = viewController.modItem;
     itemToDownload.selectedVersionDownloadURL = primaryFile[@"url"];
     itemToDownload.fileName = primaryFile[@"filename"] ?: [NSString stringWithFormat:@"%@.jar", itemToDownload.displayName];
+    // spec Task 5.1 收尾：版本模型 files[0].hashes.sha1 接到下载调用，启用 SHA1 校验
+    itemToDownload.fileSHA1 = PLSha1FromPrimaryFile(primaryFile);
 
     // 模组下载走 ModService（resourcepack/datapack/world 已改走 AssetVersionViewController）
     self.pendingDownloadType = nil;
@@ -5674,6 +5150,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         if (!item) return;
         item.selectedVersionDownloadURL = primaryFile[@"url"];
         item.fileName = primaryFile[@"filename"] ?: [NSString stringWithFormat:@"%@.zip", item.displayName];
+        // spec Task 5.1 收尾：资源包版本模型（复用 ModVersion）的 sha1 接到下载调用
+        item.fileSHA1 = PLSha1FromPrimaryFile(primaryFile);
         [self startDownloadForResourcePackItem:item];
     } else if ([downloadType isEqualToString:@"datapack"]) {
         DataPackItem *item = self.pendingDataPackItem;
@@ -5681,6 +5159,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         if (!item) return;
         item.selectedVersionDownloadURL = primaryFile[@"url"];
         item.fileName = primaryFile[@"filename"] ?: [NSString stringWithFormat:@"%@.zip", item.displayName];
+        // spec Task 5.1 收尾：数据包版本模型（复用 ModVersion）的 sha1 接到下载调用
+        item.fileSHA1 = PLSha1FromPrimaryFile(primaryFile);
         [self startDownloadForDataPackItem:item];
     } else if ([downloadType isEqualToString:@"world"]) {
         WorldItem *item = self.pendingWorldItem;
@@ -5691,66 +5171,22 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     }
 }
 
+// 下载 Mod（redesign-download-ui Phase 4：进度由 Service 内部注册的下载任务 +
+// PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。）
 - (void)startDownloadForModItem:(ModItem *)item {
-    // 参照 FCL 风格：使用底部悬浮进度卡片（与 Minecraft 版本下载保持一致），
-    // 替代之前的不确定模式 InstallerProgressViewController。
-    // 之前调用 downloadMod:toProfile:completion: 不带 progress 版本，进度页一直转圈，
-    // 用户感知"卡住/无反应"。现在使用带 progress 的版本，并接 progress 回调到卡片。
-    if (self.progressCardView) {
-        [self.progressCardView dismiss];
-        self.progressCardView = nil;
-    }
-
-    NSString *modTitle = [NSString stringWithFormat:@"正在下载 %@", item.displayName ?: @""];
-    self.progressCardView = [DownloadProgressCardView showInParentView:self.view title:modTitle];
-    [self.progressCardView startDownloadWithTitle:modTitle
-                                          subtitle:@"Minecraft 模组"];
-    // 立即显示不确定模式，等首次 progress 回调后再更新具体百分比
-    [self.progressCardView updateProgress:-1 downloaded:0 total:-1 speed:0 eta:-1 currentFile:@"准备下载..."];
-
     NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
-
     __weak typeof(self) weakSelf = self;
-    __weak DownloadProgressCardView *weakCard = self.progressCardView;
     [[ModService sharedService] downloadMod:item
                                   toProfile:profileName
-                                    progress:^(NSProgress * _Nullable downloadProgress) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (!strongSelf || !weakCard) return;
-            double fraction = downloadProgress.fractionCompleted;
-            long long total = downloadProgress.totalUnitCount;
-            long long downloaded = downloadProgress.completedUnitCount;
-            long long speed = 0;
-            NSInteger eta = -1;
-            if ([downloadProgress.throughput isKindOfClass:[NSNumber class]]) {
-                speed = [downloadProgress.throughput longLongValue];
-            }
-            if ([downloadProgress.estimatedTimeRemaining isKindOfClass:[NSNumber class]]) {
-                eta = [downloadProgress.estimatedTimeRemaining integerValue];
-            }
-            [weakCard updateProgress:fraction
-                         downloaded:downloaded
-                               total:total
-                              speed:speed
-                                eta:eta
-                        currentFile:item.fileName];
-        });
-    } completion:^(NSError * _Nullable error) {
+                               expectedSHA1:item.fileSHA1
+                                   progress:nil
+                                   completion:^(NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
             if (error) {
-                if (strongSelf.progressCardView) {
-                    [strongSelf.progressCardView failWithError:error];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showError:error.localizedDescription];
             } else {
-                if (strongSelf.progressCardView) {
-                    [strongSelf.progressCardView completeWithTitle:[NSString stringWithFormat:@"%@ 已安装", item.displayName]];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showSuccessMessage:[NSString stringWithFormat:@"%@ 已安装", item.displayName]];
             }
         });
@@ -5758,32 +5194,19 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 // 下载资源包（使用 ResourcePackService，NSString profileName）
+// redesign-download-ui Phase 3：进度由 Service 内部注册的下载任务 +
+// PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。
 - (void)startDownloadForResourcePackItem:(ResourcePackItem *)item {
-    InstallerProgressViewController *progressVC = [[InstallerProgressViewController alloc] init];
-    progressVC.titleText = [NSString stringWithFormat:@"正在下载 %@", item.displayName ?: @""];
-    progressVC.progress = -1;
-    progressVC.stageMessage = @"正在下载资源包...";
-    // 阶段12增强：资源包图标
-    progressVC.categoryIconName = @"paintpalette.fill";
-    progressVC.categoryIconColor = [UIColor systemPurpleColor];
-    [self.navigationController pushViewController:progressVC animated:YES];
-
     NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
     __weak typeof(self) weakSelf = self;
-    __weak InstallerProgressViewController *weakProgressVC = progressVC;
     [[ResourcePackService sharedService] downloadResourcePack:item
                                                     toProfile:profileName
-                                                     progress:^(NSProgress * _Nullable downloadProgress) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (downloadProgress && weakProgressVC) {
-                weakProgressVC.progress = downloadProgress.fractionCompleted;
-            }
-        });
-    } completion:^(BOOL success, NSError * _Nullable error) {
+                                                 expectedSHA1:item.fileSHA1
+                                                     progress:nil
+                                                   completion:^(BOOL success, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
-            [strongSelf.navigationController popViewControllerAnimated:YES];
             if (success && !error) {
                 [strongSelf showSuccessMessage:[NSString stringWithFormat:@"%@ 已安装到 resourcepacks", item.displayName]];
             } else {
@@ -5794,32 +5217,20 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 // 下载数据包（使用 DataPackService，NSString profileName）
+// redesign-download-ui Phase 3：进度由 Service 内部注册的下载任务 +
+// PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。
 - (void)startDownloadForDataPackItem:(DataPackItem *)item {
-    InstallerProgressViewController *progressVC = [[InstallerProgressViewController alloc] init];
-    progressVC.titleText = [NSString stringWithFormat:@"正在下载 %@", item.displayName ?: @""];
-    progressVC.progress = -1;
-    progressVC.stageMessage = @"正在下载数据包...";
-    // 阶段12增强：数据包图标
-    progressVC.categoryIconName = @"doc.text.fill";
-    progressVC.categoryIconColor = [UIColor systemTealColor];
-    [self.navigationController pushViewController:progressVC animated:YES];
-
     NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
     __weak typeof(self) weakSelf = self;
-    __weak InstallerProgressViewController *weakProgressVC = progressVC;
     [[DataPackService sharedService] downloadDataPack:item
                                             toProfile:profileName
-                                             progress:^(NSProgress * _Nullable downloadProgress) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (downloadProgress && weakProgressVC) {
-                weakProgressVC.progress = downloadProgress.fractionCompleted;
-            }
-        });
-    } completion:^(BOOL success, NSError * _Nullable error) {
+                                            worldName:nil
+                                         expectedSHA1:item.fileSHA1
+                                             progress:nil
+                                           completion:^(BOOL success, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
-            [strongSelf.navigationController popViewControllerAnimated:YES];
             if (success && !error) {
                 [strongSelf showSuccessMessage:[NSString stringWithFormat:@"%@ 已安装到 datapacks\n请手动移动到对应世界目录", item.displayName]];
             } else {
@@ -5830,32 +5241,18 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 // 下载世界存档并解压到 saves 目录（使用 WorldService，含进度回调与健壮解压）
+// redesign-download-ui Phase 3：进度由 Service 内部注册的下载任务 +
+// PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。
 - (void)startDownloadForWorldItem:(WorldItem *)item {
-    InstallerProgressViewController *progressVC = [[InstallerProgressViewController alloc] init];
-    progressVC.titleText = [NSString stringWithFormat:@"正在下载 %@", item.displayName ?: @""];
-    progressVC.progress = -1;
-    progressVC.stageMessage = @"正在下载世界存档...";
-    // 阶段12增强：世界图标
-    progressVC.categoryIconName = @"globe.asia.australia.fill";
-    progressVC.categoryIconColor = [UIColor systemGreenColor];
-    [self.navigationController pushViewController:progressVC animated:YES];
-
     NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
     __weak typeof(self) weakSelf = self;
-    __weak InstallerProgressViewController *weakProgressVC = progressVC;
     [[WorldService sharedService] downloadWorld:item
                                         toProfile:profileName
-                                         progress:^(NSProgress * _Nullable downloadProgress) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (downloadProgress && weakProgressVC) {
-                weakProgressVC.progress = downloadProgress.fractionCompleted;
-            }
-        });
-    } completion:^(BOOL success, NSError * _Nullable error) {
+                                         progress:nil
+                                       completion:^(BOOL success, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
-            [strongSelf.navigationController popViewControllerAnimated:YES];
             if (success && !error) {
                 [strongSelf showSuccessMessage:[NSString stringWithFormat:@"%@ 已解压到 saves 目录", item.displayName]];
             } else {
@@ -5878,71 +5275,30 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     
     itemToDownload.selectedVersionDownloadURL = primaryFile[@"url"];
     itemToDownload.fileName = primaryFile[@"filename"] ?: [NSString stringWithFormat:@"%@.zip", itemToDownload.displayName];
+    // spec Task 5.1 收尾：光影包版本模型 primaryFile 的 sha1 接到下载调用
+    itemToDownload.fileSHA1 = PLSha1FromPrimaryFile(primaryFile);
 
     // 子页面已 push 到导航栈，选完版本后 pop 回下载列表
     [self.navigationController popViewControllerAnimated:YES];
     [self startDownloadForShaderItem:itemToDownload];
 }
 
+// 下载光影包（redesign-download-ui Phase 4：进度由 Service 内部注册的下载任务 +
+// PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。）
 - (void)startDownloadForShaderItem:(ShaderItem *)item {
-    // 参照 FCL 风格：使用底部悬浮进度卡片（与 Minecraft 版本下载和 Mod 下载保持一致），
-    // 替代之前的不确定模式 InstallerProgressViewController。
-    // 之前调用 downloadShader:toProfile:completion: 不带 progress 版本，进度页一直转圈，
-    // 用户感知"卡住/无反应"。现在使用带 progress 的版本，并接 progress 回调到卡片。
-    if (self.progressCardView) {
-        [self.progressCardView dismiss];
-        self.progressCardView = nil;
-    }
-
-    NSString *shaderTitle = [NSString stringWithFormat:@"正在下载 %@", item.displayName ?: @""];
-    self.progressCardView = [DownloadProgressCardView showInParentView:self.view title:shaderTitle];
-    [self.progressCardView startDownloadWithTitle:shaderTitle
-                                          subtitle:@"Minecraft 光影包"];
-    [self.progressCardView updateProgress:-1 downloaded:0 total:-1 speed:0 eta:-1 currentFile:@"准备下载..."];
-
     NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
-
     __weak typeof(self) weakSelf = self;
-    __weak DownloadProgressCardView *weakCard = self.progressCardView;
     [[ShaderService sharedService] downloadShader:item
                                          toProfile:profileName
-                                           progress:^(NSProgress * _Nullable downloadProgress) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (!strongSelf || !weakCard) return;
-            double fraction = downloadProgress.fractionCompleted;
-            long long total = downloadProgress.totalUnitCount;
-            long long downloaded = downloadProgress.completedUnitCount;
-            long long speed = 0;
-            NSInteger eta = -1;
-            if ([downloadProgress.throughput isKindOfClass:[NSNumber class]]) {
-                speed = [downloadProgress.throughput longLongValue];
-            }
-            if ([downloadProgress.estimatedTimeRemaining isKindOfClass:[NSNumber class]]) {
-                eta = [downloadProgress.estimatedTimeRemaining integerValue];
-            }
-            [weakCard updateProgress:fraction
-                         downloaded:downloaded
-                               total:total
-                              speed:speed
-                                eta:eta
-                        currentFile:item.fileName];
-        });
-    } completion:^(NSError * _Nullable error) {
+                                      expectedSHA1:item.fileSHA1
+                                          progress:nil
+                                          completion:^(NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
             if (error) {
-                if (strongSelf.progressCardView) {
-                    [strongSelf.progressCardView failWithError:error];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showError:error.localizedDescription];
             } else {
-                if (strongSelf.progressCardView) {
-                    [strongSelf.progressCardView completeWithTitle:[NSString stringWithFormat:@"%@ 已安装", item.displayName]];
-                    strongSelf.progressCardView = nil;
-                }
                 [strongSelf showSuccessMessage:[NSString stringWithFormat:@"%@ 已安装", item.displayName]];
             }
         });
@@ -5979,264 +5335,62 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     }
     
     NSProgress *progress = self.downloadTask.progress;
-    NSProgress *textProgress = self.downloadTask.textProgress;
-    if (!textProgress) return;
-    
-    NSInteger completedUnitCount = progress.totalUnitCount * progress.fractionCompleted;
-    textProgress.completedUnitCount = completedUnitCount;
-    
-    static CGFloat lastMsTime = 0;
-    static NSUInteger lastSecTime = 0;
-    static NSInteger lastCompletedUnitCount = 0;
-    
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    
-    if (lastSecTime < tv.tv_sec) {
-        CGFloat currentTime = tv.tv_sec + tv.tv_usec / 1000000.0;
-        if (lastMsTime > 0) {
-            NSInteger throughput = (completedUnitCount - lastCompletedUnitCount) / (currentTime - lastMsTime);
-            textProgress.throughput = @(throughput);
-            if (throughput > 0) {
-                NSInteger remaining = (progress.totalUnitCount - completedUnitCount) / throughput;
-                textProgress.estimatedTimeRemaining = @(remaining);
-            }
-        }
-        lastCompletedUnitCount = completedUnitCount;
-        lastSecTime = tv.tv_sec;
-        lastMsTime = currentTime;
-    }
-    
+    if (!progress) return;
+
+    // redesign-download-ui Phase 4：进度展示由任务内部阶段上报驱动统一进度页，
+    // 此处仅保留完成收尾（KVO 移除 + ReloadProfileList 通知）。
+    if (!progress.finished) return;
+
     dispatch_async(dispatch_get_main_queue(), ^{
-        // 参照 FCL/ZL2/HMCL：使用下载进度卡片显示进度
-        if (self.progressCardView) {
-            long long totalBytes = progress.totalUnitCount;
-            long long downloadedBytes = completedUnitCount;
-            long long speed = 0;
-            NSInteger eta = -1;
-
-            if (textProgress.throughput) {
-                speed = [textProgress.throughput integerValue];
+        if (self.isObservingProgress) {
+            @try {
+                [self.downloadTask.progress removeObserver:self forKeyPath:@"fractionCompleted"];
+            } @catch (NSException *exception) {
+                NSLog(@"[DownloadVC] progress.finished: removeObserver failed: %@", exception.reason);
             }
-            if (textProgress.estimatedTimeRemaining) {
-                eta = [textProgress.estimatedTimeRemaining integerValue];
-            }
-
-            // 获取当前下载文件名（从 textProgress 的 description 中提取）
-            NSString *currentFile = nil;
-            if (textProgress.localizedDescription && textProgress.localizedDescription.length > 0) {
-                currentFile = textProgress.localizedDescription;
-            }
-
-            [self.progressCardView updateProgress:progress.fractionCompleted
-                                      downloaded:downloadedBytes
-                                            total:totalBytes
-                                           speed:speed
-                                             eta:eta
-                                     currentFile:currentFile];
+            self.isObservingProgress = NO;
         }
 
-        if (progress.finished) {
-            if (self.isObservingProgress) {
-                @try {
-                    [self.downloadTask.progress removeObserver:self forKeyPath:@"fractionCompleted"];
-                } @catch (NSException *exception) {
-                    NSLog(@"[DownloadVC] progress.finished: removeObserver failed: %@", exception.reason);
-                }
-                self.isObservingProgress = NO;
-            }
+        self.view.userInteractionEnabled = YES;
+        self.downloadTask = nil;
 
-            lastMsTime = 0;
-            lastSecTime = 0;
-            lastCompletedUnitCount = 0;
-
-            self.view.userInteractionEnabled = YES;
-
-            // 使用进度卡片显示完成状态
-            if (self.progressCardView) {
-                NSString *completeTitle = [NSString stringWithFormat:@"%@ 下载完成",
-                                           self.downloadTask.metadata[@"id"] ?: @"版本"];
-                [self.progressCardView completeWithTitle:completeTitle];
-                self.progressCardView = nil;
-            }
-
-            if (self.progressVC) {
-                [self.progressVC dismissViewControllerAnimated:YES completion:nil];
-                self.progressVC = nil;
-            }
-
-            self.downloadTask = nil;
-
-            // 关键修复（issue #61）：Vanilla 版本下载完成后未发送 ReloadProfileList 通知，
-            // 导致"已安装的版本"列表不刷新、新版本卡片不显示。
-            // downloadVanillaVersion: 中已 saveProfile + setSelectedProfileName（会发 SelectedProfileChanged），
-            // 但版本卡片列表（LauncherRootViewController/VersionManagerViewController）监听的是 ReloadProfileList，
-            // 不补发此通知则 UI 永远不刷新。
-            [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
-        }
+        // 关键修复（issue #61）：Vanilla 版本下载完成后未发送 ReloadProfileList 通知，
+        // 导致"已安装的版本"列表不刷新、新版本卡片不显示。
+        // downloadVanillaVersion: 中已 saveProfile + setSelectedProfileName（会发 SelectedProfileChanged），
+        // 但版本卡片列表（LauncherRootViewController/VersionManagerViewController）监听的是 ReloadProfileList，
+        // 不补发此通知则 UI 永远不刷新。
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
     });
 }
 
-/// 原版前置安装的进度处理：更新 FCL 风格进度 VC，完成时弹出 VC 并触发后续模组加载器安装。
+/// 原版前置安装的进度处理（redesign-download-ui Phase 3 Task 3.2 简化）：
+/// 进度展示已由 MinecraftResourceDownloadTask 内部的阶段上报驱动统一进度页自动呈现，
+/// 此处仅保留完成收尾逻辑：移除 KVO、刷新版本列表、回调 completion 触发后续加载器安装。
 - (void)handleVanillaPreinstallProgress {
     MinecraftResourceDownloadTask *task = self.vanillaPreinstallTask;
     if (!task) return;
     NSProgress *progress = task.progress;
-    NSProgress *textProgress = task.textProgress;
-    double fraction = progress.fractionCompleted;
-
-    // 计算 speed / ETA（与主下载流程一致）
-    static CGFloat lastMsTime = 0;
-    static NSUInteger lastSecTime = 0;
-    static NSInteger lastCompletedUnitCount = 0;
-    if (textProgress) {
-        NSInteger completedUnitCount = progress.totalUnitCount * fraction;
-        textProgress.completedUnitCount = completedUnitCount;
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        if (lastSecTime < tv.tv_sec) {
-            CGFloat currentTime = tv.tv_sec + tv.tv_usec / 1000000.0;
-            if (lastMsTime > 0) {
-                NSInteger throughput = (completedUnitCount - lastCompletedUnitCount) / (currentTime - lastMsTime);
-                textProgress.throughput = @(throughput);
-                if (throughput > 0) {
-                    NSInteger remaining = (progress.totalUnitCount - completedUnitCount) / throughput;
-                    textProgress.estimatedTimeRemaining = @(remaining);
-                }
-            }
-            lastCompletedUnitCount = completedUnitCount;
-            lastSecTime = tv.tv_sec;
-            lastMsTime = currentTime;
-        }
-    }
+    if (!progress.finished) return;
 
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(self) s = self;
         if (!s) return;
-        InstallerProgressViewController *pvc = s.vanillaPreinstallProgressVC;
-        if (pvc) {
-            if (fraction >= 0.0 && progress.totalUnitCount > 1) {
-                pvc.progress = fraction;
-            } else {
-                pvc.progress = -1; // 不确定模式
-            }
 
-            // 阶段12增强：详情信息行（已下载 / 总大小 • 速度）
-            NSInteger completedBytes = progress.totalUnitCount * fraction;
-            NSString *sizeInfo = [NSString stringWithFormat:@"%@ / %@",
-                                  [NSByteCountFormatter stringFromByteCount:completedBytes countStyle:NSByteCountFormatterCountStyleFile],
-                                  [NSByteCountFormatter stringFromByteCount:progress.totalUnitCount countStyle:NSByteCountFormatterCountStyleFile]];
-            NSString *speedInfo = @"";
-            if (textProgress.throughput) {
-                NSInteger speed = [textProgress.throughput integerValue];
-                if (speed > 1024 * 1024) {
-                    speedInfo = [NSString stringWithFormat:@" • %.1f MB/s", speed / (1024.0 * 1024.0)];
-                } else if (speed > 1024) {
-                    speedInfo = [NSString stringWithFormat:@" • %.1f KB/s", speed / 1024.0];
-                } else if (speed > 0) {
-                    speedInfo = [NSString stringWithFormat:@" • %ld B/s", (long)speed];
-                }
+        if (s.isObservingVanillaPreinstall) {
+            @try {
+                [s.vanillaPreinstallTask.progress removeObserver:s forKeyPath:@"fractionCompleted"];
+            } @catch (NSException *exception) {
+                NSLog(@"[DownloadVC] vanillaPreinstall progress.finished: removeObserver failed: %@", exception.reason);
             }
-            pvc.detailInfoText = [NSString stringWithFormat:@"%@%@", sizeInfo, speedInfo];
-
-            // 阶段12增强：剩余时间（ETA）单独显示
-            if (textProgress.estimatedTimeRemaining) {
-                NSInteger eta = [textProgress.estimatedTimeRemaining integerValue];
-                if (eta > 3600) {
-                    pvc.etaText = [NSString stringWithFormat:@"剩余 %ld小时%ld分", (long)(eta / 3600), (long)((eta % 3600) / 60)];
-                } else if (eta > 60) {
-                    pvc.etaText = [NSString stringWithFormat:@"剩余 %ld分%ld秒", (long)(eta / 60), (long)(eta % 60)];
-                } else if (eta > 0) {
-                    pvc.etaText = [NSString stringWithFormat:@"剩余 %ld秒", (long)eta];
-                } else {
-                    pvc.etaText = nil;
-                }
-            } else {
-                pvc.etaText = nil;
-            }
-
-            // 阶段12增强：根据进度百分比动态更新阶段步骤状态
-            // 原版安装步骤：获取版本清单(✓) → 下载版本JSON(✓) → 下载游戏库文件 → 下载资源文件 → 验证文件
-            // 大致按进度划分：0-30%=下载库文件, 30-90%=下载资源, 90-100%=验证
-            NSArray *steps;
-            if (fraction < 0.3) {
-                steps = @[
-                    @{@"title": @"获取版本清单", @"status": @2},
-                    @{@"title": @"下载版本 JSON", @"status": @2},
-                    @{@"title": @"下载游戏库文件", @"status": @1},
-                    @{@"title": @"下载资源文件", @"status": @0},
-                    @{@"title": @"验证文件完整性", @"status": @0},
-                ];
-            } else if (fraction < 0.9) {
-                steps = @[
-                    @{@"title": @"获取版本清单", @"status": @2},
-                    @{@"title": @"下载版本 JSON", @"status": @2},
-                    @{@"title": @"下载游戏库文件", @"status": @2},
-                    @{@"title": @"下载资源文件", @"status": @1},
-                    @{@"title": @"验证文件完整性", @"status": @0},
-                ];
-            } else {
-                steps = @[
-                    @{@"title": @"获取版本清单", @"status": @2},
-                    @{@"title": @"下载版本 JSON", @"status": @2},
-                    @{@"title": @"下载游戏库文件", @"status": @2},
-                    @{@"title": @"下载资源文件", @"status": @2},
-                    @{@"title": @"验证文件完整性", @"status": @1},
-                ];
-            }
-            pvc.stageSteps = steps;
-
-            // 阶段文案：当前正在下载的文件名（简化显示百分比）
-            pvc.stageMessage = [NSString stringWithFormat:@"正在下载原版文件... %.1f%%", fraction * 100.0];
+            s.isObservingVanillaPreinstall = NO;
         }
-
-        if (progress.finished) {
-            // 重置速度统计静态变量
-            lastMsTime = 0;
-            lastSecTime = 0;
-            lastCompletedUnitCount = 0;
-
-            if (s.isObservingVanillaPreinstall) {
-                @try {
-                    [s.vanillaPreinstallTask.progress removeObserver:s forKeyPath:@"fractionCompleted"];
-                } @catch (NSException *exception) {
-                    NSLog(@"[DownloadVC] vanillaPreinstall progress.finished: removeObserver failed: %@", exception.reason);
-                }
-                s.isObservingVanillaPreinstall = NO;
-            }
-            // 改进2（参照 ZL2 统一进度流）：加载器前置预装场景下不 pop 预装 VC，
-            // 而是转交给 self.installerProgressVC，由后续 install* 方法复用同一进度页，
-            // 实现"原版 + 加载器"在同一进度页连续推进。
-            if (s.vanillaPreinstallForLoader && s.vanillaPreinstallProgressVC) {
-                InstallerProgressViewController *pvc = s.vanillaPreinstallProgressVC;
-                pvc.progress = -1; // 切回不确定模式，等待加载器安装阶段
-                pvc.stageMessage = @"原版文件已就绪，正在准备安装加载器...";
-                // 步骤列表：原版5步全部标记完成 + "安装模组加载器"进行中
-                pvc.stageSteps = @[
-                    @{@"title": @"获取版本清单", @"status": @2},
-                    @{@"title": @"下载版本 JSON", @"status": @2},
-                    @{@"title": @"下载游戏库文件", @"status": @2},
-                    @{@"title": @"下载资源文件", @"status": @2},
-                    @{@"title": @"验证文件完整性", @"status": @2},
-                    @{@"title": @"安装模组加载器", @"status": @1},
-                ];
-                s.installerProgressVC = pvc;
-                s.vanillaPreinstallForLoader = NO;
-            } else {
-                // 非加载器场景（vanilla 直装或整合包预装）：维持原逻辑 pop 预装 VC
-                if (s.vanillaPreinstallProgressVC && [s.navigationController.viewControllers containsObject:s.vanillaPreinstallProgressVC]) {
-                    [s.navigationController popViewControllerAnimated:YES];
-                }
-            }
-            s.vanillaPreinstallTask = nil;
-            s.vanillaPreinstallProgressVC = nil;
-            // 关键修复（issue #61）：原版前置安装完成后也需发送 ReloadProfileList 通知，
-            // 让"已安装的版本"列表及时显示已就绪的原版版本。
-            [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
-            void (^cb)(BOOL) = s.vanillaPreinstallCompletion;
-            s.vanillaPreinstallCompletion = nil;
-            if (cb) cb(YES);
-        }
+        s.vanillaPreinstallTask = nil;
+        // 关键修复（issue #61）：原版前置安装完成后也需发送 ReloadProfileList 通知，
+        // 让"已安装的版本"列表及时显示已就绪的原版版本。
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
+        void (^cb)(BOOL) = s.vanillaPreinstallCompletion;
+        s.vanillaPreinstallCompletion = nil;
+        if (cb) cb(YES);
     });
 }
 

@@ -1,14 +1,8 @@
 #import "CurseForgeAPI.h"
 #import "AFNetworking.h"
-#import "MinecraftResourceDownloadTask.h"
-#import "PLProfiles.h"
 #import "PLPreferences.h"
 #import "config.h"
-#import "ModpackUtils.h"
-#import "UZKArchive.h"
-#import "installer/ForgeDirectInstaller.h"
-#import "installer/NeoForgeDirectInstaller.h"
-#import "MCIMMirror.h"
+#import "PLMirrorCenter.h"
 
 // CurseForge 静态常量
 static const NSInteger kCurseForgeGameIDMinecraft = 432;
@@ -61,12 +55,21 @@ static NSString *CFACompiledAPIKey(void) {
 - (NSString *)printableStringFromData:(NSData *)data maxLen:(NSUInteger)maxLen;
 @end
 
+/// 经 PLMirrorCenter 按资源下载（AssetDownload）策略应用镜像
+/// （CurseForge Edge/Media CDN 文件 → MCIM 镜像），URL 为空或无法解析时回退原始字符串
+static NSString *CFAMirrorResolvedURL(NSString *urlString) {
+    if (![urlString isKindOfClass:[NSString class]] || urlString.length == 0) return urlString;
+    NSURL *resolved = [PLMirrorCenter preferredURLForOriginalURL:[NSURL URLWithString:urlString]
+                                                    resourceType:PLMirrorResourceTypeAssetDownload];
+    return resolved.absoluteString ?: urlString;
+}
+
 @implementation CurseForgeAPI
 
-/// 重写 baseURL getter，根据 MCIMMirror 偏好动态返回官方或镜像 URL
-/// 这样所有使用 self.baseURL 的请求都会自动走镜像
+/// 重写 baseURL getter，根据 PLMirrorCenter 的资源搜索（AssetSearch）策略
+/// 动态返回官方或 MCIM 镜像 URL，这样所有使用 self.baseURL 的请求都会自动走镜像
 - (NSString *)baseURL {
-    return [MCIMMirror curseForgeAPIBaseURL];
+    return [PLMirrorCenter curseForgeAPIBaseURL];
 }
 
 + (instancetype)sharedInstance {
@@ -418,9 +421,9 @@ static NSString *CFACompiledAPIKey(void) {
 - (NSString *)downloadURLForFile:(NSDictionary *)file {
     NSString *url = file[@"downloadUrl"];
     if ([url isKindOfClass:NSString.class] && url.length > 0) {
-        return [MCIMMirror applyToURL:url];
+        return CFAMirrorResolvedURL(url);
     }
-    
+
     NSString *modId = [file[@"modId"] description];
     NSString *fileId = [file[@"id"] description];
     if (modId.length == 0 || fileId.length == 0) {
@@ -429,9 +432,9 @@ static NSString *CFACompiledAPIKey(void) {
     NSDictionary *response = [self getEndpoint:[NSString stringWithFormat:@"mods/%@/files/%@/download-url", modId, fileId] params:nil];
     NSString *fallback = [response isKindOfClass:NSDictionary.class] ? response[@"data"] : nil;
     if ([fallback isKindOfClass:NSString.class] && fallback.length > 0) {
-        return [MCIMMirror applyToURL:fallback];
+        return CFAMirrorResolvedURL(fallback);
     }
-    
+
     // 最终 fallback：Edge CDN
     NSString *fileName = [file[@"fileName"] isKindOfClass:NSString.class] ? file[@"fileName"] : @"";
     NSInteger numericFileId = fileId.integerValue;
@@ -443,7 +446,7 @@ static NSString *CFACompiledAPIKey(void) {
             (long)(numericFileId / 1000),
             (long)(numericFileId % 1000),
             encodedName ?: fileName];
-    return [MCIMMirror applyToURL:cdnURL];
+    return CFAMirrorResolvedURL(cdnURL);
 }
 
 - (NSString *)gameVersionSummaryForFile:(NSDictionary *)file {
@@ -716,269 +719,11 @@ static NSString *CFACompiledAPIKey(void) {
     }];
 }
 
-#pragma mark - 整合包下载支持
-
-- (NSDictionary *)modpackDependencyInfoFromManifest:(NSDictionary *)manifest {
-    NSDictionary *minecraft = [manifest[@"minecraft"] isKindOfClass:NSDictionary.class] ? manifest[@"minecraft"] : @{};
-    NSString *minecraftVersion = minecraft[@"version"];
-    if (![minecraftVersion isKindOfClass:NSString.class] || minecraftVersion.length == 0) {
-        return @{};
-    }
-    
-    NSMutableDictionary *dependencies = @{@"minecraft": minecraftVersion}.mutableCopy;
-    NSArray *modLoaders = [minecraft[@"modLoaders"] isKindOfClass:NSArray.class] ? minecraft[@"modLoaders"] : @[];
-    NSDictionary *selectedLoader = nil;
-    for (NSDictionary *loader in modLoaders) {
-        if ([loader[@"primary"] boolValue]) {
-            selectedLoader = loader;
-            break;
-        }
-    }
-    if (!selectedLoader) {
-        selectedLoader = modLoaders.firstObject;
-    }
-    
-    NSString *loaderId = [selectedLoader[@"id"] isKindOfClass:NSString.class] ? selectedLoader[@"id"] : @"";
-    NSArray<NSString *> *loaderParts = [loaderId componentsSeparatedByString:@"-"];
-    NSString *loaderName = loaderParts.count > 0 ? loaderParts.firstObject.lowercaseString : @"";
-    NSString *loaderVersion = loaderParts.count > 1 ? [[loaderParts subarrayWithRange:NSMakeRange(1, loaderParts.count - 1)] componentsJoinedByString:@"-"] : @"";
-    if ([loaderName isEqualToString:@"forge"]) {
-        dependencies[@"forge"] = loaderVersion;
-    } else if ([loaderName isEqualToString:@"fabric"]) {
-        dependencies[@"fabric-loader"] = loaderVersion;
-    } else if ([loaderName isEqualToString:@"quilt"]) {
-        dependencies[@"quilt-loader"] = loaderVersion;
-    } else if ([loaderName isEqualToString:@"neoforge"]) {
-        // 修复：之前错误地映射到 @"forge"，导致版本 ID 格式错误（用 forge 而非 neoforge），
-        // 且 ModpackUtils.infoForDependencies: 不下载 NeoForge 版本 JSON。
-        // 正确映射到 @"neoforge"，与 Modrinth 格式保持一致。
-        dependencies[@"neoforge"] = loaderVersion;
-    }
-    
-    NSMutableDictionary *info = [[ModpackUtils infoForDependencies:dependencies] mutableCopy];
-    if (!info[@"id"]) {
-        info[@"id"] = minecraftVersion;
-    }
-    return info;
-}
-
-- (NSDictionary *)fileForProjectID:(NSString *)projectID fileID:(NSString *)fileID {
-    NSDictionary *response = [self getEndpoint:[NSString stringWithFormat:@"mods/%@/files/%@", projectID, fileID] params:nil];
-    NSDictionary *file = [response isKindOfClass:NSDictionary.class] ? response[@"data"] : nil;
-    return [file isKindOfClass:NSDictionary.class] ? file : nil;
-}
-
-- (NSDictionary<NSString *, NSDictionary *> *)filesByFileID:(NSArray *)fileIDs {
-    NSMutableArray<NSNumber *> *uniqueFileIDs = [NSMutableArray new];
-    NSMutableSet<NSString *> *seenFileIDs = [NSMutableSet new];
-    for (id fileIDObject in fileIDs) {
-        NSString *fileID = [fileIDObject description];
-        if (fileID.length == 0 || [seenFileIDs containsObject:fileID]) continue;
-        [seenFileIDs addObject:fileID];
-        [uniqueFileIDs addObject:@(fileID.longLongValue)];
-    }
-    
-    NSMutableDictionary<NSString *, NSDictionary *> *files = [NSMutableDictionary new];
-    NSUInteger index = 0;
-    while (index < uniqueFileIDs.count) {
-        NSUInteger count = MIN((NSUInteger)50, uniqueFileIDs.count - index);
-        NSArray *batch = [uniqueFileIDs subarrayWithRange:NSMakeRange(index, count)];
-        // 关键修复：批量指纹接口偶发失败/超时，导致整批 fileIDs 在 filesByID 中缺失，
-        // 后续循环中每个缺失的文件会触发 fileForProjectID:fileID: 单文件回退（增加 API 调用），
-        // 极端情况下回退也失败就会被跳过 → 整合包模组数量不全。
-        // 增加重试：每批最多重试 3 次（间隔 1s）。
-        NSDictionary *response = nil;
-        for (NSInteger retry = 0; retry < 3 && !response; retry++) {
-            if (retry > 0) {
-                NSLog(@"[CurseForgeAPI] filesByFileID batch %ld retry %ld", (long)index/50 + 1, (long)retry);
-                [NSThread sleepForTimeInterval:1.0];
-            }
-            NSDictionary *resp = [self postEndpoint:@"mods/files" params:@{@"fileIds": batch}];
-            if ([resp isKindOfClass:NSDictionary.class] && [resp[@"data"] isKindOfClass:NSArray.class]) {
-                response = resp;
-            }
-        }
-        NSArray *batchFiles = [response isKindOfClass:NSDictionary.class] && [response[@"data"] isKindOfClass:NSArray.class] ? response[@"data"] : @[];
-        for (NSDictionary *file in batchFiles) {
-            if (![file isKindOfClass:NSDictionary.class]) continue;
-            NSString *fileID = [file[@"id"] description];
-            if (fileID.length > 0) {
-                files[fileID] = file;
-            }
-        }
-        index += count;
-    }
-    return files;
-}
-
-- (void)downloader:(MinecraftResourceDownloadTask *)downloader
-submitDownloadTasksFromPackage:(NSString *)packagePath
-            toPath:(NSString *)destPath {
-    NSError *error;
-    UZKArchive *archive = [[UZKArchive alloc] initWithPath:packagePath error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to open CurseForge package: %@", error.localizedDescription]];
-        return;
-    }
-    
-    NSData *manifestData = [archive extractDataFromFile:@"manifest.json" error:&error];
-    NSDictionary *manifest = manifestData ? [NSJSONSerialization JSONObjectWithData:manifestData options:kNilOptions error:&error] : nil;
-    if (![manifest isKindOfClass:NSDictionary.class] || error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to parse CurseForge manifest.json: %@", error.localizedDescription ?: @"invalid manifest"]];
-        return;
-    }
-    
-    NSString *modsPath = [destPath stringByAppendingPathComponent:@"mods"];
-    NSArray *manifestFiles = [manifest[@"files"] isKindOfClass:NSArray.class] ? manifest[@"files"] : @[];
-    NSMutableArray<NSDictionary *> *requiredManifestFiles = [NSMutableArray new];
-    NSMutableArray *requiredFileIDs = [NSMutableArray new];
-    for (NSDictionary *manifestFile in manifestFiles) {
-        if (![manifestFile isKindOfClass:NSDictionary.class]) continue;
-        // 关键修复：部分整合包 manifest 不写 required 字段（或写为非布尔值），
-        // 之前 `![manifestFile[@"required"] boolValue]` 会把缺失/非布尔字段当作 NO 跳过，
-        // 导致整批 mod 丢失。这里改为：缺失 required 字段时按必需处理（与 CF 官方约定一致）。
-        // 仅显式为 NO 的才跳过。
-        id requiredValue = manifestFile[@"required"];
-        if (requiredValue != nil && [requiredValue isKindOfClass:[NSNumber class]] && ![requiredValue boolValue]) {
-            continue;
-        }
-        id fileID = manifestFile[@"fileID"];
-        if (!fileID) continue;
-        [requiredManifestFiles addObject:manifestFile];
-        [requiredFileIDs addObject:fileID];
-    }
-
-    NSDictionary<NSString *, NSDictionary *> *filesByID = [self filesByFileID:requiredFileIDs];
-    NSUInteger skippedCount = 0;
-    for (NSDictionary *manifestFile in requiredManifestFiles) {
-        NSString *projectID = [manifestFile[@"projectID"] description] ?: @"";
-        NSString *fileID = [manifestFile[@"fileID"] description] ?: @"";
-        NSDictionary *file = fileID.length > 0 ? filesByID[fileID] : nil;
-        // 单文件解析失败时回退到逐个查询接口
-        if (!file && projectID.length > 0 && fileID.length > 0) {
-            file = [self fileForProjectID:projectID fileID:fileID];
-        }
-        NSString *url = file ? [self downloadURLForFile:file] : @"";
-        NSString *fileName = [file[@"fileName"] isKindOfClass:NSString.class] ? file[@"fileName"] : @"";
-        // 关键修复：单文件解析失败时不再中止整个整合包下载，改为记录并跳过该文件。
-        // 之前 `finishDownloadWithErrorString:` + `return` 会让整批 mod 全部丢失，
-        // 即使只有 1 个文件无法解析。这与 issue 描述的"模组不完整"完全吻合。
-        // 阶段5修复（参照 FCL）：同时将跳过的文件记入 failedFiles，最终汇总报告给用户。
-        if (url.length == 0 || fileName.length == 0) {
-            NSLog(@"[CurseForgeAPI] Skipping unresolvable modpack file projectID=%@ fileID=%@ (url or fileName is empty), continuing with remaining files", projectID, fileID);
-            skippedCount++;
-            // 单文件失败也需推进进度，避免下载卡片卡住
-            downloader.progress.completedUnitCount++;
-            @synchronized(downloader.failedFiles) {
-                [downloader.failedFiles addObject:@{
-                    @"name": [NSString stringWithFormat:@"projectID=%@ fileID=%@", projectID, fileID],
-                    @"error": @"无法从 CurseForge API 解析文件信息（url 或 fileName 为空）"
-                }];
-            }
-            continue;
-        }
-        NSString *path = [modsPath stringByAppendingPathComponent:fileName];
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:url
-                                                                   size:[file[@"fileLength"] unsignedLongLongValue]
-                                                                    sha:[self sha1ForFile:file]
-                                                                altName:fileName
-                                                                 toPath:path];
-        if (task) {
-            [task resume];
-        } else if (downloader.progress.cancelled) {
-            return;
-        }
-    }
-    if (skippedCount > 0) {
-        NSLog(@"[CurseForgeAPI] Modpack download: skipped %lu unresolvable files, continuing with remaining", (unsigned long)skippedCount);
-    }
-    
-    NSString *overrides = manifest[@"overrides"];
-    if (![overrides isKindOfClass:NSString.class] || overrides.length == 0) {
-        overrides = @"overrides";
-    }
-    [ModpackUtils archive:archive extractDirectory:overrides toPath:destPath error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract overrides from CurseForge package: %@", error.localizedDescription]];
-        return;
-    }
-    
-    [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
-
-    NSDictionary *depInfo = [self modpackDependencyInfoFromManifest:manifest];
-    NSString *profileName = manifest[@"name"] ?: destPath.lastPathComponent;
-    NSString *gameDirRelative = [NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent];
-    NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
-    NSString *iconBase64 = [NSString stringWithFormat:@"data:image/png;base64,%@",
-                            [[NSData dataWithContentsOfFile:tmpIconPath] base64EncodedStringWithOptions:0]];
-
-    // 立即设置 profile，确保整合包安装后能从 profile 列表中看到（即使加载器安装失败）
-    PLProfiles.current.profiles[profileName] = @{
-        @"gameDir": gameDirRelative,
-        @"name": profileName,
-        @"lastVersionId": depInfo[@"id"] ?: @"",
-        @"icon": iconBase64
-    }.mutableCopy;
-    PLProfiles.current.selectedProfileName = profileName;
-
-    if (depInfo[@"json"]) {
-        // Fabric/Quilt：直接下载 version JSON
-        NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("POJAV_GAME_DIR"), depInfo[@"id"]];
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:0 sha:nil altName:nil toPath:jsonPath];
-        [task resume];
-    } else if (depInfo[@"installer"] && [(NSString *)depInfo[@"installer"] length] > 0) {
-        // Forge/NeoForge：下载 installer.jar 并调用直装器写入完整的 version.json + 下载库
-        // 之前不处理这个分支会导致整合包安装后只设置 profile 但不下载版本 JSON，
-        // 启动时报"找不到版本信息"。
-        NSString *versionId = depInfo[@"id"];
-        NSString *loader = depInfo[@"loader"];
-        NSString *customGameDir = destPath;  // 整合包隔离目录（mods/saves/configs）
-        NSString *installerPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
-                                   [NSString stringWithFormat:@"%@-installer.jar", versionId]];
-
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"installer"]
-                                                                   size:0 sha:nil altName:nil
-                                                                 toPath:installerPath success:^{
-            // 直装器是同步且耗时的，放到后台线程执行，避免阻塞主线程
-            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-                NSError *installError = nil;
-                BOOL installSuccess = NO;
-                if ([loader isEqualToString:@"NeoForge"]) {
-                    installSuccess = [NeoForgeDirectInstaller installNeoForgeFromInstaller:installerPath
-                                                                                  versionId:versionId
-                                                                              customGameDir:customGameDir
-                                                                        skipRegisterVersion:YES
-                                                                                   progress:nil
-                                                                                     error:&installError];
-                } else {
-                    installSuccess = [ForgeDirectInstaller installForgeFromInstaller:installerPath
-                                                                           versionId:versionId
-                                                                       customGameDir:customGameDir
-                                                                 skipRegisterVersion:YES
-                                                                            progress:nil
-                                                                               error:&installError];
-                }
-                [NSFileManager.defaultManager removeItemAtPath:installerPath error:nil];
-                if (!installSuccess) {
-                    NSLog(@"[CurseForgeAPI] %@ direct install failed: %@", loader, installError.localizedDescription);
-                    [ModpackUtils writePlaceholderVersionJSONForVersionId:versionId
-                                                          minecraftVersion:depInfo[@"minecraftVersion"]
-                                                                    loader:loader
-                                                            loaderVersion:depInfo[@"loaderVersion"]
-                                                                     error:installError];
-                } else {
-                    NSLog(@"[CurseForgeAPI] %@ direct install succeeded, version.json written: %@", loader, versionId);
-                    // 阶段5修复（参照 FCL ModpackHelper.ensureCompleteVersion）：
-                    // 直装器只写入了 loader 的 version.json + Forge/NeoForge 库，
-                    // 但原版 MC 的 libraries 和 assets 还没下载。
-                    // 触发 downloadVersion: 让 MinecraftResourceDownloadTask 下载完整版本文件。
-                    [downloader downloadVersion:@{@"id": versionId}];
-                }
-            });
-        }];
-        [task resume];
-    }
-}
+// Task 5.10：在线整合包下载路径统一——zip 下载完成后由
+// MinecraftResourceDownloadTask.importDownloadedModpackPackage:detail: 复用
+// ModpackImportService 统一导入（解析/解压/依赖下载/加载器/游戏文件/profile），
+// 此处不再维护 API 侧的整合包解包双轨逻辑（modpackDependencyInfoFromManifest:/
+// fileForProjectID:fileID:/filesByFileID:/submitDownloadTasksFromPackage: 已删除）。
 
 - (NSMutableDictionary *)projectForFileHash:(NSString *)murmurHash projectType:(NSString *)projectType {
     if (!murmurHash || murmurHash.length == 0) return nil;

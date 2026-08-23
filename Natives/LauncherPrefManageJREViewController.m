@@ -1,5 +1,4 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#import "WFWorkflowProgressView.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
 #import "LauncherPrefManageJREViewController.h"
@@ -8,8 +7,10 @@
 #import "ios_uikit_bridge.h"
 #import "utils.h"
 #import "BackgroundManager.h"
+#import "DownloadTaskManager.h"
+#import "DownloadTaskItem.h"
+#import "PLTaskStages.h"
 
-#include <dlfcn.h>
 #include <lzma.h>
 #include <objc/runtime.h>
 
@@ -30,7 +31,9 @@ typedef struct {
     char unused3[6+2+32+32+8+8+155+12];
 } TarHeader;
 
-static WFWorkflowProgressView* currentProgressView;
+// redesign-download-ui Phase 4 Task 4.3：移除 WFWorkflowProgressView（私有框架），
+// 运行时导入进度改由 DownloadTaskManager 统一任务驱动（rawTask = totalProgress，支持取消）
+static NSString *currentImportTaskId;
 
 @interface LauncherPrefManageJREViewController ()<UIContextMenuInteractionDelegate, UIDocumentPickerDelegate>
 @property(nonatomic) NSMutableDictionary<NSNumber *, NSMutableArray *> *javaRuntimes;
@@ -120,9 +123,6 @@ static WFWorkflowProgressView* currentProgressView;
     [self listJREInPath:internalPath markInternal:YES];
     [self listJREInPath:externalPath markInternal:NO];
 
-    // Load WFWorkflowProgressView
-    dlopen("/System/Library/PrivateFrameworks/WorkflowUIServices.framework/WorkflowUIServices", RTLD_GLOBAL);
-
     // 监听背景效果变化通知：切换毛玻璃↔半透明或调整透明度时，
     // 重新透明化当前 VC 并 reload cell，让每个 cell 重新应用 applyEffectToCell:
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -145,31 +145,10 @@ static WFWorkflowProgressView* currentProgressView;
 }
 
 + (void)actionCancelImportRuntime {
-    // 修复 #41: 同 currentInstance 的类型校验问题，避免 currentVC() 不是 splitVC 时崩溃
-    LauncherPrefManageJREViewController *instance = [self currentInstance];
-    if (instance) {
-        LauncherNavigationController *nav = (LauncherNavigationController *)instance.navigationController;
-        if ([nav isKindOfClass:LauncherNavigationController.class] && nav.progressViewMain.observedProgress) {
-            [nav.progressViewMain.observedProgress cancel];
-        }
-        return;
-    }
-    // 兜底：尝试走 splitVC 路径
-    UIViewController *current = currentVC();
-    UISplitViewController *splitVC = nil;
-    if ([current isKindOfClass:UISplitViewController.class]) {
-        splitVC = (UISplitViewController *)current;
-    } else {
-        splitVC = current.splitViewController;
-    }
-    if ([splitVC isKindOfClass:UISplitViewController.class] && splitVC.viewControllers.count >= 2) {
-        UIViewController *secondary = splitVC.viewControllers[1];
-        if ([secondary isKindOfClass:LauncherNavigationController.class]) {
-            LauncherNavigationController *nav = (LauncherNavigationController *)secondary;
-            if (nav.progressViewMain.observedProgress) {
-                [nav.progressViewMain.observedProgress cancel];
-            }
-        }
+    // redesign-download-ui Phase 4 Task 4.3：取消统一任务管理器中的运行时导入任务，
+    // rawTask 即 totalProgress（NSProgress），取消后 extractTarXZ 循环按 cancelled 路径清理
+    if (currentImportTaskId) {
+        [[DownloadTaskManager sharedManager] cancelTaskWithId:currentImportTaskId];
     }
 }
 
@@ -190,26 +169,46 @@ static WFWorkflowProgressView* currentProgressView;
 
     NSProgress *totalProgress = [NSProgress progressWithTotalUnitCount:xzSize];
     NSProgress *fileProgress = [NSProgress progressWithTotalUnitCount:0];
-    nav.progressViewMain.observedProgress = totalProgress;
-    nav.progressViewSub.observedProgress = fileProgress;
+
+    // redesign-download-ui Phase 4 Task 4.3：运行时导入注册为统一下载任务，
+    // 单阶段 + autoPresentDetail 自动弹出统一进度页；rawTask = totalProgress 支持取消
+    NSString *runtimeName = [url.path substringToIndex:url.path.length-7].lastPathComponent;
+    NSString *source = getPrefObject(@"general.download_source") ?: @"official";
+    DownloadTaskItem *taskItem = [[DownloadTaskManager sharedManager]
+        registerTaskWithResourceType:DownloadTaskResourceTypeJavaRuntime
+                        resourceName:runtimeName
+                         displayName:[NSString stringWithFormat:@"Java 运行时 %@", runtimeName]
+                      downloadSource:source
+                             rawTask:totalProgress
+                      supportsResume:NO
+                             iconURL:nil];
+    if (taskItem) {
+        taskItem.downloadURL = url.absoluteString;
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId stages:PLTaskStagesSingleFile()];
+        taskItem.autoPresentDetail = YES;
+        [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId state:DownloadTaskStateDownloading];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId stageAtIndex:0 status:PLTaskStageStatusRunning];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId stageAtIndex:0 progress:-1 message:@"正在解压运行时"];
+        currentImportTaskId = taskItem.taskId;
+    }
+    NSString *taskId = taskItem.taskId;
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
 
-        NSString *outPath = [NSString stringWithFormat:@"%s/java_runtimes/%@", getenv("POJAV_HOME"),
-            [url.path substringToIndex:url.path.length-7].lastPathComponent];
+        NSString *outPath = [NSString stringWithFormat:@"%s/java_runtimes/%@", getenv("POJAV_HOME"), runtimeName];
         NSString *error = [LauncherPrefManageJREViewController extractTarXZ:url.path
         to:outPath progress:totalProgress fileProgress:fileProgress
         fileCallback:^(NSString* name) {
-            NSString *completedSize = [NSByteCountFormatter stringFromByteCount:fileProgress.completedUnitCount countStyle:NSByteCountFormatterCountStyleMemory];
-            NSString *totalSize = [NSByteCountFormatter stringFromByteCount:fileProgress.totalUnitCount countStyle:NSByteCountFormatterCountStyleMemory];
-            NSString *displayText = [NSString stringWithFormat:@"(%@ / %@) %@", completedSize, totalSize, name];
-            double fraction = totalProgress.fractionCompleted;
             // fileCallback 在 extractTarXZ 内部（后台线程）调用，
-            // UILabel.text 和 fractionCompleted 是 UI 操作，必须切回主线程。
-            dispatch_async(dispatch_get_main_queue(), ^{
-                nav.progressText.text = displayText;
-                currentProgressView.fractionCompleted = fraction;
-            });
+            // manager 上报线程安全；进度文案带当前文件名
+            double fraction = totalProgress.fractionCompleted;
+            NSString *displayText = [NSString stringWithFormat:@"正在解压: %@", name];
+            [manager updateTaskWithId:taskId
+                              progress:fraction
+                          totalBytes:(int64_t)xzSize
+                       downloadedBytes:(int64_t)(xzSize * fraction)];
+            [manager updateTaskWithId:taskId stageAtIndex:0 progress:fraction message:displayText];
         }];
         [url stopAccessingSecurityScopedResource];
 
@@ -221,7 +220,21 @@ static WFWorkflowProgressView* currentProgressView;
 
         dispatch_async(dispatch_get_main_queue(), ^{
             LauncherPrefManageJREViewController *vc = LauncherPrefManageJREViewController.currentInstance;
-            currentProgressView = nil;
+
+            // 任务收尾：成功/失败/取消上报到统一任务管理器
+            if (taskId) {
+                if (error) {
+                    [manager updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusFailed];
+                    [manager updateTaskWithId:taskId error:[NSError errorWithDomain:@"RuntimeImport" code:-1 userInfo:@{NSLocalizedDescriptionKey: error}]];
+                    [manager setTaskWithId:taskId state:DownloadTaskStateFailed];
+                } else if (totalProgress.cancelled) {
+                    [manager setTaskWithId:taskId state:DownloadTaskStateCancelled];
+                } else {
+                    [manager updateTaskWithId:taskId stageAtIndex:0 status:PLTaskStageStatusCompleted];
+                    [manager setTaskWithId:taskId state:DownloadTaskStateCompleted];
+                }
+                currentImportTaskId = nil;
+            }
 
             if ((error || totalProgress.cancelled) && vc.installingIndexPath) {
                 [vc removeRuntimeAtIndexPath:vc.installingIndexPath];
@@ -234,9 +247,6 @@ static WFWorkflowProgressView* currentProgressView;
             [vc.tableView reloadData];
 
             [nav setInteractionEnabled:YES forDownloading:NO];
-            nav.progressViewMain.observedProgress = nil;
-            nav.progressViewSub.observedProgress = nil;
-            nav.progressText.text = @"";
         });
     });
 }
@@ -339,15 +349,11 @@ static WFWorkflowProgressView* currentProgressView;
     if (isInstalling) {
         self.installingIndexPath = indexPath;
 
-        LauncherNavigationController *nav = (id)self.navigationController;
-        if (!currentProgressView) {
-            currentProgressView = [[NSClassFromString(@"WFWorkflowProgressView") alloc] initWithFrame:CGRectMake(0, 0, 30, 30)];
-            currentProgressView.resolvedTintColor = self.view.tintColor;
-            [currentProgressView addTarget:LauncherPrefManageJREViewController.class
-                action:@selector(actionCancelImportRuntime) forControlEvents:UIControlEventPrimaryActionTriggered];
-        }
-
-        cell.accessoryView = currentProgressView;
+        // redesign-download-ui Phase 4 Task 4.3：进度展示移至统一进度页，
+        // cell 内仅显示菊花指示器
+        UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+        [spinner startAnimating];
+        cell.accessoryView = spinner;
     } else {
         cell.accessoryView = nil;
     }
@@ -550,7 +556,7 @@ styleForMenuWithConfiguration:(UIContextMenuConfiguration *)configuration
     NSNumber *version = self.sortedJavaVersions[indexPath.section];
     NSString *name = self.javaRuntimes[version][indexPath.row];
     BOOL isInternal = [objc_getAssociatedObject(name, @"internalJRE") boolValue];
-    BOOL isInstalling = [objc_getAssociatedObject(name, @"installing") boolValue] && currentProgressView.fractionCompleted > 0.0f;
+    BOOL isInstalling = [objc_getAssociatedObject(name, @"installing") boolValue];
     if (isInternal || isInstalling) {
         return UITableViewCellEditingStyleNone;
     } else {
@@ -777,8 +783,7 @@ styleForMenuWithConfiguration:(UIContextMenuConfiguration *)configuration
                         currFileName = @(currFileHeader.name);
                         currFileOff = 0;
                         currFileSize = strtol(currFileHeader.size, NULL, 8);
-                        // fileProgress 被 progressViewSub.observedProgress KVO 监听，
-                        // 必须在主线程修改以避免后台线程触发布局引擎崩溃
+                        // NSProgress 非线程安全，在主线程修改其计数
                         dispatch_async(dispatch_get_main_queue(), ^{
                             fileProgress.completedUnitCount = 0;
                             fileProgress.totalUnitCount = currFileSize;
@@ -816,8 +821,7 @@ styleForMenuWithConfiguration:(UIContextMenuConfiguration *)configuration
             strm.next_out = outbuf;
             strm.avail_out = sizeof(outbuf);
 
-            // progress 被 progressViewMain.observedProgress KVO 监听，
-            // 必须在主线程修改以避免后台线程触发布局引擎崩溃
+            // NSProgress 非线程安全，在主线程修改其计数
             NSUInteger totalIn = (NSUInteger)strm.total_in;
             dispatch_async(dispatch_get_main_queue(), ^{
                 progress.completedUnitCount = totalIn;

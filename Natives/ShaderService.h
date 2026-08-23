@@ -35,6 +35,16 @@ typedef void(^ShaderDownloadHandler)(NSError * _Nullable error);
               progress:(void (^)(NSProgress *downloadProgress))progress
             completion:(ShaderDownloadHandler)completion;
 
+/// 下载光影包并启用 SHA1 校验（spec Task 5.1）。
+/// expectedSHA1 来自版本模型 primaryFile[@"hashes"][@"sha1"]（Modrinth files[].hashes.sha1），
+/// 传入即启用校验，校验失败由统一下载器按镜像/退避节奏重试；
+/// 为 nil 时不做 SHA1 校验，靠 zip EOCD 兜底校验保证完整性。
+- (void)downloadShader:(ShaderItem *)shader
+             toProfile:(NSString *)profileName
+          expectedSHA1:(nullable NSString *)expectedSHA1
+              progress:(nullable void (^)(NSProgress *downloadProgress))progress
+            completion:(ShaderDownloadHandler)completion;
+
 // --- Utility ---
 - (NSString *)iconCachePathForURL:(NSString *)urlString;
 

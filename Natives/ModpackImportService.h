@@ -55,6 +55,15 @@ typedef NS_ENUM(NSInteger, ModpackImportFormat) {
 /// 重置取消状态（在开始新导入前调用）
 - (void)resetCancelState;
 
+/// Phase 3（Task 3.2）：本次导入中下载失败的 mod 文件只读列表（仅 modrinth/curseforge 格式，
+/// 不含 version 加载器/游戏文件条目），每条含 fileName/url/reason/format（curseforge 另含
+/// projectID/fileID），供 UI 阶段展示与单独重试。
+- (NSArray<NSDictionary *> *)failedDownloadFiles;
+
+/// Phase 3（Task 3.2）：本次导入中因 404/NotFound（资源在源上不存在）被跳过的文件只读列表。
+/// 跳过是警告而非失败：不计入 failedFiles，也不会让 importModpack: 返回 NO。
+- (NSArray<NSDictionary *> *)skippedDownloadFiles;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -189,6 +189,17 @@
 "preference.detail.download_source" = "Choose the download source for game resources. BMCLAPI mirror provides faster download speeds in China.";
 "preference.title.download_source-official" = "Official Source";
 "preference.title.download_source-bmclapi" = "BMCLAPI Mirror";
+"preference.section.download" = "Download Mirror Policy";
+"preference.title.fileSource" = "Game File Source";
+"preference.detail.fileSource" = "Source policy for game files, libraries and assets (Mojang distribution). Mirror first uses the BMCLAPI mirror.";
+"preference.title.assetSearchSource" = "Resource Search Source";
+"preference.detail.assetSearchSource" = "Source policy for Modrinth / CurseForge API queries. Mirror first uses the MCIM mirror.";
+"preference.title.assetDownloadSource" = "Resource Download Source";
+"preference.detail.assetDownloadSource" = "Source policy for mod / shader / resource pack file CDN downloads. Mirror first uses the MCIM mirror.";
+"preference.title.modLoaderSource" = "Mod Loader Source";
+"preference.detail.modLoaderSource" = "Source policy for Fabric / Forge / NeoForge meta, maven and installer downloads. Mirror first uses the BMCLAPI mirror.";
+"preference.title.mirror_policy-official_first" = "Official First";
+"preference.title.mirror_policy-mirror_first" = "Mirror First";
 "preference.title.mod_mirror" = "Mod Mirror Source";
 "preference.detail.mod_mirror" = "Choose the mirror source for mod/shader/resourcepack/datapack/modpack/world API and file downloads. MCIM mirror (mod.mcimirror.top) provides acceleration in China, compatible with both Modrinth and CurseForge APIs.";
 "preference.title.mod_mirror-official" = "Official Source";
@@ -682,3 +693,70 @@
 // Memory limit help dialog
 "mem_help.title" = "About Memory Limit";
 "mem_help.message" = "iOS 18 / iOS 26 single-instance memory limit is about 1440MB. Large modpacks may crash due to insufficient memory.\n\nSolution:\nUse GetMoreRam (a LiveContainer plugin) to lift the memory limit.\nGetMoreRam repo: github.com/hugeBlack/GetMoreRam\n\nRestart the launcher after installation to take effect.\n\nIf you don't use LiveContainer, try lowering the memory allocation (Settings > Java > Memory Allocation), but some modpacks may not run under the memory limit.";
+
+// Download progress & speed (Phase 6 Task 6.1)
+"download.speed.format" = "%@/s";
+"download.progress.file_count" = "%1$ld/%2$ld files · %3$@/%4$@";
+"download.progress.file_count_short" = "%1$ld/%2$ld · %3$@";
+
+// Download history (Phase 6 Task 6.2)
+"download.history.title" = "Download History";
+"download.history.entry" = "History";
+"download.history.clear" = "Clear";
+"download.history.clear_confirm" = "Clear all download history? This cannot be undone.";
+"download.history.cancel" = "Cancel";
+"download.history.empty" = "No download history yet";
+"download.history.result.success" = "Success";
+"download.history.result.failed" = "Failed";
+
+// Unified task stage titles (redesign-download-ui Phase 1 Task 1.4 / Phase 7 Task 7.1)
+"taskStage.title.fetchVersionManifest" = "Fetch version manifest";
+"taskStage.title.downloadVersionJSON" = "Download version JSON";
+"taskStage.title.downloadClient" = "Download client";
+"taskStage.title.downloadLibraries" = "Download libraries";
+"taskStage.title.downloadAssets" = "Download assets";
+"taskStage.title.verifyIntegrity" = "Verify integrity";
+"taskStage.title.fetchLoaderProfile" = "Fetch loader profile";
+"taskStage.title.downloadLoaderLibraries" = "Download loader libraries";
+"taskStage.title.writeVersionJSON" = "Write version JSON";
+"taskStage.title.downloadInstaller" = "Download installer";
+"taskStage.title.resolveDependencies" = "Resolve dependencies";
+"taskStage.title.installLoader" = "Install loader";
+"taskStage.title.parseModpack" = "Parse modpack";
+"taskStage.title.extractFiles" = "Extract files";
+"taskStage.title.downloadDependencies" = "Download dependencies";
+"taskStage.title.downloadGameFiles" = "Download game files";
+"taskStage.title.finalizeConfig" = "Finalize configuration";
+"taskStage.title.downloadFile" = "Download file";
+
+// Unified progress page (redesign-download-ui Phase 2 / Phase 7 Task 7.1)
+"taskProgress.stage.running" = "Running";
+"taskProgress.state.pending" = "Pending";
+"taskProgress.state.downloading" = "Downloading";
+"taskProgress.state.paused" = "Paused";
+"taskProgress.state.completed" = "Completed";
+"taskProgress.state.cancelled" = "Cancelled";
+"taskProgress.state.failed" = "Failed";
+"taskProgress.button.minimize" = "Minimize";
+"taskProgress.button.cancel" = "Cancel";
+"taskProgress.button.pause" = "Pause";
+"taskProgress.button.resume" = "Resume";
+"taskProgress.button.retry" = "Retry";
+"taskProgress.button.retryWithCount" = "Retry (%1$ld/%2$ld)";
+"taskProgress.button.viewDetail" = "View Details";
+"taskProgress.button.hideDetail" = "Hide Details";
+"taskProgress.total.title" = "Total Progress";
+"taskProgress.total.indeterminate" = "In Progress";
+"taskProgress.eta.seconds" = "%ld sec";
+"taskProgress.eta.minutesSeconds" = "%1$ld min %2$ld sec";
+"taskProgress.eta.minutes" = "%ld min";
+"taskProgress.eta.hoursMinutes" = "%1$ld hr %2$ld min";
+"taskProgress.eta.hours" = "%ld hr";
+"taskProgress.eta.format" = "About %1$@ remaining";
+"taskProgress.fileCount.format" = "%1$ld/%2$ld files · %3$@/%4$@";
+"taskProgress.fileCount.onlyCount" = "%1$ld/%2$ld files";
+"taskProgress.errorDetail.title" = "Error Details";
+"taskProgress.errorDetail.domainCode" = "Domain: %1$@ (code %2$ld)";
+"taskProgress.errorDetail.underlying" = "Underlying error: %1$@";
+"taskProgress.errorDetail.retry" = "Retried: %1$ld/%2$ld";
+"taskProgress.errorDetail.stage" = "Current stage: %1$@";

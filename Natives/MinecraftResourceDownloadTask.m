@@ -8,12 +8,23 @@
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
+#import "ModpackImportService.h"
+#import "PLMirrorCenter.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
+#import "PLTaskStages.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
 
 NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.air-devs.air.MinecraftResourceDownloadTask";
+
+// 原版安装 6 步的阶段下标（与 PLTaskStagesVanilla() 一致，redesign-download-ui Phase 3 Task 3.1）
+static const NSUInteger kMCStageIndexFetchManifest = 0;
+static const NSUInteger kMCStageIndexVersionJSON = 1;
+static const NSUInteger kMCStageIndexDownloadClient = 2;
+static const NSUInteger kMCStageIndexLibraries = 3;
+static const NSUInteger kMCStageIndexAssets = 4;
+static const NSUInteger kMCStageIndexVerify = 5;
 
 @interface MinecraftResourceDownloadTask ()
 @property AFURLSessionManager* manager;
@@ -22,6 +33,18 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
 @property (nonatomic, assign) BOOL isObservingTaskProgress;
 @property (nonatomic, assign) NSTimeInterval progressLastTime;
 @property (nonatomic, assign) int64_t progressLastCompleted;
+
+// ===== 阶段上报（redesign-download-ui Phase 3 Task 3.1）=====
+// 仅 downloadVersion:（原版安装链路）启用阶段上报；整合包下载走 ModpackImportService 自行上报
+@property (nonatomic, assign) BOOL stageReportingEnabled;
+// 库文件/资源文件双维度计数（按下载目标路径分类；versions/ 下的 version JSON 不计入）
+@property (nonatomic, assign) NSInteger libTotalFileCount;
+@property (nonatomic, assign) NSInteger libCompletedFileCount;
+@property (nonatomic, assign) NSInteger assetTotalFileCount;
+@property (nonatomic, assign) NSInteger assetCompletedFileCount;
+
+// Task 5.10：在线整合包 zip 下载完成后的统一导入入口（复用 ModpackImportService）
+- (void)importDownloadedModpackPackage:(NSString *)packagePath;
 @end
 
 @implementation MinecraftResourceDownloadTask
@@ -78,90 +101,50 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
     return [self replaceURLWithDownloadSource:originalURL forceSource:nil];
 }
 
-/// 镜像源替换核心实现。
+/// 生成游戏文件的镜像候选列表（接入 PLMirrorCenter 镜像中心）
+/// 候选包含原始（官方）URL 与 BMCLAPI 镜像 URL，已去重并按当前镜像策略排序；
+/// 无法识别的主机仅返回原始 URL。镜像前缀映射统一收敛在 PLMirrorCenter，
+/// 本类不再硬编码镜像根 URL。
+- (NSArray<NSURL *> *)mirrorCandidatesForOriginalURL:(NSString *)originalURL {
+    NSURL *url = [NSURL URLWithString:originalURL];
+    if (!url) return @[];
+    return [PLMirrorCenter candidateURLsForOriginalURL:url
+                                          resourceType:PLMirrorResourceTypeGameFile];
+}
+
+/// 镜像源替换核心实现（接入 PLMirrorCenter，spec Task 4.2）。
 /// 参考 FCL（FoldCraftLauncher）和 ZalithLauncher2：支持多镜像源 fallback。
 /// @param originalURL 原始 URL
-/// @param forceSource 强制使用的源（nil=用用户偏好；@"official"=不替换；@"bmclapi"=强制 BMCLAPI）。
-///                    在下载失败重试时，调用方传入对端源以触发镜像源切换，
-///                    避免单一镜像源故障导致整批下载卡死。
+/// @param forceSource 强制使用的源（保留旧参数语义）：
+///                    nil=按 PLMirrorCenter 当前策略取首选（策略内部含旧键回退）；
+///                    @"official"=锁定官方原始 URL；
+///                    @"bmclapi"=锁定 BMCLAPI 镜像候选（无镜像候选时回退原始 URL）；
+///                    @"mcim"=沿用旧行为：MCIM 不覆盖 Mojang 系游戏文件，原样返回。
 - (NSString *)replaceURLWithDownloadSource:(NSString *)originalURL forceSource:(nullable NSString *)forceSource {
     if (!originalURL) return originalURL;
 
-    NSString *downloadSource = forceSource ?: getPrefObject(@"general.download_source");
-    if (!downloadSource || [downloadSource isEqualToString:@"official"]) {
+    NSArray<NSURL *> *candidates = [self mirrorCandidatesForOriginalURL:originalURL];
+    if (candidates.count == 0) return originalURL;
+
+    if (forceSource.length == 0) {
+        // nil → 按 PLMirrorCenter 策略取首选候选
+        return candidates.firstObject.absoluteString ?: originalURL;
+    }
+    if ([forceSource isEqualToString:@"official"] || [forceSource isEqualToString:@"mcim"]) {
+        // 官方源直连；mcim 沿用旧行为（游戏文件不走 MCIM 改写）
         return originalURL;
     }
-
-    // BMCLAPI镜像源
-    if ([downloadSource isEqualToString:@"bmclapi"]) {
-        // piston-meta.mojang.com：Mojang 新版版本清单和版本 JSON 域名（1.19+ 起使用）
-        // 修复：原版安装时 version.json 直连此域名，国内超时导致转圈不下载
-        if ([originalURL containsString:@"piston-meta.mojang.com"]) {
-            originalURL = [originalURL stringByReplacingOccurrencesOfString:@"https://piston-meta.mojang.com"
-                                                                withString:@"https://bmclapi2.bangbang93.com"];
+    if ([forceSource isEqualToString:@"bmclapi"]) {
+        // 锁定 BMCLAPI 镜像候选（候选中与原始 URL 不同的那一项）
+        for (NSURL *candidate in candidates) {
+            if (![candidate.absoluteString isEqualToString:originalURL]) {
+                return candidate.absoluteString;
+            }
         }
-        // piston-data.mojang.com：Mojang 新版 client.jar 和资源下载域名
-        if ([originalURL containsString:@"piston-data.mojang.com"]) {
-            originalURL = [originalURL stringByReplacingOccurrencesOfString:@"https://piston-data.mojang.com"
-                                                                withString:@"https://bmclapi2.bangbang93.com"];
-        }
-
-        // 版本清单和版本JSON（旧域名，向后兼容）
-        if ([originalURL containsString:@"launchermeta.mojang.com"] ||
-            [originalURL containsString:@"launcher.mojang.com"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://launchermeta.mojang.com"
-                                                           withString:@"https://bmclapi2.bangbang93.com"];
-        }
-
-        // Assets资源
-        if ([originalURL containsString:@"resources.download.minecraft.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"http://resources.download.minecraft.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/assets"];
-        }
-
-        // Libraries库文件
-        if ([originalURL containsString:@"libraries.minecraft.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://libraries.minecraft.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-
-        // Forge
-        if ([originalURL containsString:@"files.minecraftforge.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://files.minecraftforge.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com"];
-        }
-
-        // Fabric
-        if ([originalURL containsString:@"meta.fabricmc.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://meta.fabricmc.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/fabric-meta"];
-        }
-
-        if ([originalURL containsString:@"maven.fabricmc.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://maven.fabricmc.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-
-        // NeoForge
-        if ([originalURL containsString:@"maven.neoforged.net"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://maven.neoforged.net"
-                                                           withString:@"https://bmclapi2.bangbang93.com/maven"];
-        }
-
-        // authlib-injector
-        if ([originalURL containsString:@"authlib-injector.yushi.moe"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://authlib-injector.yushi.moe"
-                                                           withString:@"https://bmclapi2.bangbang93.com/mirrors/authlib-injector"];
-        }
-
-        // Mojang Java运行时
-        if ([originalURL containsString:@"launchermeta.mojang.com/v1/products/java-runtime"]) {
-            return [originalURL stringByReplacingOccurrencesOfString:@"https://launchermeta.mojang.com"
-                                                           withString:@"https://bmclapi2.bangbang93.com"];
-        }
+        return originalURL;
     }
-
-    return originalURL;
+    // 未知源值：按策略取首选
+    return candidates.firstObject.absoluteString ?: originalURL;
 }
 
 // Add file to the queue
@@ -173,23 +156,48 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
     BOOL fileExists = [NSFileManager.defaultManager fileExistsAtPath:path];
     // logSuccess?
     if (fileExists && [self checkSHA:sha forFile:path altName:altName]) {
+        // 阶段计数：已存在且校验通过的文件计入"库/资源"维度（重试调用不会进入此分支）
+        if (retryCount == 0) {
+            [self mc_recordStageFileStartedAtPath:path];
+            [self mc_recordStageFileFinishedAtPath:path];
+        }
         if (success) success();
         return nil;
     } else if (![self checkAccessWithDialog:YES]) {
         return nil;
     }
+    // 阶段计数：首次创建时计入总量（重试轮换不重复计数）
+    if (retryCount == 0) {
+        [self mc_recordStageFileStartedAtPath:path];
+    }
 
     NSString *name = altName ?: path.lastPathComponent;
-    // 根据配置选择下载源并替换URL
-    // 参考 FCL（FoldCraftLauncher）和 ZalithLauncher2：重试时切换到对端镜像源，
-    // 避免单一镜像源故障导致整批下载卡死。SHA1 校验仍照常进行，不破坏下载完整性。
-    NSString *forceSource = nil;
-    if (retryCount > 0) {
-        NSString *currentSource = getPrefObject(@"general.download_source") ?: @"bmclapi";
-        forceSource = [currentSource isEqualToString:@"bmclapi"] ? @"official" : @"bmclapi";
-        NSLog(@"[MCDL] Retry %@ with fallback source: %@", name, forceSource);
+    // 镜像候选与故障转移（接入 PLMirrorCenter，spec Task 4.2）：
+    // 候选列表按当前镜像策略排序（如 [官方, BMCLAPI 镜像]）。重试时同一候选耗尽
+    // 单候选重试预算后轮换到下一候选继续重试，全部候选耗尽才最终失败，
+    // 避免单一镜像源故障导致整批下载卡死（参考 FCL / ZalithLauncher2 的多源 fallback）。
+    // SHA1 校验仍照常进行，不破坏下载完整性。
+    NSArray<NSURL *> *mirrorCandidates = [self mirrorCandidatesForOriginalURL:url];
+    if (mirrorCandidates.count == 0) {
+        // URL 无法解析的极端情况：退化为仅含原始 URL 的单候选，保持旧行为
+        NSURL *fallbackURL = [NSURL URLWithString:url];
+        mirrorCandidates = fallbackURL ? @[fallbackURL] : @[];
     }
-    NSString *replacedURL = [self replaceURLWithDownloadSource:url forceSource:forceSource];
+    NSInteger maxRetry = self.maxRetryCount > 0 ? self.maxRetryCount : 3;
+    // 总尝试次数 = 单候选重试预算 × 候选数（全部候选耗尽才最终失败）
+    NSInteger attemptCount = MAX((NSInteger)mirrorCandidates.count, 1) * maxRetry;
+    // 当前尝试对应的候选索引：第 0~(maxRetry-1) 次尝试用候选 0，耗尽后轮换下一候选
+    NSUInteger candidateIndex = mirrorCandidates.count > 0
+        ? MIN((NSUInteger)(MAX(retryCount, 0) / MAX(maxRetry, 1)), mirrorCandidates.count - 1)
+        : 0;
+    NSString *replacedURL = mirrorCandidates.count > 0
+        ? (mirrorCandidates[candidateIndex].absoluteString ?: url)
+        : url;
+    if (retryCount > 0) {
+        NSLog(@"[MCDL] Retry %@ (attempt %ld/%ld, mirror candidate %lu/%lu)",
+              name, (long)(retryCount + 1), (long)attemptCount,
+              (unsigned long)(candidateIndex + 1), (unsigned long)mirrorCandidates.count);
+    }
     NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:replacedURL]];
     __block NSProgress *progress;
     __weak MinecraftResourceDownloadTask *weakSelf = self;
@@ -213,15 +221,14 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
         if (self.progress.cancelled) {
             // Ignore any further errors
         } else if (error != nil) {
-            // 重试机制
-            NSInteger maxRetry = weakSelf.maxRetryCount > 0 ? weakSelf.maxRetryCount : 3;
-            if (retryCount < maxRetry) {
+            // 重试机制（候选轮换故障转移：同候选耗尽预算换下一候选，全部候选耗尽才最终失败）
+            if (retryCount + 1 < attemptCount) {
                 NSInteger nextRetry = retryCount + 1;
-                NSLog(@"[MCDL] Retrying %@ (attempt %ld/%ld)", name, (long)nextRetry, (long)maxRetry);
-                
+                NSLog(@"[MCDL] Retrying %@ (attempt %ld/%ld)", name, (long)(nextRetry + 1), (long)attemptCount);
+
                 if (weakSelf.retryCallback) {
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        weakSelf.retryCallback(nextRetry, maxRetry);
+                        weakSelf.retryCallback(nextRetry, attemptCount);
                     });
                 }
                 
@@ -234,6 +241,8 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
                 });
             } else {
                 [weakSelf finishDownloadWithError:error file:name];
+                // 阶段计数：最终失败的文件也计入完成数（避免计数卡住）
+                [weakSelf mc_recordStageFileFinishedAtPath:path];
                 // 阶段5修复（参照 FCL）：单文件失败后必须手动推进进度，否则父 progress
                 // 永远不会达到 100%（failed 子 progress 的份额无人填补），
                 // 用户会看到下载条卡住不动，误以为下载未完成。
@@ -252,11 +261,10 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
                 }
             }
         } else if (![self checkSHA:sha forFile:path altName:altName]) {
-            // SHA1 校验失败也尝试重试
-            NSInteger maxRetry = weakSelf.maxRetryCount > 0 ? weakSelf.maxRetryCount : 3;
-            if (retryCount < maxRetry) {
+            // SHA1 校验失败也尝试重试（同样按候选列表轮换故障转移）
+            if (retryCount + 1 < attemptCount) {
                 NSInteger nextRetry = retryCount + 1;
-                NSLog(@"[MCDL] SHA1 mismatch, retrying %@ (attempt %ld/%ld)", name, (long)nextRetry, (long)maxRetry);
+                NSLog(@"[MCDL] SHA1 mismatch, retrying %@ (attempt %ld/%ld)", name, (long)(nextRetry + 1), (long)attemptCount);
 
                 // 删除损坏的文件
                 [NSFileManager.defaultManager removeItemAtPath:path error:nil];
@@ -278,6 +286,8 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
                 }
                 NSLog(@"[MCDL] SHA1 mismatch for '%@', added to failedFiles (total failed: %lu), other downloads will continue",
                       path.lastPathComponent, (unsigned long)weakSelf.failedFiles.count);
+                // 阶段计数：SHA 校验最终失败的文件也计入完成数
+                [weakSelf mc_recordStageFileFinishedAtPath:path];
                 // 阶段5修复：与上面 error 分支一致，推进父 progress 避免卡死
                 NSProgress *taskProgress2 = progress ?: [weakSelf.manager downloadProgressForTask:task];
                 if (taskProgress2) {
@@ -291,6 +301,7 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
             }
         } else {
             progress.totalUnitCount = progress.completedUnitCount;
+            [self mc_recordStageFileFinishedAtPath:path];
             if (success) success();
         }
     }];
@@ -499,28 +510,56 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
 
 - (void)downloadVersion:(NSDictionary *)version {
     self.currentVersionId = version[@"id"];
+    self.stageReportingEnabled = YES;
     [self prepareForDownload];
+
+    // ===== 阶段上报初始化（redesign-download-ui Phase 3 Task 3.1）=====
+    // 原版 6 步：获取版本清单→下载版本JSON→下载客户端→下载库文件→下载资源文件→验证完整性
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+    NSString *taskId = self.currentDownloadTaskItem.taskId;
+    [manager setTaskWithId:taskId stages:PLTaskStagesVanilla()];
+    self.currentDownloadTaskItem.autoPresentDetail = YES;
+    // 阶段0 版本清单：版本对象由调用方（版本列表/预装流程）解析提供，直接标记完成
+    [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexFetchManifest status:PLTaskStageStatusCompleted];
+    // 阶段2 下载客户端：iOS 启动器使用自有渲染管线，client.jar 由 Java 端启动时按需下载
+    [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexDownloadClient status:PLTaskStageStatusSkipped];
+    // 阶段1 下载版本 JSON 进行中（不确定进度：JSON 较小无需百分比）
+    [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexVersionJSON status:PLTaskStageStatusRunning];
+    [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexVersionJSON progress:-1 message:nil];
+    [manager updateTaskWithId:taskId currentStageIndex:kMCStageIndexVersionJSON];
+
+    __weak MinecraftResourceDownloadTask *weakSelf = self;
     [self downloadVersionMetadata:version success:^{
-        [self downloadAssetMetadataWithSuccess:^{
-            NSArray *libTasks = [self downloadClientLibraries];
-            NSArray *assetTasks = [self downloadClientAssets];
+        __strong MinecraftResourceDownloadTask *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexVersionJSON status:PLTaskStageStatusCompleted];
+        [strongSelf downloadAssetMetadataWithSuccess:^{
+            NSArray *libTasks = [strongSelf downloadClientLibraries];
+            NSArray *assetTasks = [strongSelf downloadClientAssets];
             // Drop the 1 byte we set initially
-            self.progress.totalUnitCount--;
-            self.textProgress.totalUnitCount--;
-            if (self.progress.totalUnitCount == 0) {
+            strongSelf.progress.totalUnitCount--;
+            strongSelf.textProgress.totalUnitCount--;
+            if (strongSelf.progress.totalUnitCount == 0) {
                 // We have nothing to download, invoke completion observer
-                self.progress.totalUnitCount = 1;
-                self.progress.completedUnitCount = 1;
-                self.textProgress.totalUnitCount = 1;
-                self.textProgress.completedUnitCount = 1;
+                strongSelf.progress.totalUnitCount = 1;
+                strongSelf.progress.completedUnitCount = 1;
+                strongSelf.textProgress.totalUnitCount = 1;
+                strongSelf.textProgress.completedUnitCount = 1;
                 return;
             }
+            // 阶段3/4：库文件与资源文件并发下载（progress 不确定，靠双维度文件计数推进）
+            [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexLibraries status:PLTaskStageStatusRunning];
+            [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexAssets status:PLTaskStageStatusRunning];
+            [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexLibraries progress:-1 message:nil];
+            [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexAssets progress:-1 message:nil];
+            [manager updateTaskWithId:taskId currentStageIndex:kMCStageIndexLibraries];
+            [strongSelf mc_reportStageFileCounts];
             [libTasks makeObjectsPerformSelector:@selector(resume)];
             [assetTasks makeObjectsPerformSelector:@selector(resume)];
-            [self.metadata removeObjectForKey:@"assetIndexObj"];
+            [strongSelf.metadata removeObjectForKey:@"assetIndexObj"];
 
-            if (self.currentDownloadTaskItem) {
-                [[DownloadTaskManager sharedManager] setTaskWithId:self.currentDownloadTaskItem.taskId
+            if (strongSelf.currentDownloadTaskItem) {
+                [[DownloadTaskManager sharedManager] setTaskWithId:strongSelf.currentDownloadTaskItem.taskId
                                                               state:DownloadTaskStateDownloading];
             }
         }];
@@ -530,7 +569,17 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
 #pragma mark - Modpack installation
 
 - (void)downloadModpackFromAPI:(ModpackAPI *)api detail:(NSDictionary *)modDetail atIndex:(NSUInteger)selectedVersion {
+    self.stageReportingEnabled = NO; // 整合包阶段上报由 ModpackImportService 负责（Phase 5）
+    // Task 5.10：zip 下载阶段以整合包身份展示（显示名/类型/图标），
+    // 导入阶段由 ModpackImportService 注册 6 阶段整合包主任务承接。
+    NSString *title = [modDetail[@"title"] isKindOfClass:[NSString class]] ? modDetail[@"title"] : nil;
+    self.currentVersionId = title.length > 0 ? title : @"整合包";
     [self prepareForDownload];
+    if (self.currentDownloadTaskItem) {
+        self.currentDownloadTaskItem.resourceType = DownloadTaskResourceTypeModpack;
+        NSString *iconURL = [modDetail[@"imageUrl"] isKindOfClass:[NSString class]] ? modDetail[@"imageUrl"] : nil;
+        self.currentDownloadTaskItem.iconURL = iconURL.length > 0 ? iconURL : nil;
+    }
 
     NSString *url = modDetail[@"versionUrls"][selectedVersion];
     NSUInteger size = [modDetail[@"versionSizes"][selectedVersion] unsignedLongLongValue];
@@ -540,10 +589,68 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
     NSString *packagePath = [NSTemporaryDirectory() stringByAppendingFormat:@"/%@.zip", name];
 
     NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:nil toPath:packagePath success:^{
-        NSString *path = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("POJAV_GAME_DIR"), name];
-        [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
+        // Task 5.10：在线整合包下载路径统一——zip 下载完成后复用 ModpackImportService
+        // 统一导入流程（解析 → 6 阶段主任务 → 解压/依赖下载/加载器/游戏文件/profile），
+        // 消除 ModrinthAPI/CurseForgeAPI submitDownloadTasksFromPackage: 双轨逻辑。
+        [self importDownloadedModpackPackage:packagePath];
     }];
     [task resume];
+}
+
+/// Task 5.10：在线整合包 zip 下载完成后的统一导入入口。
+///   1. 用 ModpackImportService 解析 zip（Modrinth/CurseForge/MMC/MCBBS/Plain ZIP 均可识别）；
+///   2. 解析失败走 finishDownloadWithErrorString:（任务标失败 + 弹窗 + 恢复 UI）；
+///   3. 解析成功后收口 zip 下载任务（推满父 progress → KVO 标记任务完成 →
+///      LauncherNavigationController 移除观察并恢复交互），再后台执行 importModpack:，
+///      由 service 注册 6 阶段整合包主任务（autoPresentDetail 自动弹统一进度页）。
+- (void)importDownloadedModpackPackage:(NSString *)packagePath {
+    ModpackImportService *service = [[ModpackImportService alloc] init];
+    [service resetCancelState];
+
+    NSError *parseError = nil;
+    NSDictionary *modpackInfo = [service parseModpackAtURL:[NSURL fileURLWithPath:packagePath] error:&parseError];
+    if (!modpackInfo) {
+        [self finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to parse modpack package: %@",
+                                             parseError.localizedDescription ?: @"unknown error"]];
+        return;
+    }
+
+    // 在线整合包补充 API 图标：zip 内无 icon 时回退列表图标
+    // （ModpackInstallViewController 触发下载前已写入 tmp icon.png）
+    NSMutableDictionary *info = [modpackInfo mutableCopy];
+    NSString *archiveIcon = info[@"iconBase64"];
+    if (![archiveIcon isKindOfClass:[NSString class]] || archiveIcon.length == 0) {
+        NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
+        NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
+        if (iconData.length > 0) {
+            info[@"iconBase64"] = [NSString stringWithFormat:@"data:image/png;base64,%@",
+                                   [iconData base64EncodedStringWithOptions:0]];
+        }
+    }
+
+    // 收口 zip 下载任务：推满父 progress（清掉 prepareForDownload 预留的 1 字节单位），
+    // KVO 完成分支将 DownloadTaskItem 标记为完成，LauncherNavigationController 同步恢复交互；
+    // 后续导入进度全部由 service 的整合包主任务（统一进度页）承接。
+    if (self.progress.totalUnitCount > self.progress.completedUnitCount) {
+        self.progress.completedUnitCount = self.progress.totalUnitCount;
+    }
+
+    // 后台执行统一导入（6 阶段进度上报 + autoPresentDetail 统一进度页）
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSError *importError = nil;
+        BOOL success = [service importModpack:info progress:nil error:&importError];
+        if (success) {
+            NSLog(@"[ModpackImport] Online modpack '%@' imported", info[@"name"]);
+        } else {
+            NSLog(@"[ModpackImport] Online modpack import failed: %@", importError.localizedDescription);
+        }
+        // 导入结束（成功/失败/取消）后清理 zip 临时文件
+        [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
+        // 成功后刷新 profile 列表（与 Fabric/Forge 安装完成后的 ReloadProfileList 通知一致）
+        if (success) {
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
+        }
+    });
 }
 
 #pragma mark - Utilities
@@ -579,6 +686,12 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
     [self.progressList removeAllObjects];
     // 阶段5修复：重置失败文件列表（参照 FCL）
     [self.failedFiles removeAllObjects];
+    // 阶段计数重置（stageReportingEnabled 由各入口自行设置：
+    // downloadVersion: 置 YES，downloadModpackFromAPI: 置 NO）
+    self.libTotalFileCount = 0;
+    self.libCompletedFileCount = 0;
+    self.assetTotalFileCount = 0;
+    self.assetCompletedFileCount = 0;
 
     // 注册/更新到统一下载任务管理器
     [self registerOrUpdateTaskItem];
@@ -621,7 +734,96 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
     }
 }
 
+#pragma mark - Stage Reporting Helpers (redesign-download-ui Phase 3 Task 3.1)
+
+/// 按下载目标路径分类计入阶段文件总量（库文件/资源文件；version JSON 不计入）
+- (void)mc_recordStageFileStartedAtPath:(NSString *)path {
+    if (!self.stageReportingEnabled) return;
+    if ([path containsString:@"/libraries/"]) {
+        self.libTotalFileCount++;
+    } else if ([path containsString:@"/assets/"] || [path containsString:@"/resources/"]) {
+        self.assetTotalFileCount++;
+    } else {
+        return; // versions/ 下的 version JSON、asset index 归属阶段1/4 的 JSON 下载，不计双维度
+    }
+    [self mc_reportStageFileCounts];
+}
+
+/// 文件到达终态（跳过/成功/最终失败）时计入阶段文件完成数
+- (void)mc_recordStageFileFinishedAtPath:(NSString *)path {
+    if (!self.stageReportingEnabled) return;
+    if ([path containsString:@"/libraries/"]) {
+        self.libCompletedFileCount++;
+    } else if ([path containsString:@"/assets/"] || [path containsString:@"/resources/"]) {
+        self.assetCompletedFileCount++;
+    } else {
+        return;
+    }
+    [self mc_reportStageFileCounts];
+}
+
+/// 上报库/资源阶段的双维度文件计数
+- (void)mc_reportStageFileCounts {
+    if (!self.stageReportingEnabled || !self.currentDownloadTaskItem) return;
+    NSString *taskId = self.currentDownloadTaskItem.taskId;
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+    [manager updateTaskWithId:taskId
+                stageAtIndex:kMCStageIndexLibraries
+                   fileCount:self.libCompletedFileCount
+               totalFileCount:self.libTotalFileCount];
+    [manager updateTaskWithId:taskId
+                stageAtIndex:kMCStageIndexAssets
+                   fileCount:self.assetCompletedFileCount
+               totalFileCount:self.assetTotalFileCount];
+}
+
+/// 收敛全部阶段状态：error 为 nil 时全部标 Completed（验证阶段先 Running 再 Completed）；
+/// 非 nil 时当前阶段标 Failed 并带上错误信息，其后阶段保持 Pending。
+- (void)mc_finishAllStagesWithFailure:(nullable NSString *)error {
+    if (!self.stageReportingEnabled || !self.currentDownloadTaskItem) return;
+    NSString *taskId = self.currentDownloadTaskItem.taskId;
+    DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+    NSInteger idx = self.currentDownloadTaskItem.currentStageIndex;
+
+    if (error != nil) {
+        // 失败：当前阶段 Failed + message；已完成阶段保持不变
+        if (idx >= 0 && (NSUInteger)idx < self.currentDownloadTaskItem.stages.count) {
+            [manager updateTaskWithId:taskId
+                         stageAtIndex:(NSUInteger)idx
+                               status:PLTaskStageStatusFailed];
+            [manager updateTaskWithId:taskId
+                         stageAtIndex:(NSUInteger)idx
+                              progress:0
+                                message:error];
+        }
+        return;
+    }
+
+    // 成功：未完成阶段全部标记完成（下载客户端保持 Skipped）
+    NSArray<PLTaskStage *> *stages = self.currentDownloadTaskItem.stages;
+    for (NSUInteger i = 0; i < stages.count; i++) {
+        if (stages[i].status == PLTaskStageStatusPending || stages[i].status == PLTaskStageStatusRunning) {
+            [manager updateTaskWithId:taskId stageAtIndex:i status:PLTaskStageStatusCompleted];
+        }
+    }
+    // 验证完整性：SHA1 校验已随每个文件完成，快速推进
+    [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexVerify status:PLTaskStageStatusRunning];
+    [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexVerify progress:1 message:nil];
+    [manager updateTaskWithId:taskId stageAtIndex:kMCStageIndexVerify status:PLTaskStageStatusCompleted];
+    [manager updateTaskWithId:taskId currentStageIndex:kMCStageIndexVerify];
+    self.stageReportingEnabled = NO;
+}
+
+- (void)cancel {
+    // 取消根 NSProgress：各子任务进度被级联取消，KVO 的 cancelled 分支按既有路径收尾
+    [self.progress cancel];
+}
+
 - (void)finishDownloadWithErrorString:(NSString *)error {
+    // 阶段上报：整流程失败时把当前阶段标记为 Failed
+    if (self.stageReportingEnabled) {
+        [self mc_finishAllStagesWithFailure:error ?: @"下载失败"];
+    }
     if (self.currentDownloadTaskItem && self.currentDownloadTaskItem.state != DownloadTaskStateCancelled) {
         NSError *err = [NSError errorWithDomain:@"MinecraftResourceDownloadTask"
                                            code:1
@@ -723,6 +925,16 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
                         speed:speed
        estimatedTimeRemaining:eta];
 
+    // 阶段上报：并发下载的库/资源阶段共享全局速率（progress 为不确定模式，靠文件计数推进）
+    if (self.stageReportingEnabled) {
+        [manager updateTaskWithId:self.currentDownloadTaskItem.taskId
+                    stageAtIndex:kMCStageIndexLibraries
+                            rate:speed];
+        [manager updateTaskWithId:self.currentDownloadTaskItem.taskId
+                    stageAtIndex:kMCStageIndexAssets
+                            rate:speed];
+    }
+
     if (progress.cancelled) {
         if (self.currentDownloadTaskItem.state != DownloadTaskStateCancelled &&
             self.currentDownloadTaskItem.state != DownloadTaskStateCompleted &&
@@ -734,6 +946,11 @@ NSString * const kMinecraftResourceDownloadBackgroundSessionIdentifier = @"com.a
     }
 
     if (progress.finished) {
+        // 阶段上报：收尾——库/资源阶段完成，验证完整性阶段快速推进后完成
+        //（SHA1 校验内嵌于每个文件的下载完成回调中，此处仅收敛阶段状态）
+        if (self.stageReportingEnabled) {
+            [self mc_finishAllStagesWithFailure:nil];
+        }
         if (self.currentDownloadTaskItem.state != DownloadTaskStateCompleted &&
             self.currentDownloadTaskItem.state != DownloadTaskStateFailed &&
             self.currentDownloadTaskItem.state != DownloadTaskStateCancelled) {

@@ -115,6 +115,18 @@
 "preference.section.java" = "Java 選項";
 //"preference.section.footer.java" = "";
 
+"preference.section.download" = "下載鏡像策略";
+"preference.title.fileSource" = "檔案下載源";
+"preference.detail.fileSource" = "遊戲本體、庫與資源檔案的下載策略（Mojang 分發體系）。鏡像優先使用 BMCLAPI 鏡像。";
+"preference.title.assetSearchSource" = "資源搜尋源";
+"preference.detail.assetSearchSource" = "Modrinth / CurseForge 的 API 查詢策略。鏡像優先使用 MCIM 鏡像。";
+"preference.title.assetDownloadSource" = "資源下載源";
+"preference.detail.assetDownloadSource" = "模組、光影、資源包等檔案的 CDN 下載策略。鏡像優先使用 MCIM 鏡像。";
+"preference.title.modLoaderSource" = "載入器源";
+"preference.detail.modLoaderSource" = "Fabric / Forge / NeoForge 的 meta、maven 與安裝器下載策略。鏡像優先使用 BMCLAPI 鏡像。";
+"preference.title.mirror_policy-official_first" = "官方優先";
+"preference.title.mirror_policy-mirror_first" = "鏡像優先";
+
 "preference.title.confirm" = "你確定嗎？";
 
 "preference.title.game_directory" = "遊戲資料夾";
@@ -197,3 +209,70 @@
 "preference.title.debug_show_layout_overlap" = "顯示重複的佈局";
 "preference.detail.debug_show_layout_overlap" = "通過用透明顏色來覆蓋所有視圖，來顯示重複的視圖";
 "controller_configurator.playstation.title.named_back" = "選擇";
+
+// 下載進度與速率（Phase 6 Task 6.1）
+"download.speed.format" = "%@/s";
+"download.progress.file_count" = "%1$ld/%2$ld 個檔案 · %3$@/%4$@";
+"download.progress.file_count_short" = "%1$ld/%2$ld · %3$@";
+
+// 下載歷史（Phase 6 Task 6.2）
+"download.history.title" = "下載歷史";
+"download.history.entry" = "歷史";
+"download.history.clear" = "清空";
+"download.history.clear_confirm" = "確定清空全部下載歷史？此操作無法復原。";
+"download.history.cancel" = "取消";
+"download.history.empty" = "暫無下載歷史";
+"download.history.result.success" = "成功";
+"download.history.result.failed" = "失敗";
+
+// 統一任務階段標題（redesign-download-ui Phase 1 Task 1.4 / Phase 7 Task 7.1）
+"taskStage.title.fetchVersionManifest" = "取得版本清單";
+"taskStage.title.downloadVersionJSON" = "下載版本 JSON";
+"taskStage.title.downloadClient" = "下載客戶端";
+"taskStage.title.downloadLibraries" = "下載庫檔案";
+"taskStage.title.downloadAssets" = "下載資源檔案";
+"taskStage.title.verifyIntegrity" = "驗證完整性";
+"taskStage.title.fetchLoaderProfile" = "取得載入器 profile";
+"taskStage.title.downloadLoaderLibraries" = "下載載入器庫";
+"taskStage.title.writeVersionJSON" = "寫入版本 JSON";
+"taskStage.title.downloadInstaller" = "下載安裝器";
+"taskStage.title.resolveDependencies" = "解析依賴";
+"taskStage.title.installLoader" = "安裝載入器";
+"taskStage.title.parseModpack" = "解析整合包";
+"taskStage.title.extractFiles" = "解壓檔案";
+"taskStage.title.downloadDependencies" = "下載依賴檔案";
+"taskStage.title.downloadGameFiles" = "下載遊戲檔案";
+"taskStage.title.finalizeConfig" = "完成設定";
+"taskStage.title.downloadFile" = "下載檔案";
+
+// 統一進度頁（redesign-download-ui Phase 2 / Phase 7 Task 7.1）
+"taskProgress.stage.running" = "進行中";
+"taskProgress.state.pending" = "等待中";
+"taskProgress.state.downloading" = "下載中";
+"taskProgress.state.paused" = "已暫停";
+"taskProgress.state.completed" = "已完成";
+"taskProgress.state.cancelled" = "已取消";
+"taskProgress.state.failed" = "失敗";
+"taskProgress.button.minimize" = "最小化";
+"taskProgress.button.cancel" = "取消";
+"taskProgress.button.pause" = "暫停";
+"taskProgress.button.resume" = "繼續";
+"taskProgress.button.retry" = "重試";
+"taskProgress.button.retryWithCount" = "重試 (%1$ld/%2$ld)";
+"taskProgress.button.viewDetail" = "查看詳情";
+"taskProgress.button.hideDetail" = "收合詳情";
+"taskProgress.total.title" = "總進度";
+"taskProgress.total.indeterminate" = "進行中";
+"taskProgress.eta.seconds" = "%ld 秒";
+"taskProgress.eta.minutesSeconds" = "%1$ld 分 %2$ld 秒";
+"taskProgress.eta.minutes" = "%ld 分";
+"taskProgress.eta.hoursMinutes" = "%1$ld 小時 %2$ld 分";
+"taskProgress.eta.hours" = "%ld 小時";
+"taskProgress.eta.format" = "剩餘約 %1$@";
+"taskProgress.fileCount.format" = "%1$ld/%2$ld 個檔案 · %3$@/%4$@";
+"taskProgress.fileCount.onlyCount" = "%1$ld/%2$ld 個檔案";
+"taskProgress.errorDetail.title" = "錯誤詳情";
+"taskProgress.errorDetail.domainCode" = "錯誤域：%1$@ (code %2$ld)";
+"taskProgress.errorDetail.underlying" = "底層錯誤：%1$@";
+"taskProgress.errorDetail.retry" = "已重試：%1$ld/%2$ld";
+"taskProgress.errorDetail.stage" = "當前階段：%1$@";

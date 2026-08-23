@@ -1,5 +1,5 @@
 #import "NeoForgeVersionFetcher.h"
-#import "LauncherPreferences.h"
+#import "PLMirrorCenter.h"
 
 @implementation NeoForgeVersionFetcher
 
@@ -13,8 +13,9 @@
         return;
     }
 
-    NSString *downloadSource = getPrefObject(@"general.download_source");
-    BOOL preferBMCLAPI = [downloadSource isEqualToString:@"bmclapi"];
+    // 源选择统一走 PLMirrorCenter（ModLoader 类型策略 download.modLoaderSource，
+    // 未设置时由 PLMirrorCenter 回退旧键 general.download_source）
+    BOOL preferBMCLAPI = [PLMirrorCenter policyForType:PLMirrorResourceTypeModLoader] == PLMirrorPolicyMirrorFirst;
 
     void (^finish)(NSArray *, NSError *) = ^(NSArray *versions, NSError *error) {
         NSArray *filtered = [self filterVersions:versions gameVersion:gameVersion];
@@ -48,21 +49,20 @@
 
 + (NSString *)installerURLForVersion:(NSString *)version {
     if (!version || version.length == 0) return nil;
-    NSString *downloadSource = getPrefObject(@"general.download_source");
-    BOOL useBMCLAPI = [downloadSource isEqualToString:@"bmclapi"];
+    // 官方 URL 构造后统一经 PLMirrorCenter（ModLoader 类型）取当前策略首选 URL：
+    // mirror_first → BMCLAPI /maven（PLMirrorCenter 会吸收官方路径中的 /releases 段），
+    // official_first → 官方 maven 原样返回
+    NSString *officialURL;
     // Legacy 1.20.1 versions use the old forge coordinates.
     if ([version containsString:@"1.20.1"] || [version hasPrefix:@"47."]) {
-        if (useBMCLAPI) {
-            return [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/net/neoforged/forge/%@/forge-%@-installer.jar", version, version];
-        }
         // 官方 maven 路径必须包含 /releases/，否则 404
-        return [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/forge/%@/forge-%@-installer.jar", version, version];
+        officialURL = [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/forge/%@/forge-%@-installer.jar", version, version];
+    } else {
+        // 官方 maven 路径必须包含 /releases/，否则 404
+        officialURL = [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/neoforge/%@/neoforge-%@-installer.jar", version, version];
     }
-    if (useBMCLAPI) {
-        return [NSString stringWithFormat:@"https://bmclapi2.bangbang93.com/maven/net/neoforged/neoforge/%@/neoforge-%@-installer.jar", version, version];
-    }
-    // 官方 maven 路径必须包含 /releases/，否则 404
-    return [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/neoforge/%@/neoforge-%@-installer.jar", version, version];
+    return [[PLMirrorCenter preferredURLForOriginalURL:[NSURL URLWithString:officialURL]
+                                          resourceType:PLMirrorResourceTypeModLoader] absoluteString];
 }
 
 #pragma mark - Internal

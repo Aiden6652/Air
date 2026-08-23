@@ -16,8 +16,8 @@
 //       （对应 Glide/Coil 的线程池上限，避免列表滚动时数十并发请求）
 //    5. 同 URL 去重：inFlightRequests 字典合并同 URL 的多个回调
 //       （对应 Glide 的 RequestCoordinator + Coil 的 shared flow）
-//    6. CDN 镜像：cdn.modrinth.com / edge.forgecdn.net → BMCLAPI 镜像
-//       （对应 ZL2 MCIMirror）
+//    6. CDN 镜像：cdn.modrinth.com / edge.forgecdn.net → MCIM 镜像
+//       （经 PLMirrorCenter 统一收敛，对应 ZL2 的模组镜像方案）
 //    7. 取消机制：每个 imageView 关联一个 token，cell 复用时旧 token 失效
 //       （对应 Glide 的 clear() + ZL2 的 Compose 组合取消）
 //    8. 预取：prefetchIconWithURL: 接口，仅触发下载+缓存写入，不绑定 imageView
@@ -26,7 +26,7 @@
 
 #import "IconLoader.h"
 #import "LauncherPreferences.h"
-#import "MCIMMirror.h"
+#import "PLMirrorCenter.h"
 #import "utils.h"
 #import <CommonCrypto/CommonCrypto.h>
 #import <ImageIO/ImageIO.h>
@@ -425,12 +425,17 @@ static const void *kIconLoaderImageViewKey = &kIconLoaderImageViewKey;
 + (NSString *)applyMirrorToURL:(NSString *)url {
     if (!url || url.length == 0) return url;
 
-    // 优先应用 MCIM 镜像（模组镜像源设置）
-    // MCIM 镜像支持 Modrinth/CurseForge 的 API 和 CDN 图标资源，
-    // 启用后把 cdn.modrinth.com / edge.forgecdn.net / media.forgecdn.net
-    // 替换为 mod.mcimirror.top，加速国内图标加载。
-    NSString *mcimURL = [MCIMMirror rewriteURL:url];
-    if (mcimURL) return mcimURL;
+    // 优先经 PLMirrorCenter 按资源下载（AssetDownload）策略应用 MCIM 镜像
+    // （PLMirrorCenter 统一收敛镜像配置）。MCIM 镜像支持 Modrinth/CurseForge 的
+    // API 和 CDN 图标资源，镜像优先时把 cdn.modrinth.com / edge.forgecdn.net /
+    // media.forgecdn.net 替换为 mod.mcimirror.top，加速国内图标加载；
+    // 官方优先或不适用镜像的 URL 保持原始值，走后续逻辑。
+    NSURL *preferredURL = [PLMirrorCenter preferredURLForOriginalURL:[NSURL URLWithString:url]
+                                                        resourceType:PLMirrorResourceTypeAssetDownload];
+    NSString *mirrored = preferredURL.absoluteString;
+    if (mirrored.length > 0 && ![mirrored isEqualToString:url]) {
+        return mirrored;
+    }
 
     IconLoader *loader = [self sharedLoader];
     // 每次实时读取偏好，确保用户在设置中切换下载源后立即生效
