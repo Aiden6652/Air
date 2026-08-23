@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "AvatarManager.h"
 
 @interface AvatarManager()
@@ -55,14 +56,14 @@
           withCompletion:(void (^)(BOOL, NSError * _Nullable))completion {
     if (accountName.length == 0) {
         if (completion) {
-            completion(NO, [NSError errorWithDomain:@"AvatarError" code:1001 userInfo:@{NSLocalizedDescriptionKey: @"账户名为空"}]);
+            completion(NO, [NSError errorWithDomain:@"AvatarError" code:1001 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_46", nil)}]);
         }
         return;
     }
     NSData *imageData = UIImagePNGRepresentation(image);
     if (!imageData) {
         if (completion) {
-            completion(NO, [NSError errorWithDomain:@"AvatarError" code:1002 userInfo:@{NSLocalizedDescriptionKey: @"无法将图片转换为PNG数据"}]);
+            completion(NO, [NSError errorWithDomain:@"AvatarError" code:1002 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_47", nil)}]);
         }
         return;
     }

@@ -1,3 +1,4 @@
+#import "utils.h"
 // VersionCardCell.m
 // 参照 FCL (item_remote_version.xml) 与 ZL2 (VersionItemLayout) 的单列横向列表行设计：
 // - 左侧：类型图标容器（40x40 圆角方块，类型色背景 + 白色 SF Symbol）
@@ -275,7 +276,7 @@
         // 兜底：远古版（合并 old_alpha + old_beta 时使用）
         iconName = @"clock.fill";
         typeColor = [UIColor systemPurpleColor];
-        typeText = @"远古版";
+        typeText = localize(@"i18n_str_154", nil);
     }
 
     UIImage *symbol = [UIImage systemImageNamed:iconName];

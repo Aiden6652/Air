@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "CustomIconManager.h"
 
 @interface CustomIconManager()
@@ -33,7 +34,7 @@
     NSData *imageData = UIImagePNGRepresentation(image);
     if (!imageData) {
         if (completion) {
-            completion(NO, [NSError errorWithDomain:@"CustomIconError" code:1001 userInfo:@{NSLocalizedDescriptionKey: @"无法将图片转换为PNG数据"}]);
+            completion(NO, [NSError errorWithDomain:@"CustomIconError" code:1001 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_47", nil)}]);
         }
         return;
     }
@@ -50,7 +51,7 @@
     // 检查是否支持替换图标
     if (!UIApplication.sharedApplication.supportsAlternateIcons) {
         if (completion) {
-            completion(NO, [NSError errorWithDomain:@"CustomIconError" code:1002 userInfo:@{NSLocalizedDescriptionKey: @"当前设备不支持替换应用图标"}]);
+            completion(NO, [NSError errorWithDomain:@"CustomIconError" code:1002 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_102", nil)}]);
         }
         return;
     }
@@ -58,7 +59,7 @@
     // 检查自定义图标是否存在
     if (![self.fileManager fileExistsAtPath:self.customIconPath]) {
         if (completion) {
-            completion(NO, [NSError errorWithDomain:@"CustomIconError" code:1003 userInfo:@{NSLocalizedDescriptionKey: @"自定义图标文件不存在"}]);
+            completion(NO, [NSError errorWithDomain:@"CustomIconError" code:1003 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_103", nil)}]);
         }
         return;
     }
@@ -67,7 +68,7 @@
     NSData *imageData = [NSData dataWithContentsOfFile:self.customIconPath];
     if (!imageData) {
         if (completion) {
-            completion(NO, [NSError errorWithDomain:@"CustomIconError" code:1004 userInfo:@{NSLocalizedDescriptionKey: @"无法读取自定义图标文件"}]);
+            completion(NO, [NSError errorWithDomain:@"CustomIconError" code:1004 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_104", nil)}]);
         }
         return;
     }

@@ -74,7 +74,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorJvmAlreadyUsed
-                                     userInfo:@{NSLocalizedDescriptionKey: @"本应用已使用过 Java 运行时，无法再次执行安装任务。\n请重启启动器后重试。"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1143", nil)}];
         }
         return NO;
     }
@@ -97,7 +97,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法创建临时目录 %@: %@", cacheDir, dirError.localizedDescription ?: @"unknown"]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1144", nil), cacheDir, dirError.localizedDescription ?: @"unknown"]}];
         }
         return NO;
     }
@@ -106,7 +106,7 @@ static const double kInnerProcessorsStart = 0.45;
     // 1. 构建 vars：data.*.client 逐项 parseLiteral
     //    （plain 值从安装器 zip 解压到 cacheDir），再补充系统变量
     // ------------------------------------------------------------------
-    report(0.0, @"正在解析安装配置");
+    report(0.0, localize(@"i18n_str_1321", nil));
     NSMutableDictionary *vars = [self buildVars:installProfile
                                    installerPath:installerPath
                                    librariesDir:librariesDir
@@ -128,7 +128,7 @@ static const double kInnerProcessorsStart = 0.45;
     // ------------------------------------------------------------------
     // 2. 确保原版 client.jar 存在（jarsplitter/binarypatcher 的输入）
     // ------------------------------------------------------------------
-    report(kInnerVanillaJarStart, @"正在准备原版客户端文件");
+    report(kInnerVanillaJarStart, localize(@"i18n_str_1322", nil));
     if (![self ensureVanillaClientJar:minecraftVersion
                           mainGameDir:mainGameDir
                              progress:^(double inner, NSString *msg) {
@@ -140,7 +140,7 @@ static const double kInnerProcessorsStart = 0.45;
     // ------------------------------------------------------------------
     // 3. 预下载 client mappings（替代 DOWNLOAD_MOJMAPS processor）
     // ------------------------------------------------------------------
-    report(kInnerMojmapsStart, @"正在准备映射文件");
+    report(kInnerMojmapsStart, localize(@"i18n_str_1323", nil));
     if (![self preDownloadMojmaps:processors
                      librariesDir:librariesDir
                              vars:vars
@@ -154,7 +154,7 @@ static const double kInnerProcessorsStart = 0.45;
     // ------------------------------------------------------------------
     // 4. 构建 client side 命令清单（outputs 已就绪的命令跳过）
     // ------------------------------------------------------------------
-    report(kInnerProcessorsStart, @"正在构建安装任务");
+    report(kInnerProcessorsStart, localize(@"i18n_str_1324", nil));
     NSArray *commands = [self buildCommands:processors
                                librariesDir:librariesDir
                                       vars:vars
@@ -164,7 +164,7 @@ static const double kInnerProcessorsStart = 0.45;
     }
     if (commands.count == 0) {
         NSLog(@"[ForgeProcExec] All processor outputs already satisfied, skipping execution");
-        report(1.0, @"安装产物已就绪");
+        report(1.0, localize(@"i18n_str_1325", nil));
         [[NSFileManager defaultManager] removeItemAtPath:cacheDir error:nil];
         return YES;
     }
@@ -182,7 +182,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error && !*error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法写入命令文件 %@", commandsPath]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1150", nil), commandsPath]}];
         }
         return NO;
     }
@@ -206,7 +206,7 @@ static const double kInnerProcessorsStart = 0.45;
                     if (total > 0) {
                         double inner = kInnerProcessorsStart
                             + (1.0 - kInnerProcessorsStart) * ((double)completed / (double)total);
-                        report(inner, [NSString stringWithFormat:@"正在执行安装任务 (%ld/%ld)%@",
+                        report(inner, [NSString stringWithFormat:localize(@"i18n_str_1151", nil),
                             (long)completed, (long)total, current.length ? [NSString stringWithFormat:@": %@", current] : @""]);
                     }
                 }
@@ -227,18 +227,18 @@ static const double kInnerProcessorsStart = 0.45;
         NSLog(@"[ForgeProcExec] launchHeadlessJVM returned %d", ret);
         if (error) {
             NSString *reason = nil;
-            if (ret == -1) reason = @"JIT 未启用";
-            else if (ret == -2) reason = @"JLI_Launch 符号缺失";
-            else if (ret == -3) reason = @"没有满足版本要求的 Java 运行时";
-            else if (ret == -4) reason = @"加载 libjli 失败";
-            else if (ret == -5) reason = @"本进程已创建过 JVM（需重启 app）";
-            else if (ret == -6) reason = @"mainClass 为空";
-            else reason = [NSString stringWithFormat:@"JLI_Launch 返回 %d", ret];
+            if (ret == -1) reason = localize(@"i18n_str_1152", nil);
+            else if (ret == -2) reason = localize(@"i18n_str_1153", nil);
+            else if (ret == -3) reason = localize(@"i18n_str_1154", nil);
+            else if (ret == -4) reason = localize(@"i18n_str_1155", nil);
+            else if (ret == -5) reason = localize(@"i18n_str_1156", nil);
+            else if (ret == -6) reason = localize(@"i18n_str_1157", nil);
+            else reason = [NSString stringWithFormat:localize(@"i18n_str_1158", nil), ret];
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorLaunchFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"安装任务执行环境启动失败：%@。%@",
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1159", nil),
                                          reason,
-                                         (ret == -5 || ret == -1) ? @"请重启启动器后重试。" : @"请检查 JIT / Java 运行时设置后重试。"]}];
+                                         (ret == -5 || ret == -1) ? @"请重启启动器后重试。" : localize(@"i18n_str_1161", nil)]}];
         }
         return NO;
     }
@@ -251,7 +251,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorProcessingFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"安装任务已结束但无法读取状态文件 %@", statusPath]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1162", nil), statusPath]}];
         }
         return NO;
     }
@@ -262,9 +262,9 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorProcessingFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"安装任务执行失败%@:\n%@",
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1163", nil),
                                          failed.length ? [NSString stringWithFormat:@"（%@）", failed] : @"",
-                                         detail ?: @"未知错误"]}];
+                                         detail ?: localize(@"i18n_str_97", nil)]}];
         }
         return NO;
     }
@@ -273,7 +273,7 @@ static const double kInnerProcessorsStart = 0.45;
 
     // 成功后清理临时缓存（断点续装依赖的是 libraries 下的正式 outputs，可安全删除）
     [[NSFileManager defaultManager] removeItemAtPath:cacheDir error:nil];
-    report(1.0, @"安装任务完成");
+    report(1.0, localize(@"i18n_str_1326", nil));
     return YES;
 }
 
@@ -299,7 +299,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法打开安装器 %@: %@", installerPath, openError.localizedDescription ?: @"unknown"]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1165", nil), installerPath, openError.localizedDescription ?: @"unknown"]}];
         }
         return nil;
     }
@@ -377,7 +377,7 @@ static const double kInnerProcessorsStart = 0.45;
             if (error && !*error) {
                 *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                              code:ForgeProcessorExecutorErrorInvalidProfile
-                                         userInfo:@{NSLocalizedDescriptionKey: @"install_profile.json processor 参数解析失败"}];
+                                         userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1166", nil)}];
             }
             return nil;
         }
@@ -394,7 +394,7 @@ static const double kInnerProcessorsStart = 0.45;
                 if (error && !*error) {
                     *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                  code:ForgeProcessorExecutorErrorInvalidProfile
-                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法解析 processor outputs 条目 %@ = %@", rawKey, outputsRaw[rawKey]]}];
+                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1167", nil), rawKey, outputsRaw[rawKey]]}];
                 }
                 return nil;
             }
@@ -413,7 +413,7 @@ static const double kInnerProcessorsStart = 0.45;
             if (error) {
                 *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                              code:ForgeProcessorExecutorErrorInvalidProfile
-                                         userInfo:@{NSLocalizedDescriptionKey: @"processor 缺少 jar 字段"}];
+                                         userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1168", nil)}];
             }
             return nil;
         }
@@ -424,7 +424,7 @@ static const double kInnerProcessorsStart = 0.45;
             if (error) {
                 *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                              code:ForgeProcessorExecutorErrorMissingLibrary
-                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"安装工具缺失：%@（%@）。\n请确认依赖库已完整下载。", jarDescriptor, jarPath]}];
+                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1169", nil), jarDescriptor, jarPath]}];
             }
             return nil;
         }
@@ -435,7 +435,7 @@ static const double kInnerProcessorsStart = 0.45;
             if (error) {
                 *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                              code:ForgeProcessorExecutorErrorMissingLibrary
-                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"安装工具缺少 Main-Class：%@", jarPath]}];
+                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1170", nil), jarPath]}];
             }
             return nil;
         }
@@ -453,7 +453,7 @@ static const double kInnerProcessorsStart = 0.45;
                 if (error) {
                     *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                  code:ForgeProcessorExecutorErrorMissingLibrary
-                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"安装工具依赖缺失：%@（%@）。\n请确认依赖库已完整下载。", desc, libPath]}];
+                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1171", nil), desc, libPath]}];
                 }
                 return nil;
             }
@@ -470,7 +470,7 @@ static const double kInnerProcessorsStart = 0.45;
                 if (error && !*error) {
                     *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                  code:ForgeProcessorExecutorErrorInvalidProfile
-                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法解析 processor 参数：%@", arg]}];
+                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1172", nil), arg]}];
                 }
                 return nil;
             }
@@ -562,7 +562,7 @@ static const double kInnerProcessorsStart = 0.45;
     }
     if (!mojmapsVersion) mojmapsVersion = @"";
 
-    if (progress) progress(0.0, @"正在下载映射文件");
+    if (progress) progress(0.0, localize(@"i18n_str_1327", nil));
     NSLog(@"[ForgeProcExec] Pre-downloading client mappings: version=%@ output=%@", mojmapsVersion, mojmapsOutput);
 
     // 读版本 JSON（不存在时自动下载）
@@ -575,14 +575,14 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorDownloadFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"版本 %@ 的 JSON 中缺少 client_mappings（映射文件）", mojmapsVersion]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1174", nil), mojmapsVersion]}];
         }
         return NO;
     }
 
     return [self downloadArtifactFromVersionEntry:clientMappings
                                            toPath:mojmapsOutput
-                                          label:@"映射文件"
+                                          label:localize(@"i18n_str_1175", nil)
                                          progress:progress
                                             error:error];
 }
@@ -598,12 +598,12 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法确定原版 Minecraft 版本号"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1176", nil)}];
         }
         return NO;
     }
 
-    if (progress) progress(0.0, @"正在检查原版客户端");
+    if (progress) progress(0.0, localize(@"i18n_str_1328", nil));
 
     NSDictionary *versionJSON = [self ensureVersionJSON:minecraftVersion mainGameDir:mainGameDir error:error];
     if (!versionJSON) return NO;
@@ -614,7 +614,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorDownloadFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"版本 %@ 的 JSON 中缺少原版客户端下载信息", minecraftVersion]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1178", nil), minecraftVersion]}];
         }
         return NO;
     }
@@ -623,7 +623,7 @@ static const double kInnerProcessorsStart = 0.45;
         [NSString stringWithFormat:@"versions/%@/%@.jar", minecraftVersion, minecraftVersion]];
     return [self downloadArtifactFromVersionEntry:clientDownload
                                            toPath:jarPath
-                                          label:@"原版客户端"
+                                          label:localize(@"i18n_str_1179", nil)
                                          progress:progress
                                             error:error];
 }
@@ -666,7 +666,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorDownloadFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: @"下载 Minecraft 版本清单失败，请检查网络连接"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1180", nil)}];
         }
         return nil;
     }
@@ -677,7 +677,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorDownloadFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: @"Minecraft 版本清单格式非法"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1181", nil)}];
         }
         return nil;
     }
@@ -694,7 +694,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorDownloadFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"版本清单中找不到版本 %@", versionId]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1182", nil), versionId]}];
         }
         return nil;
     }
@@ -714,7 +714,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorDownloadFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"下载版本 %@ 的 JSON 失败，请检查网络连接", versionId]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1183", nil), versionId]}];
         }
         return nil;
     }
@@ -728,7 +728,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorDownloadFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法创建版本目录 %@: %@", versionDir, dirError.localizedDescription ?: @"unknown"]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1184", nil), versionDir, dirError.localizedDescription ?: @"unknown"]}];
         }
         return nil;
     }
@@ -753,7 +753,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorDownloadFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@的下载地址缺失", label]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1185", nil), label]}];
         }
         return NO;
     }
@@ -764,7 +764,7 @@ static const double kInnerProcessorsStart = 0.45;
         NSString *actual = [self sha1OfFile:destPath];
         if (actual && sha1 && [actual caseInsensitiveCompare:sha1] == NSOrderedSame) {
             NSLog(@"[ForgeProcExec] %@ already present and valid: %@", label, destPath);
-            if (progress) progress(1.0, [NSString stringWithFormat:@"%@已就绪", label]);
+            if (progress) progress(1.0, [NSString stringWithFormat:localize(@"i18n_str_1186", nil), label]);
             return YES;
         }
         // sha1 不匹配或无法校验（无期望值时保守重新下载）
@@ -781,7 +781,7 @@ static const double kInnerProcessorsStart = 0.45;
     NSError *lastError = nil;
     for (NSString *candidateURL in urls) {
         if (!candidateURL) continue;
-        if (progress) progress(0.2, [NSString stringWithFormat:@"正在下载%@", label]);
+        if (progress) progress(0.2, [NSString stringWithFormat:localize(@"i18n_str_1187", nil), label]);
         NSLog(@"[ForgeProcExec] Downloading %@ from %@", label, candidateURL);
         NSError *downloadError = nil;
         if ([self downloadFileFromURLString:candidateURL toPath:destPath error:&downloadError]) {
@@ -793,12 +793,12 @@ static const double kInnerProcessorsStart = 0.45;
                     if (error) {
                         *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                      code:ForgeProcessorExecutorErrorDownloadFailed
-                                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@校验失败（期望 %@，实际 %@），已删除损坏文件", label, sha1, actual ?: @"读取失败"]}];
+                                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1188", nil), label, sha1, actual ?: localize(@"i18n_str_1189", nil)]}];
                     }
                     return NO;
                 }
             }
-            if (progress) progress(1.0, [NSString stringWithFormat:@"%@下载完成", label]);
+            if (progress) progress(1.0, [NSString stringWithFormat:localize(@"i18n_str_1190", nil), label]);
             return YES;
         }
         lastError = downloadError;
@@ -808,7 +808,7 @@ static const double kInnerProcessorsStart = 0.45;
     if (error) {
         *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                      code:ForgeProcessorExecutorErrorDownloadFailed
-                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"下载%@失败：%@", label, lastError.localizedDescription ?: @"未知错误（官方源与镜像源均失败）"]}];
+                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1191", nil), label, lastError.localizedDescription ?: localize(@"i18n_str_1192", nil)]}];
     }
     return NO;
 }
@@ -836,7 +836,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"非法的 maven 坐标：%@", descriptor]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1193", nil), descriptor]}];
         }
         return nil;
     }
@@ -846,7 +846,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"非法的 maven 坐标：%@", descriptor]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1193", nil), descriptor]}];
         }
         return nil;
     }
@@ -862,7 +862,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:ForgeProcessorExecutorErrorInvalidProfile
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"非法的 maven 坐标（多个 @）：%@", descriptor]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1194", nil), descriptor]}];
         }
         return nil;
     }
@@ -933,7 +933,7 @@ static const double kInnerProcessorsStart = 0.45;
                 if (error && !*error) {
                     *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                  code:ForgeProcessorExecutorErrorInvalidProfile
-                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法解析参数值：%@", arg]}];
+                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1195", nil), arg]}];
                 }
                 return nil;
             }
@@ -960,7 +960,7 @@ static const double kInnerProcessorsStart = 0.45;
                 if (error) {
                     *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                  code:ForgeProcessorExecutorErrorInvalidProfile
-                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"非法模式（转义符悬空）：%@", value]}];
+                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1196", nil), value]}];
                 }
                 return nil;
             }
@@ -978,7 +978,7 @@ static const double kInnerProcessorsStart = 0.45;
                         if (error) {
                             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                          code:ForgeProcessorExecutorErrorInvalidProfile
-                                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"非法模式（转义符悬空）：%@", value]}];
+                                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1196", nil), value]}];
                         }
                         return nil;
                     }
@@ -998,7 +998,7 @@ static const double kInnerProcessorsStart = 0.45;
                 if (error) {
                     *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                  code:ForgeProcessorExecutorErrorInvalidProfile
-                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"非法模式（未闭合的 %C）：%@", c, value]}];
+                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1197", nil), c, value]}];
                 }
                 return nil;
             }
@@ -1010,7 +1010,7 @@ static const double kInnerProcessorsStart = 0.45;
                     if (error) {
                         *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                                      code:ForgeProcessorExecutorErrorInvalidProfile
-                                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"非法模式：%@（缺少变量 %@）", value, key]}];
+                                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1198", nil), value, key]}];
                     }
                     return nil;
                 }
@@ -1149,7 +1149,7 @@ static const double kInnerProcessorsStart = 0.45;
         if (error) {
             *error = [NSError errorWithDomain:ForgeProcessorExecutorErrorDomain
                                          code:NSURLErrorTimedOut
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"下载超时（70s）: %@", urlString]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1129", nil), urlString]}];
         }
         return nil;
     }

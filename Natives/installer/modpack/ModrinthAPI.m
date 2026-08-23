@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "ModrinthAPI.h"
 #import "PLMirrorCenter.h"
 
@@ -145,7 +146,7 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
     NSString *modID = item[@"id"];
     if (!modID || modID.length == 0) {
         if (completion) completion(NO, [NSError errorWithDomain:@"ModrinthAPIError" code:1
-                                                       userInfo:@{NSLocalizedDescriptionKey: @"缺少 mod ID"}]);
+                                                       userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1238", nil)}]);
         return;
     }
 
@@ -153,7 +154,7 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {
         if (completion) completion(NO, [NSError errorWithDomain:@"ModrinthAPIError" code:2
-                                                       userInfo:@{NSLocalizedDescriptionKey: @"无效的 URL"}]);
+                                                       userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1048", nil)}]);
         return;
     }
 
@@ -172,7 +173,7 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
         }
         if (!data) {
             NSError *err = [NSError errorWithDomain:@"ModrinthAPIError" code:3
-                                           userInfo:@{NSLocalizedDescriptionKey: @"无数据返回"}];
+                                           userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1239", nil)}];
             self.lastError = err;
             if (completion) completion(NO, err);
             return;
@@ -182,7 +183,7 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
         id jsonResult = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
         if (jsonError || ![jsonResult isKindOfClass:[NSArray class]]) {
             NSError *err = jsonError ?: [NSError errorWithDomain:@"ModrinthAPIError" code:4
-                                                       userInfo:@{NSLocalizedDescriptionKey: @"JSON 解析失败"}];
+                                                       userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_444", nil)}];
             self.lastError = err;
             if (completion) completion(NO, err);
             return;

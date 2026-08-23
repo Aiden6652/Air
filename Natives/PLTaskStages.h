@@ -1,3 +1,4 @@
+#import "utils.h"
 #import <Foundation/Foundation.h>
 #import "PLTaskStage.h"
 
@@ -152,24 +153,24 @@ NS_INLINE NSString *PLTaskStageTitleDisplay(NSString *titleKey) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         fallbackMap = @{
-            PLTaskStageTitleFetchVersionManifest: @"获取版本清单",
-            PLTaskStageTitleDownloadVersionJSON: @"下载版本 JSON",
-            PLTaskStageTitleDownloadClient: @"下载客户端",
-            PLTaskStageTitleDownloadLibraries: @"下载库文件",
-            PLTaskStageTitleDownloadAssets: @"下载资源文件",
-            PLTaskStageTitleVerifyIntegrity: @"验证完整性",
-            PLTaskStageTitleFetchLoaderProfile: @"获取加载器 profile",
-            PLTaskStageTitleDownloadLoaderLibraries: @"下载加载器库",
-            PLTaskStageTitleWriteVersionJSON: @"写入版本 JSON",
-            PLTaskStageTitleDownloadInstaller: @"下载安装器",
-            PLTaskStageTitleResolveDependencies: @"解析依赖",
-            PLTaskStageTitleInstallLoader: @"安装加载器",
-            PLTaskStageTitleParseModpack: @"解析整合包",
-            PLTaskStageTitleExtractFiles: @"解压文件",
-            PLTaskStageTitleDownloadDependencies: @"下载依赖文件",
-            PLTaskStageTitleDownloadGameFiles: @"下载游戏文件",
-            PLTaskStageTitleFinalizeConfig: @"完成配置",
-            PLTaskStageTitleDownloadFile: @"下载文件",
+            PLTaskStageTitleFetchVersionManifest: localize(@"i18n_str_1240", nil),
+            PLTaskStageTitleDownloadVersionJSON: localize(@"i18n_str_1241", nil),
+            PLTaskStageTitleDownloadClient: localize(@"i18n_str_1242", nil),
+            PLTaskStageTitleDownloadLibraries: localize(@"i18n_str_1243", nil),
+            PLTaskStageTitleDownloadAssets: localize(@"i18n_str_1244", nil),
+            PLTaskStageTitleVerifyIntegrity: localize(@"i18n_str_1245", nil),
+            PLTaskStageTitleFetchLoaderProfile: localize(@"i18n_str_1246", nil),
+            PLTaskStageTitleDownloadLoaderLibraries: localize(@"i18n_str_1247", nil),
+            PLTaskStageTitleWriteVersionJSON: localize(@"i18n_str_1248", nil),
+            PLTaskStageTitleDownloadInstaller: localize(@"i18n_str_1249", nil),
+            PLTaskStageTitleResolveDependencies: localize(@"i18n_str_1250", nil),
+            PLTaskStageTitleInstallLoader: localize(@"i18n_str_1251", nil),
+            PLTaskStageTitleParseModpack: localize(@"i18n_str_1252", nil),
+            PLTaskStageTitleExtractFiles: localize(@"i18n_str_1253", nil),
+            PLTaskStageTitleDownloadDependencies: localize(@"i18n_str_1254", nil),
+            PLTaskStageTitleDownloadGameFiles: localize(@"i18n_str_1255", nil),
+            PLTaskStageTitleFinalizeConfig: localize(@"i18n_str_1256", nil),
+            PLTaskStageTitleDownloadFile: localize(@"i18n_str_1257", nil),
         };
     });
     return fallbackMap[titleKey] ?: titleKey;

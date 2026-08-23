@@ -52,7 +52,7 @@
         self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
         self.searchController.searchResultsUpdater = self;
         self.searchController.obscuresBackgroundDuringPresentation = NO;
-        self.searchController.searchBar.placeholder = @"搜索设置项...";
+        self.searchController.searchBar.placeholder = localize(@"i18n_str_844", nil);
         self.searchController.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
         self.searchController.searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
         self.tableView.tableHeaderView = self.searchController.searchBar;

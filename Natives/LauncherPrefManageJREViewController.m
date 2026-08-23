@@ -177,7 +177,7 @@ static NSString *currentImportTaskId;
     DownloadTaskItem *taskItem = [[DownloadTaskManager sharedManager]
         registerTaskWithResourceType:DownloadTaskResourceTypeJavaRuntime
                         resourceName:runtimeName
-                         displayName:[NSString stringWithFormat:@"Java 运行时 %@", runtimeName]
+                         displayName:[NSString stringWithFormat:localize(@"i18n_str_364", nil), runtimeName]
                       downloadSource:source
                              rawTask:totalProgress
                       supportsResume:NO
@@ -188,7 +188,7 @@ static NSString *currentImportTaskId;
         taskItem.autoPresentDetail = YES;
         [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId state:DownloadTaskStateDownloading];
         [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId stageAtIndex:0 status:PLTaskStageStatusRunning];
-        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId stageAtIndex:0 progress:-1 message:@"正在解压运行时"];
+        [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId stageAtIndex:0 progress:-1 message:localize(@"i18n_str_365", nil)];
         currentImportTaskId = taskItem.taskId;
     }
     NSString *taskId = taskItem.taskId;
@@ -203,7 +203,7 @@ static NSString *currentImportTaskId;
             // fileCallback 在 extractTarXZ 内部（后台线程）调用，
             // manager 上报线程安全；进度文案带当前文件名
             double fraction = totalProgress.fractionCompleted;
-            NSString *displayText = [NSString stringWithFormat:@"正在解压: %@", name];
+            NSString *displayText = [NSString stringWithFormat:localize(@"i18n_str_366", nil), name];
             [manager updateTaskWithId:taskId
                               progress:fraction
                           totalBytes:(int64_t)xzSize

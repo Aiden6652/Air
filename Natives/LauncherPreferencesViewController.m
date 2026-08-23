@@ -99,7 +99,7 @@
             [self presentViewController:picker animated:YES completion:nil];
         });
     } else {
-        [self showCustomIconError:@"当前系统版本不支持颜色选择器（需 iOS 14+）"];
+        [self showCustomIconError:localize(@"i18n_str_367", nil)];
     }
 }
 
@@ -140,7 +140,7 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             UIImage *selectedImage = info[UIImagePickerControllerOriginalImage];
             if (!selectedImage) {
-                [self showCustomIconError:@"无法获取选中的图片"];
+                [self showCustomIconError:localize(@"i18n_str_368", nil)];
                 return;
             }
             if (self.pickingMousePointer) {
@@ -151,9 +151,9 @@
                 BOOL ok = [pngData writeToFile:path atomically:YES];
                 if (ok) {
                     [NSNotificationCenter.defaultCenter postNotificationName:@"MousePointerUpdated" object:nil];
-                    [self showSuccessMessage:@"鼠标指针已更新"];
+                    [self showSuccessMessage:localize(@"i18n_str_369", nil)];
                 } else {
-                    [self showCustomIconError:@"保存鼠标指针失败"];
+                    [self showCustomIconError:localize(@"i18n_str_370", nil)];
                 }
                 return;
             }
@@ -171,18 +171,18 @@
                         [[CustomIconManager sharedManager] saveCustomIcon:croppedImage withCompletion:^(BOOL success, NSError * _Nullable error) {
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 if (success) {
-                                    [weakSelf showSuccessMessage:@"图片已保存，您可以在应用图标设置中选择自定义图标"];
+                                    [weakSelf showSuccessMessage:localize(@"i18n_str_371", nil)];
                                     // 更新应用图标选择器的显示
                                     [weakSelf.tableView reloadData];
                                 } else {
-                                    NSString *errorMessage = error.localizedDescription ?: @"保存自定义图标失败";
+                                    NSString *errorMessage = error.localizedDescription ?: localize(@"i18n_str_372", nil);
                                     [weakSelf showCustomIconError:errorMessage];
                                 }
                             });
                         }];
                     } else {
                         dispatch_async(dispatch_get_main_queue(), ^{
-                            [weakSelf showCustomIconError:@"图片裁剪已取消"];
+                            [weakSelf showCustomIconError:localize(@"i18n_str_373", nil)];
                         });
                     }
                 };
@@ -192,11 +192,11 @@
                 [[CustomIconManager sharedManager] saveCustomIcon:selectedImage withCompletion:^(BOOL success, NSError * _Nullable error) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         if (success) {
-                            [self showSuccessMessage:@"图片已保存，您可以在应用图标设置中选择自定义图标"];
+                            [self showSuccessMessage:localize(@"i18n_str_371", nil)];
                             // 更新应用图标选择器的显示
                             [self.tableView reloadData];
                         } else {
-                            NSString *errorMessage = error.localizedDescription ?: @"保存自定义图标失败";
+                            NSString *errorMessage = error.localizedDescription ?: localize(@"i18n_str_372", nil);
                             [self showCustomIconError:errorMessage];
                         }
                     });
@@ -212,7 +212,7 @@
             if (self.pickingMousePointer) {
                 self.pickingMousePointer = NO;
             } else {
-                [self showCustomIconError:@"图片选择已取消"];
+                [self showCustomIconError:localize(@"i18n_str_374", nil)];
             }
         });
     }];
@@ -221,7 +221,7 @@
 #pragma mark - Custom Icon Helper Methods
 
 - (void)showProcessingIndicator {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"处理中" message:@"正在处理您选择的图片..." preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_78", nil) message:localize(@"i18n_str_375", nil) preferredStyle:UIAlertControllerStyleAlert];
     [self presentViewController:alert animated:YES completion:nil];
     
     // 2秒后自动关闭提示
@@ -231,15 +231,15 @@
 }
 
 - (void)showSuccessMessage:(NSString *)message {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"成功" message:message preferredStyle:UIAlertControllerStyleAlert];
-    UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_80", nil) message:message preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertAction *okAction = [UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:nil];
     [alert addAction:okAction];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)showCustomIconError:(NSString *)errorMessage {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"错误" message:errorMessage preferredStyle:UIAlertControllerStyleAlert];
-    UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_42", nil) message:errorMessage preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertAction *okAction = [UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:nil];
     [alert addAction:okAction];
     [self presentViewController:alert animated:YES completion:nil];
 }
@@ -330,7 +330,7 @@
               ]
             },
             @{@"key": @"ui_layout",
-              @"title": @"UI 布局",
+              @"title": localize(@"i18n_str_376", nil),
               @"hasDetail": @YES,
               @"icon": @"rectangle.split.3x3",
               @"type": self.typePickField,
@@ -340,12 +340,12 @@
                   @"card"
               ],
               @"pickList": @[
-                  @"VS 三栏布局",
-                  @"卡片式布局"
+                  localize(@"i18n_str_377", nil),
+                  localize(@"i18n_str_378", nil)
               ]
             },
             @{@"key": @"ui_theme",
-              @"title": @"外观模式",
+              @"title": localize(@"i18n_str_379", nil),
               @"hasDetail": @YES,
               @"icon": @"circle.lefthalf.filled",
               @"type": self.typePickField,
@@ -356,9 +356,9 @@
                   @"auto"
               ],
               @"pickList": @[
-                  @"深色模式",
-                  @"浅色模式",
-                  @"跟随系统"
+                  localize(@"i18n_str_380", nil),
+                  localize(@"i18n_str_381", nil),
+                  localize(@"i18n_str_382", nil)
               ],
               @"action": ^(NSString *value){
                   // 实时应用主题，发通知由 SceneDelegate 处理。
@@ -368,37 +368,37 @@
               }
             },
             @{@"key": @"custom_accent_color",
-              @"title": @"主题强调色",
+              @"title": localize(@"i18n_str_383", nil),
               @"hasDetail": @YES,
               @"icon": @"paintpalette.fill",
               @"type": self.typeButton,
               @"enableCondition": whenNotInGame,
               @"action": ^void(){
-                  [self openColorPickerForKey:@"general.accent_color" title:@"主题强调色"];
+                  [self openColorPickerForKey:@"general.accent_color" title:localize(@"i18n_str_383", nil)];
               }
             },
             @{@"key": @"custom_text_color",
-              @"title": @"字体颜色",
+              @"title": localize(@"i18n_str_384", nil),
               @"hasDetail": @YES,
               @"icon": @"textformat",
               @"type": self.typeButton,
               @"enableCondition": whenNotInGame,
               @"action": ^void(){
-                  [self openColorPickerForKey:@"general.text_color" title:@"字体颜色"];
+                  [self openColorPickerForKey:@"general.text_color" title:localize(@"i18n_str_384", nil)];
               }
             },
             @{@"key": @"custom_card_color",
-              @"title": @"卡片颜色",
+              @"title": localize(@"i18n_str_385", nil),
               @"hasDetail": @YES,
               @"icon": @"rectangle.fill",
               @"type": self.typeButton,
               @"enableCondition": whenNotInGame,
               @"action": ^void(){
-                  [self openColorPickerForKey:@"general.card_color" title:@"卡片颜色"];
+                  [self openColorPickerForKey:@"general.card_color" title:localize(@"i18n_str_385", nil)];
               }
             },
             @{@"key": @"reset_appearance_colors",
-              @"title": @"重置主题/字体/卡片颜色",
+              @"title": localize(@"i18n_str_386", nil),
               @"icon": @"arrow.counterclockwise",
               @"type": self.typeButton,
               @"enableCondition": whenNotInGame,
@@ -411,7 +411,7 @@
               }
             },
             @{@"key": @"multi_threaded",
-              @"title": @"多线程下载",
+              @"title": localize(@"i18n_str_387", nil),
               @"hasDetail": @YES,
               @"icon": @"bolt.fill",
               @"type": self.typeSwitch,
@@ -456,8 +456,8 @@
                   } else if ([iconName isEqualToString:@"CustomIcon"]) {
                       if (![[CustomIconManager sharedManager] hasCustomIcon]) {
                           dispatch_async(dispatch_get_main_queue(), ^{
-                              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:@"请先设置自定义应用图标：设置 > 自定义应用图标" preferredStyle:UIAlertControllerStyleAlert];
-                              UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil];
+                              UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_388", nil) message:localize(@"i18n_str_389", nil) preferredStyle:UIAlertControllerStyleAlert];
+                              UIAlertAction *okAction = [UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:nil];
                               [alert addAction:okAction];
                               [self presentViewController:alert animated:YES completion:nil];
                           });
@@ -531,9 +531,9 @@
                   @"title_only"
               ],
               @"pickList": @[
-                  @"完整（标题+日期+摘要）",
-                  @"仅摘要（标题+摘要）",
-                  @"仅标题"
+                  localize(@"i18n_str_390", nil),
+                  localize(@"i18n_str_391", nil),
+                  localize(@"i18n_str_392", nil)
               ]
             },
             @{@"key": @"reset_warnings",
@@ -879,7 +879,7 @@
                     NSString *path = [NSString stringWithFormat:@"%s/controlmap/mouse_pointer.png", getenv("POJAV_HOME")];
                     [NSFileManager.defaultManager removeItemAtPath:path error:nil];
                     [NSNotificationCenter.defaultCenter postNotificationName:@"MousePointerUpdated" object:nil];
-                    [self showSuccessMessage:@"鼠标指针已恢复默认"];
+                    [self showSuccessMessage:localize(@"i18n_str_393", nil)];
                 }
             },
             @{@"key": @"recording_hide",
@@ -903,28 +903,28 @@
                   NSString *title = localize(@"preference.title.two_finger_keyboard", nil);
                   // 如果没有 localization，设置默认标题
                   if (!title || [title isEqualToString:@"preference.title.two_finger_keyboard"]) {
-                      title = @"双指呼出键盘";
+                      title = localize(@"i18n_str_394", nil);
                   }
                   
-                  NSString *statusMsg = isOn ? @"[✓] 当前状态: 已开启 (ON)" : @"[✗] 当前状态: 已关闭 (OFF)";
-                  NSString *msg = [NSString stringWithFormat:@"%@\n\n开启后，在游戏中双指同时长按屏幕可呼出键盘。\n此功能由WeiErLiTeo制作。", statusMsg];
+                  NSString *statusMsg = isOn ? @"[✓] 当前状态: 已开启 (ON)" : localize(@"i18n_str_396", nil);
+                  NSString *msg = [NSString stringWithFormat:localize(@"i18n_str_397", nil), statusMsg];
                   
                   UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:msg preferredStyle:UIAlertControllerStyleAlert];
                   
                   // 3. 根据当前状态显示不同的按钮
                   if (!isOn) {
-                      [alert addAction:[UIAlertAction actionWithTitle:@"开启 (Enable)" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+                      [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_398", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
                           // 强制开启
                           setPrefBool(@"control.two_finger_keyboard", YES);
-                          [weakSelf showSuccessMessage:@"双指呼出键盘已开启"];
+                          [weakSelf showSuccessMessage:localize(@"i18n_str_399", nil)];
                           // 刷新界面
                           [weakSelf.tableView reloadData];
                       }]];
                   } else {
-                      [alert addAction:[UIAlertAction actionWithTitle:@"关闭 (Disable)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+                      [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_400", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
                           // 强制关闭
                           setPrefBool(@"control.two_finger_keyboard", NO);
-                          [weakSelf showSuccessMessage:@"双指呼出键盘已关闭"];
+                          [weakSelf showSuccessMessage:localize(@"i18n_str_401", nil)];
                           // 刷新界面
                           [weakSelf.tableView reloadData];
                       }]];
@@ -1394,7 +1394,7 @@
         [loadingAlert dismissViewControllerAnimated:YES completion:^{
             if (error || info == nil) {
                 [self showUpdateAlertWithTitle:localize(@"check_update.failed", @"检查更新失败")
-                                         message:error.localizedDescription ?: @"未知错误"
+                                         message:error.localizedDescription ?: localize(@"i18n_str_97", nil)
                                        hasUpdate:NO
                                           info:nil];
                 return;
@@ -1430,7 +1430,7 @@
 /// 发现新版本时显示更新详情弹窗（参考 FCL/ZL2 风格）
 - (void)showUpdateAvailableAlert:(UpdateInfo *)info {
     NSString *title = [NSString stringWithFormat:localize(@"check_update.new_version_title",
-                                                          @"发现新版本 v%@"), info.latestVersion];
+                                                          localize(@"i18n_str_407", nil)), info.latestVersion];
     /* 更新日志截断显示，太长的话只显示前 500 字符 + 省略号 */
     NSString *notes = info.releaseNotes ?: @"";
     if (notes.length > 500) {
@@ -1438,7 +1438,7 @@
     }
     NSString *message = [NSString stringWithFormat:@"%@\n\n%@",
                          localize(@"check_update.new_version_message",
-                                  @"点击「前往下载」打开 GitHub Releases 页面下载最新版本。"),
+                                  localize(@"i18n_str_408", nil)),
                          notes];
 
     UIAlertController *alert = [UIAlertController
@@ -1462,7 +1462,7 @@
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:localize(@"mem_help.title", @"关于内存限制")
                          message:localize(@"mem_help.message",
-                             @"iOS 18 / iOS 26 单实例内存上限约为 1440MB，玩大型整合包时可能因内存不足崩溃。\n\n"
+                             localize(@"i18n_str_410", nil)
                               "解决方法：\n"
                               "使用 GetMoreRam (LiveContainer 插件) 解除内存限制。\n"
                               "GetMoreRam 仓库：github.com/hugeBlack/GetMoreRam\n\n"

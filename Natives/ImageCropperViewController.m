@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "ImageCropperViewController.h"
 #import "BackgroundManager.h"
 
@@ -23,7 +24,7 @@
     // 适配自定义启动器背景：将当前视图控制器透明化，使全局背景壁纸能够透出
     [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
 
-    self.title = @"裁剪图片";
+    self.title = localize(@"i18n_str_319", nil);
     self.view.backgroundColor = [UIColor blackColor];
     
     // 添加导航栏按钮

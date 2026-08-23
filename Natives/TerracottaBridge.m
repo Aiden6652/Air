@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "TerracottaBridge.h"
 #import "terracotta.h"
 #import <fcntl.h>
@@ -221,13 +222,13 @@ static void terracottaCallWithOptionalCString(NSString *s, void (^body)(const ch
 
 + (NSString *)describeException:(NSInteger)type {
     switch (type) {
-        case 0: return @"无法连接到房主（PingHostFail）";
-        case 1: return @"房主拒绝连接（PingHostRst）";
-        case 2: return @"访客端 EasyTier 崩溃（GuestEasytierCrash）";
-        case 3: return @"房主端 EasyTier 崩溃（HostEasytierCrash）";
-        case 4: return @"MC 服务器拒绝连接（PingServerRst）";
-        case 5: return @"Scaffolding 协议返回非法数据";
-        default: return [NSString stringWithFormat:@"未知错误（type=%ld）", (long)type];
+        case 0: return localize(@"i18n_str_989", nil);
+        case 1: return localize(@"i18n_str_990", nil);
+        case 2: return localize(@"i18n_str_991", nil);
+        case 3: return localize(@"i18n_str_992", nil);
+        case 4: return localize(@"i18n_str_993", nil);
+        case 5: return localize(@"i18n_str_994", nil);
+        default: return [NSString stringWithFormat:localize(@"i18n_str_995", nil), (long)type];
     }
 }
 

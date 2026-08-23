@@ -1,3 +1,4 @@
+#import "utils.h"
 // ShaderVersionTableViewCell.m
 // 参照 FCL/ZL2 的版本列表行设计，增强视觉层次（与 ModVersionTableViewCell 统一）：
 // - 圆角卡片容器（14pt 圆角 + 浅阴影 + 半透明背景）
@@ -280,7 +281,7 @@
         displayFormatter.timeStyle = NSDateFormatterNoStyle;
         self.datePublishedLabel.text = [displayFormatter stringFromDate:date];
     } else {
-        self.datePublishedLabel.text = @"未知日期";
+        self.datePublishedLabel.text = localize(@"i18n_str_460", nil);
     }
 
     // 文件大小（优先 primaryFile[@"size"]，其次 fileSize 属性，最后回退未知）
@@ -289,7 +290,7 @@
     } else if (version.fileSize && [version.fileSize longValue] > 0) {
         self.fileSizeLabel.text = [NSByteCountFormatter stringFromByteCount:[version.fileSize longValue] countStyle:NSByteCountFormatterCountStyleFile];
     } else {
-        self.fileSizeLabel.text = @"未知大小";
+        self.fileSizeLabel.text = localize(@"i18n_str_461", nil);
     }
 
     // 游戏版本兼容
