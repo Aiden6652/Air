@@ -1387,7 +1387,7 @@
     BOOL isVanilla = [self isVanillaProfile];
     NSString *message = nil;
     if (isVanilla) {
-        NSString *fmt = [[[[[[localize(@"i18n_str_906", nil)
+        NSString *fmt = [[[[[localize(@"i18n_str_906", nil)
                               stringByAppendingString:localize(@"i18n_str_907", nil)]
                              stringByAppendingString:localize(@"i18n_str_2006", nil)]
                             stringByAppendingString:localize(@"i18n_str_2007", nil)]
