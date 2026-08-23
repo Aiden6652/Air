@@ -1177,12 +1177,12 @@
     NSString *currentInstance = getPrefObject(@"general.game_directory") ?: @"default";
 
     UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"游戏目录"
+        alertControllerWithTitle:localize(@"i18n_str_2004", nil)
                          message:[NSString stringWithFormat:
-                                  localize(@"i18n_str_897", nil)
-                                   "\".\" = 使用当前游戏目录切换选中的实例（%@）\n"
-                                   "相对路径 = 相对于当前游戏目录的子目录（用于版本隔离）\n"
-                                   "绝对路径 = 使用指定路径",
+                                  [[[localize(@"i18n_str_897", nil)
+                                      stringByAppendingString:localize(@"i18n_str_2010", nil)]
+                                     stringByAppendingString:localize(@"i18n_str_2011", nil)]
+                                    stringByAppendingString:localize(@"i18n_str_2012", nil)],
                                   currentInstance]
                   preferredStyle:UIAlertControllerStyleAlert];
 
@@ -1387,18 +1387,18 @@
     BOOL isVanilla = [self isVanillaProfile];
     NSString *message = nil;
     if (isVanilla) {
-        message = [NSString stringWithFormat:
-                   localize(@"i18n_str_906", nil)
-                   localize(@"i18n_str_907", nil)
-                   @"  • 创建独立版本：%@-OptiFine_xxx\n"
-                   @"  • 通过 launchwrapper + optifine.OptiFineTweaker 加载\n"
-                   @"  • 安装完成后会自动切换到新版本\n\n"
-                   localize(@"i18n_str_911", nil), gameVersion, gameVersion, gameVersion];
+        NSString *fmt = [[[[[[localize(@"i18n_str_906", nil)
+                              stringByAppendingString:localize(@"i18n_str_907", nil)]
+                             stringByAppendingString:localize(@"i18n_str_2006", nil)]
+                            stringByAppendingString:localize(@"i18n_str_2007", nil)]
+                           stringByAppendingString:localize(@"i18n_str_2008", nil)]
+                          stringByAppendingString:localize(@"i18n_str_911", nil)];
+        message = [NSString stringWithFormat:fmt, gameVersion, gameVersion, gameVersion];
     } else {
-        message = [NSString stringWithFormat:
-                   localize(@"i18n_str_906", nil)
-                   localize(@"i18n_str_912", nil)
-                   localize(@"i18n_str_913", nil), gameVersion, gameVersion];
+        NSString *fmt = [[localize(@"i18n_str_906", nil)
+                          stringByAppendingString:localize(@"i18n_str_912", nil)]
+                         stringByAppendingString:localize(@"i18n_str_913", nil)];
+        message = [NSString stringWithFormat:fmt, gameVersion, gameVersion];
     }
 
     UIAlertController *confirm = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_914", nil)

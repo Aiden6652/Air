@@ -1865,3 +1865,11 @@
 "i18n_str_2001" = "Some parts of the interface are machine-translated and may not be perfectly accurate. If you spot any mistakes, you are welcome to submit a translation PR!";
 "i18n_str_2002" = "Got It";
 "i18n_str_2003" = "Don't Ask Again";
+
+"i18n_str_2004" = "Game Directory";
+"i18n_str_2006" = "  • Create a standalone version: %@-OptiFine_xxx\n";
+"i18n_str_2007" = "  • Loaded via launchwrapper + optifine.OptiFineTweaker\n";
+"i18n_str_2008" = "  • Switches to the new version automatically after installation\n\n";
+"i18n_str_2010" = "\".\" = use the instance directory selected by the game-directory switcher (%@)\n";
+"i18n_str_2011" = "Relative path = a subdirectory relative to the current game directory (for version isolation)\n";
+"i18n_str_2012" = "Absolute path = use the specified path";
