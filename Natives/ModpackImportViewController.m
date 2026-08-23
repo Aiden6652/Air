@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  ModpackImportViewController.m
 //  Amethyst
@@ -45,7 +46,7 @@
     [super viewDidLoad];
     // 适配自定义启动器背景：将当前视图控制器透明化，使全局背景壁纸能够透出
     [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
-    self.title = @"整合包";
+    self.title = localize(@"i18n_str_118", nil);
 
     [[BackgroundManager sharedManager] applyEffectToView:self.view];
 
@@ -75,7 +76,7 @@
 #pragma mark - 顶部 Tab 切换（导入 / 导出）
 
 - (void)setupNavigationTab {
-    self.tabSegment = [[UISegmentedControl alloc] initWithItems:@[@"导入", @"导出"]];
+    self.tabSegment = [[UISegmentedControl alloc] initWithItems:@[localize(@"i18n_str_156", nil), localize(@"i18n_str_1298", nil)]];
     self.tabSegment.selectedSegmentIndex = 0;
     [self.tabSegment addTarget:self action:@selector(tabChanged:) forControlEvents:UIControlEventValueChanged];
 
@@ -113,7 +114,7 @@
     self.hintLabel.textColor = [UIColor secondaryLabelColor];
     self.hintLabel.font = [UIFont systemFontOfSize:12];
     self.hintLabel.numberOfLines = 0;
-    self.hintLabel.text = @"支持格式：Modrinth (.mrpack)、CurseForge (.zip)、MCBBS、MMC (MultiMC/Prism)、Plain ZIP（直接含 .minecraft）";
+    self.hintLabel.text = localize(@"i18n_str_566", nil);
     [self.headerContainerView addSubview:self.hintLabel];
 
     self.importButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -144,7 +145,7 @@
     self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.textColor = [UIColor secondaryLabelColor];
-    self.emptyLabel.text = @"还没有导入的整合包\n点击上方按钮导入";
+    self.emptyLabel.text = localize(@"i18n_str_568", nil);
     self.emptyLabel.numberOfLines = 0;
     self.emptyLabel.font = [UIFont systemFontOfSize:14];
     [self.view addSubview:self.emptyLabel];
@@ -261,18 +262,18 @@
     NSString *fileExtension = fileURL.pathExtension.lowercaseString;
 
     if (![fileExtension isEqualToString:@"mrpack"] && ![fileExtension isEqualToString:@"zip"]) {
-        [self showAlertWithTitle:@"无效的文件" message:@"请选择 .mrpack 或 .zip 文件"];
+        [self showAlertWithTitle:localize(@"i18n_str_569", nil) message:localize(@"i18n_str_570", nil)];
         return;
     }
 
     BOOL accessGranted = [fileURL startAccessingSecurityScopedResource];
     if (!accessGranted) {
-        [self showAlertWithTitle:@"访问被拒绝" message:@"无法访问选中的文件"];
+        [self showAlertWithTitle:localize(@"i18n_str_571", nil) message:localize(@"i18n_str_572", nil)];
         return;
     }
 
     // 解析阶段：轻量 HUD（本地 zip 读取，通常 < 1s）
-    [self showLoadingHUD:@"正在解析整合包..."];
+    [self showLoadingHUD:localize(@"i18n_str_255", nil)];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSError *error = nil;
@@ -282,7 +283,7 @@
             modpackInfo = [self.importService parseModpackAtURL:fileURL error:&error];
         } @catch (NSException *exception) {
             error = [NSError errorWithDomain:@"ModpackImportError" code:9999
-                                    userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"解析异常: %@", exception.reason]}];
+                                    userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_573", nil), exception.reason]}];
         }
 
         [fileURL stopAccessingSecurityScopedResource];
@@ -290,7 +291,7 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error || !modpackInfo) {
                 [self hideLoadingHUD];
-                [self showAlertWithTitle:@"解析失败" message:error.localizedDescription ?: @"无法解析整合包文件"];
+                [self showAlertWithTitle:localize(@"i18n_str_206", nil) message:error.localizedDescription ?: localize(@"i18n_str_574", nil)];
                 return;
             }
             self.currentImportingModpack = modpackInfo;
@@ -305,10 +306,10 @@
 #pragma mark - 整合包预览卡片（参照 FCL ModpackPreviewSheet / HMCL ModpackInfoPage）
 
 - (void)showModpackPreview:(NSDictionary *)modpackInfo fileURL:(NSURL *)fileURL {
-    NSString *name = modpackInfo[@"name"] ?: @"未知";
-    NSString *version = modpackInfo[@"version"] ?: @"未知";
+    NSString *name = modpackInfo[@"name"] ?: localize(@"i18n_str_121", nil);
+    NSString *version = modpackInfo[@"version"] ?: localize(@"i18n_str_121", nil);
     NSString *author = modpackInfo[@"author"] ?: @"";
-    NSString *mcVersion = modpackInfo[@"minecraftVersion"] ?: @"未知";
+    NSString *mcVersion = modpackInfo[@"minecraftVersion"] ?: localize(@"i18n_str_121", nil);
     NSString *loader = modpackInfo[@"loader"] ?: @"Vanilla";
     NSString *loaderVersion = modpackInfo[@"loaderVersion"] ?: @"";
     NSString *format = modpackInfo[@"format"] ?: @"unknown";
@@ -320,47 +321,47 @@
     NSDictionary *formatLabels = @{
         @"modrinth": @"Modrinth (.mrpack)",
         @"curseforge": @"CurseForge (.zip)",
-        @"mcbbs": @"MCBBS (社区标准)",
+        @"mcbbs": localize(@"i18n_str_575", nil),
         @"mmc": @"MMC (MultiMC/Prism)",
         @"plainzip": @"Plain ZIP (.minecraft)"
     };
     NSString *formatLabel = formatLabels[format] ?: format;
 
     NSMutableString *message = [NSMutableString string];
-    [message appendFormat:@"文件: %@\n", fileName];
-    [message appendFormat:@"格式: %@\n", formatLabel];
-    [message appendFormat:@"名称: %@\n", name];
-    [message appendFormat:@"版本: %@", version];
+    [message appendFormat:localize(@"i18n_str_576", nil), fileName];
+    [message appendFormat:localize(@"i18n_str_577", nil), formatLabel];
+    [message appendFormat:localize(@"i18n_str_578", nil), name];
+    [message appendFormat:localize(@"i18n_str_579", nil), version];
     if (author.length > 0) {
         [message appendFormat:@"   作者: %@", author];
     }
     [message appendString:@"\n"];
     [message appendFormat:@"Minecraft: %@\n", mcVersion];
-    [message appendFormat:@"加载器: %@", loader];
+    [message appendFormat:localize(@"i18n_str_581", nil), loader];
     if (loaderVersion.length > 0) {
         [message appendFormat:@" %@", loaderVersion];
     }
     [message appendString:@"\n"];
 
     if (modCountNum && modCountNum.integerValue > 0) {
-        [message appendFormat:@"需下载模组: %ld 个\n", (long)modCountNum.integerValue];
+        [message appendFormat:localize(@"i18n_str_582", nil), (long)modCountNum.integerValue];
     }
     if (fileCountNum && fileCountNum.integerValue > 0) {
-        [message appendFormat:@"需解压文件: %ld 个\n", (long)fileCountNum.integerValue];
+        [message appendFormat:localize(@"i18n_str_583", nil), (long)fileCountNum.integerValue];
     }
 
     // Forge/NeoForge 警告
     if ([loader isEqualToString:@"Forge"] || [loader isEqualToString:@"NeoForge"]) {
-        [message appendFormat:@"\n⚠️ 注意: %@ %@ 加载器需通过下载界面手动安装，否则启动会失败。", loader, loaderVersion];
+        [message appendFormat:localize(@"i18n_str_584", nil), loader, loaderVersion];
     }
 
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入整合包"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_585", nil)
                                                                    message:message
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
         self.currentImportingModpack = nil;
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"导入" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_156", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         [self startModpackImport:modpackInfo];
     }]];
 
@@ -393,7 +394,7 @@
             } error:&error];
         } @catch (NSException *exception) {
             error = [NSError errorWithDomain:@"ModpackImportError" code:9998
-                                    userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"导入异常: %@", exception.reason]}];
+                                    userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_586", nil), exception.reason]}];
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -406,7 +407,7 @@
 
             if (wasCancelled) {
                 self.currentImportingModpack = nil;
-                [self showAlertWithTitle:@"已取消" message:@"导入已取消"];
+                [self showAlertWithTitle:localize(@"i18n_str_127", nil) message:localize(@"i18n_str_525", nil)];
                 return;
             }
 
@@ -416,23 +417,23 @@
             } else {
                 // 阶段5修复（参照 FCL）：错误消息中追加失败文件列表（如有），
                 // 让用户清楚知道是哪些 mod 下载失败，而不是只看到一个笼统的错误。
-                NSString *message = error.localizedDescription ?: @"未知错误";
+                NSString *message = error.localizedDescription ?: localize(@"i18n_str_97", nil);
                 NSArray<NSDictionary *> *failed = self.importService.failedFiles;
                 if (failed.count > 0) {
                     NSMutableString *msg = [NSMutableString stringWithString:message];
-                    [msg appendFormat:@"\n\n失败文件（共 %lu 个）：", (unsigned long)failed.count];
+                    [msg appendFormat:localize(@"i18n_str_587", nil), (unsigned long)failed.count];
                     NSUInteger showCount = MIN(failed.count, (NSUInteger)5);
                     for (NSUInteger k = 0; k < showCount; k++) {
                         NSString *n = failed[k][@"fileName"] ?: failed[k][@"name"];
                         [msg appendFormat:@"\n  • %@", n ?: @"(unknown)"];
                     }
                     if (failed.count > showCount) {
-                        [msg appendFormat:@"\n  ...等共 %lu 个", (unsigned long)failed.count];
+                        [msg appendFormat:localize(@"i18n_str_450", nil), (unsigned long)failed.count];
                     }
                     message = [msg copy];
                 }
                 self.currentImportingModpack = nil;
-                [self showAlertWithTitle:@"导入失败" message:message];
+                [self showAlertWithTitle:localize(@"i18n_str_263", nil) message:message];
             }
         });
     });
@@ -441,34 +442,34 @@
 - (void)showImportSuccess:(NSDictionary *)modpackInfo {
     NSString *loader = modpackInfo[@"loader"];
     NSString *name = modpackInfo[@"name"];
-    NSMutableString *msg = [NSMutableString stringWithFormat:@"整合包 '%@' 已成功导入。", name];
+    NSMutableString *msg = [NSMutableString stringWithFormat:localize(@"i18n_str_588", nil), name];
     if ([loader isEqualToString:@"Forge"] || [loader isEqualToString:@"NeoForge"]) {
-        [msg appendFormat:@"\n\n注意: 此整合包使用 %@ %@ 加载器，请先通过下载界面手动安装该加载器版本，否则启动会失败。", loader, modpackInfo[@"loaderVersion"]];
+        [msg appendFormat:localize(@"i18n_str_589", nil), loader, modpackInfo[@"loaderVersion"]];
     }
 
     // Task 5.2：成功结果中明确列出被跳过的文件（404/server-only 等），
     // 让用户知晓整合包可能不完整（此前仅在控制台日志可见）。
     NSArray<NSDictionary *> *skipped = [self.importService skippedDownloadFiles];
     if (skipped.count > 0) {
-        [msg appendFormat:@"\n\n跳过文件（共 %lu 个，源上不存在或仅服务端适用）：", (unsigned long)skipped.count];
+        [msg appendFormat:localize(@"i18n_str_590", nil), (unsigned long)skipped.count];
         NSUInteger showCount = MIN(skipped.count, (NSUInteger)5);
         for (NSUInteger k = 0; k < showCount; k++) {
             NSString *n = skipped[k][@"fileName"] ?: @"(unknown)";
             [msg appendFormat:@"\n  • %@", n];
         }
         if (skipped.count > showCount) {
-            [msg appendFormat:@"\n  ...等共 %lu 个", (unsigned long)skipped.count];
+            [msg appendFormat:localize(@"i18n_str_450", nil), (unsigned long)skipped.count];
         }
     }
     NSString *finalMsg = [msg copy];
 
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入成功"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_591", nil)
                                                                    message:finalMsg
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_141", nil) style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
         [self loadImportedModpacks];
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"立即启动" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_592", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         [self loadImportedModpacks];
         [self launchModpack:modpackInfo];
     }]];
@@ -501,9 +502,9 @@
     }
 
     NSDictionary *modpack = self.importedModpacks[indexPath.row];
-    NSString *name = modpack[@"name"] ?: @"未知";
-    NSString *mcVersion = modpack[@"minecraftVersion"] ?: @"未知";
-    NSString *loader = modpack[@"loader"] ?: @"未知";
+    NSString *name = modpack[@"name"] ?: localize(@"i18n_str_121", nil);
+    NSString *mcVersion = modpack[@"minecraftVersion"] ?: localize(@"i18n_str_121", nil);
+    NSString *loader = modpack[@"loader"] ?: localize(@"i18n_str_121", nil);
 
     cell.textLabel.text = name;
     cell.detailTextLabel.text = [NSString stringWithFormat:@"Minecraft %@ - %@", mcVersion, loader];
@@ -556,10 +557,10 @@
 
 - (void)showModpackOptions:(NSDictionary *)modpack {
     UIAlertController *actionSheet = [UIAlertController alertControllerWithTitle:modpack[@"name"] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    [actionSheet addAction:[UIAlertAction actionWithTitle:@"启动整合包" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+    [actionSheet addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_593", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         [self launchModpack:modpack];
     }]];
-    [actionSheet addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+    [actionSheet addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_306", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
         [self deleteModpack:modpack];
     }]];
     [actionSheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -575,17 +576,17 @@
     NSString *profileName = modpack[@"profileName"];
     if (profileName && PLProfiles.current.profiles[profileName]) {
         PLProfiles.current.selectedProfileName = profileName;
-        [self showAlertWithTitle:@"配置文件已选择" message:[NSString stringWithFormat:@"已切换到整合包配置文件: %@", profileName]];
+        [self showAlertWithTitle:localize(@"i18n_str_594", nil) message:[NSString stringWithFormat:localize(@"i18n_str_595", nil), profileName]];
     } else {
-        [self showAlertWithTitle:@"错误" message:@"找不到整合包配置文件"];
+        [self showAlertWithTitle:localize(@"i18n_str_42", nil) message:localize(@"i18n_str_596", nil)];
     }
 }
 
 - (void)deleteModpack:(NSDictionary *)modpack {
-    UIAlertController *confirm = [UIAlertController alertControllerWithTitle:@"确认删除" message:[NSString stringWithFormat:@"删除整合包 '%@'？此操作无法撤销。", modpack[@"name"]] preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *confirm = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_457", nil) message:[NSString stringWithFormat:localize(@"i18n_str_597", nil), modpack[@"name"]] preferredStyle:UIAlertControllerStyleAlert];
     [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [confirm addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-        [self showLoadingHUD:@"正在删除整合包..."];
+    [confirm addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_306", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        [self showLoadingHUD:localize(@"i18n_str_598", nil)];
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             NSError *error = nil;
             BOOL success = [self.importService deleteModpack:modpack error:&error];
@@ -594,7 +595,7 @@
                 if (success) {
                     [self loadImportedModpacks];
                 } else {
-                    [self showAlertWithTitle:@"删除失败" message:error.localizedDescription];
+                    [self showAlertWithTitle:localize(@"i18n_str_458", nil) message:error.localizedDescription];
                 }
             });
         });
@@ -610,7 +611,7 @@
 
 - (void)showAlertWithTitle:(NSString *)title message:(NSString *)message completion:(void (^ _Nullable)(void))completion {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         if (completion) completion();
     }]];
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {

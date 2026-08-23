@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "DownloadTaskManager.h"
 #import "DownloadHistoryStore.h"
 #import "PLDownloadClient.h"
@@ -735,7 +736,7 @@ static const NSTimeInterval kUIProgressNotifyThrottleInterval = 0.2;
                            completion:(void (^)(BOOL shouldRecreate, BOOL supportsResume, NSError * _Nullable error))completion {
     if (!completion) return;
     if (!taskId || !source) {
-        completion(YES, NO, [NSError errorWithDomain:@"DownloadTaskManager" code:1 userInfo:@{NSLocalizedDescriptionKey: @"参数无效"}]);
+        completion(YES, NO, [NSError errorWithDomain:@"DownloadTaskManager" code:1 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_122", nil)}]);
         return;
     }
 
@@ -748,7 +749,7 @@ static const NSTimeInterval kUIProgressNotifyThrottleInterval = 0.2;
     [self.lock unlock];
 
     if (!item) {
-        completion(YES, NO, [NSError errorWithDomain:@"DownloadTaskManager" code:2 userInfo:@{NSLocalizedDescriptionKey: @"任务不存在"}]);
+        completion(YES, NO, [NSError errorWithDomain:@"DownloadTaskManager" code:2 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_123", nil)}]);
         return;
     }
 

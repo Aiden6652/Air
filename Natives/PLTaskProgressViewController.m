@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "PLTaskProgressViewController.h"
 #import "DownloadTaskItem.h"
 #import "DownloadTaskManager.h"
@@ -54,24 +55,24 @@ static NSString *PLFormatDuration(NSTimeInterval seconds) {
     if (seconds < 1.0 || seconds > 86400.0) return nil;
     NSInteger total = (NSInteger)ceil(seconds);
     if (total < 60) {
-        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.seconds", @"%ld 秒"), (long)total];
+        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.seconds", localize(@"i18n_str_1299", nil)), (long)total];
     }
     NSInteger minutes = total / 60;
     NSInteger secs = total % 60;
     if (minutes < 60) {
         if (secs > 0) {
-            return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.minutesSeconds", @"%1$ld 分 %2$ld 秒"),
+            return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.minutesSeconds", localize(@"i18n_str_1300", nil)),
                     (long)minutes, (long)secs];
         }
-        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.minutes", @"%ld 分"), (long)minutes];
+        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.minutes", localize(@"i18n_str_1301", nil)), (long)minutes];
     }
     NSInteger hours = minutes / 60;
     minutes = minutes % 60;
     if (minutes > 0) {
-        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.hoursMinutes", @"%1$ld 小时 %2$ld 分"),
+        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.hoursMinutes", localize(@"i18n_str_1302", nil)),
                 (long)hours, (long)minutes];
     }
-    return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.hours", @"%ld 小时"), (long)hours];
+    return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.hours", localize(@"i18n_str_1303", nil)), (long)hours];
 }
 
 #pragma mark - 不确定进度流动指示（CAGradientLayer 位移动画）
@@ -190,7 +191,7 @@ static NSString *PLFormatDuration(NSTimeInterval seconds) {
     self.runningBadgeLabel.layer.cornerRadius = 4.0;
     self.runningBadgeLabel.layer.masksToBounds = YES;
     self.runningBadgeLabel.textAlignment = NSTextAlignmentCenter;
-    self.runningBadgeLabel.text = PLTaskProgressText(@"taskProgress.stage.running", @"进行中");
+    self.runningBadgeLabel.text = PLTaskProgressText(@"taskProgress.stage.running", localize(@"i18n_str_1265", nil));
     self.runningBadgeLabel.hidden = YES;
     [self.runningBadgeLabel setContentHuggingPriority:251 forAxis:UILayoutConstraintAxisHorizontal];
     [self.runningBadgeLabel setContentCompressionResistancePriority:752 forAxis:UILayoutConstraintAxisHorizontal];
@@ -374,12 +375,12 @@ static NSString *PLFormatDuration(NSTimeInterval seconds) {
     BOOL hasFileCount = (stage.totalFileCount > 0);
     BOOL hasBytes = (task.totalSize > 0);
     if (hasFileCount && hasBytes) {
-        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.fileCount.format", @"%1$ld/%2$ld 个文件 · %3$@/%4$@"),
+        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.fileCount.format", localize(@"i18n_str_1304", nil)),
                 (long)stage.completedFileCount, (long)stage.totalFileCount,
                 PLFormatBytes(task.downloadedSize), PLFormatBytes(task.totalSize)];
     }
     if (hasFileCount) {
-        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.fileCount.onlyCount", @"%1$ld/%2$ld 个文件"),
+        return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.fileCount.onlyCount", localize(@"i18n_str_1305", nil)),
                 (long)stage.completedFileCount, (long)stage.totalFileCount];
     }
     if (hasBytes) {
@@ -402,7 +403,7 @@ static NSString *PLFormatDuration(NSTimeInterval seconds) {
     }
     NSString *duration = PLFormatDuration(eta);
     if (!duration) return nil;
-    return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.format", @"剩余约 %1$@"), duration];
+    return [NSString stringWithFormat:PLTaskProgressText(@"taskProgress.eta.format", localize(@"i18n_str_1306", nil)), duration];
 }
 
 @end
@@ -607,7 +608,7 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
     self.errorDetailTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.errorDetailTitleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     self.errorDetailTitleLabel.textColor = [UIColor labelColor];
-    self.errorDetailTitleLabel.text = PLTaskProgressText(@"taskProgress.errorDetail.title", @"错误详情");
+    self.errorDetailTitleLabel.text = PLTaskProgressText(@"taskProgress.errorDetail.title", localize(@"i18n_str_1307", nil));
     [self.errorDetailContainer addSubview:self.errorDetailTitleLabel];
 
     self.errorDetailBodyLabel = [[UILabel alloc] init];
@@ -646,7 +647,7 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
     self.totalTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.totalTitleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     self.totalTitleLabel.textColor = [UIColor secondaryLabelColor];
-    self.totalTitleLabel.text = PLTaskProgressText(@"taskProgress.total.title", @"总进度");
+    self.totalTitleLabel.text = PLTaskProgressText(@"taskProgress.total.title", localize(@"i18n_str_1308", nil));
     [totalCard addSubview:self.totalTitleLabel];
 
     self.totalValueLabel = [[UILabel alloc] init];
@@ -679,7 +680,7 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
 
     self.minimizeButton = [self makeFooterButton];
     self.minimizeButton.backgroundColor = [UIColor systemGrayColor];
-    [self.minimizeButton setTitle:PLTaskProgressText(@"taskProgress.button.minimize", @"最小化") forState:UIControlStateNormal];
+    [self.minimizeButton setTitle:PLTaskProgressText(@"taskProgress.button.minimize", localize(@"i18n_str_1309", nil)) forState:UIControlStateNormal];
     [self.minimizeButton addTarget:self action:@selector(minimizeTapped) forControlEvents:UIControlEventTouchUpInside];
 
     UIView *spacer = [[UIView alloc] init];
@@ -937,16 +938,16 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
 
 - (NSString *)categoryNameForType:(NSString *)type {
     NSDictionary *map = @{
-        DownloadTaskResourceTypeMinecraft: @"MC 本体",
-        DownloadTaskResourceTypeModloader: @"加载器",
+        DownloadTaskResourceTypeMinecraft: localize(@"i18n_str_113", nil),
+        DownloadTaskResourceTypeModloader: localize(@"i18n_str_114", nil),
         DownloadTaskResourceTypeMod: @"Mod",
-        DownloadTaskResourceTypeShader: @"光影包",
-        DownloadTaskResourceTypeResourcePack: @"资源包",
-        DownloadTaskResourceTypeDataPack: @"数据包",
-        DownloadTaskResourceTypeModpack: @"整合包",
-        DownloadTaskResourceTypeJavaRuntime: @"Java 运行时"
+        DownloadTaskResourceTypeShader: localize(@"i18n_str_115", nil),
+        DownloadTaskResourceTypeResourcePack: localize(@"i18n_str_116", nil),
+        DownloadTaskResourceTypeDataPack: localize(@"i18n_str_117", nil),
+        DownloadTaskResourceTypeModpack: localize(@"i18n_str_118", nil),
+        DownloadTaskResourceTypeJavaRuntime: localize(@"i18n_str_120", nil)
     };
-    return map[type] ?: type ?: @"未知";
+    return map[type] ?: type ?: localize(@"i18n_str_121", nil);
 }
 
 - (NSString *)iconNameForType:(NSString *)type {
@@ -966,17 +967,17 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
 - (NSString *)stateTextForTask:(DownloadTaskItem *)task {
     switch (task.state) {
         case DownloadTaskStatePending:
-            return PLTaskProgressText(@"taskProgress.state.pending", @"等待中");
+            return PLTaskProgressText(@"taskProgress.state.pending", localize(@"i18n_str_124", nil));
         case DownloadTaskStateDownloading:
-            return PLTaskProgressText(@"taskProgress.state.downloading", @"下载中");
+            return PLTaskProgressText(@"taskProgress.state.downloading", localize(@"i18n_str_138", nil));
         case DownloadTaskStatePaused:
-            return PLTaskProgressText(@"taskProgress.state.paused", @"已暂停");
+            return PLTaskProgressText(@"taskProgress.state.paused", localize(@"i18n_str_125", nil));
         case DownloadTaskStateCompleted:
-            return PLTaskProgressText(@"taskProgress.state.completed", @"已完成");
+            return PLTaskProgressText(@"taskProgress.state.completed", localize(@"i18n_str_126", nil));
         case DownloadTaskStateCancelled:
-            return PLTaskProgressText(@"taskProgress.state.cancelled", @"已取消");
+            return PLTaskProgressText(@"taskProgress.state.cancelled", localize(@"i18n_str_127", nil));
         case DownloadTaskStateFailed:
-            return PLTaskProgressText(@"taskProgress.state.failed", @"失败");
+            return PLTaskProgressText(@"taskProgress.state.failed", localize(@"i18n_str_108", nil));
     }
 }
 
@@ -1064,18 +1065,18 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
     // 完整错误详情（可展开）：domain/code、底层错误、已重试次数、当前阶段名
     if (error) {
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
-        [lines addObject:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.errorDetail.domainCode", @"错误域：%1$@ (code %2$ld)"),
+        [lines addObject:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.errorDetail.domainCode", localize(@"i18n_str_1310", nil)),
                           error.domain ?: @"-", (long)error.code]];
         NSError *underlying = error.userInfo[NSUnderlyingErrorKey];
         if ([underlying isKindOfClass:[NSError class]] && underlying.localizedDescription.length > 0) {
-            [lines addObject:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.errorDetail.underlying", @"底层错误：%1$@"),
+            [lines addObject:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.errorDetail.underlying", localize(@"i18n_str_1311", nil)),
                               underlying.localizedDescription]];
         }
-        [lines addObject:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.errorDetail.retry", @"已重试：%1$ld/%2$ld"),
+        [lines addObject:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.errorDetail.retry", localize(@"i18n_str_1312", nil)),
                           (long)task.retryCount, (long)task.maxRetryCount]];
         NSString *stageName = [self failedStageDisplayNameForTask:task];
         if (stageName.length > 0) {
-            [lines addObject:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.errorDetail.stage", @"当前阶段：%1$@"),
+            [lines addObject:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.errorDetail.stage", localize(@"i18n_str_1313", nil)),
                               stageName]];
         }
         self.errorDetailBodyLabel.text = [lines componentsJoinedByString:@"\n"];
@@ -1103,8 +1104,8 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
 
 - (void)updateDetailToggleTitle {
     NSString *title = self.errorDetailExpanded
-        ? PLTaskProgressText(@"taskProgress.button.hideDetail", @"收起详情")
-        : PLTaskProgressText(@"taskProgress.button.viewDetail", @"查看详情");
+        ? PLTaskProgressText(@"taskProgress.button.hideDetail", localize(@"i18n_str_1314", nil))
+        : PLTaskProgressText(@"taskProgress.button.viewDetail", localize(@"i18n_str_19", nil));
     [self.detailToggleButton setTitle:title forState:UIControlStateNormal];
 }
 
@@ -1129,7 +1130,7 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
         self.totalProgressView.hidden = YES;
         self.totalFlowView.hidden = NO;
         [self.totalFlowView startFlowing];
-        self.totalValueLabel.text = rateText ?: PLTaskProgressText(@"taskProgress.total.indeterminate", @"进行中");
+        self.totalValueLabel.text = rateText ?: PLTaskProgressText(@"taskProgress.total.indeterminate", localize(@"i18n_str_1265", nil));
     }
 }
 
@@ -1187,11 +1188,11 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
     NSString *pauseResumeTitle = nil;
     if (task.state == DownloadTaskStateDownloading || task.state == DownloadTaskStatePending) {
         if (task.supportsResume) {
-            pauseResumeTitle = PLTaskProgressText(@"taskProgress.button.pause", @"暂停");
+            pauseResumeTitle = PLTaskProgressText(@"taskProgress.button.pause", localize(@"i18n_str_128", nil));
         }
     } else if (task.state == DownloadTaskStatePaused) {
         if (task.supportsResume) {
-            pauseResumeTitle = PLTaskProgressText(@"taskProgress.button.resume", @"继续");
+            pauseResumeTitle = PLTaskProgressText(@"taskProgress.button.resume", localize(@"i18n_str_129", nil));
         }
     }
     self.pauseResumeButton.hidden = (pauseResumeTitle == nil);
@@ -1212,11 +1213,11 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
     self.retryButton.hidden = !showRetry;
     if (showRetry) {
         if (task.retryCount > 0) {
-            [self.retryButton setTitle:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.button.retryWithCount", @"重试 (%1$ld/%2$ld)"),
+            [self.retryButton setTitle:[NSString stringWithFormat:PLTaskProgressText(@"taskProgress.button.retryWithCount", localize(@"i18n_str_1315", nil)),
                                          (long)task.retryCount, (long)task.maxRetryCount]
                               forState:UIControlStateNormal];
         } else {
-            [self.retryButton setTitle:PLTaskProgressText(@"taskProgress.button.retry", @"重试") forState:UIControlStateNormal];
+            [self.retryButton setTitle:PLTaskProgressText(@"taskProgress.button.retry", localize(@"i18n_str_21", nil)) forState:UIControlStateNormal];
         }
     }
 

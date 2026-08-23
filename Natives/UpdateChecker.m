@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "UpdateChecker.h"
 #import <UIKit/UIKit.h>
 
@@ -34,7 +35,7 @@
     if (url == nil) {
         if (completion) dispatch_async(dispatch_get_main_queue(), ^{
             completion(nil, [NSError errorWithDomain:@"UpdateChecker" code:-1
-                                         userInfo:@{NSLocalizedDescriptionKey: @"无效的 URL"}]);
+                                         userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1048", nil)}]);
         });
         return;
     }
@@ -60,7 +61,7 @@
             if (completion) dispatch_async(dispatch_get_main_queue(), ^{
                 completion(nil, [NSError errorWithDomain:@"UpdateChecker" code:httpResp.statusCode
                                              userInfo:@{NSLocalizedDescriptionKey:
-                                                [NSString stringWithFormat:@"GitHub API 返回 %ld", (long)httpResp.statusCode]}]);
+                                                [NSString stringWithFormat:localize(@"i18n_str_1049", nil), (long)httpResp.statusCode]}]);
             });
             return;
         }
@@ -70,7 +71,7 @@
         if (![json isKindOfClass:[NSDictionary class]]) {
             if (completion) dispatch_async(dispatch_get_main_queue(), ^{
                 completion(nil, [NSError errorWithDomain:@"UpdateChecker" code:-2
-                                             userInfo:@{NSLocalizedDescriptionKey: @"JSON 解析失败"}]);
+                                             userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_444", nil)}]);
             });
             return;
         }
@@ -79,7 +80,7 @@
         if (info == nil) {
             if (completion) dispatch_async(dispatch_get_main_queue(), ^{
                 completion(nil, [NSError errorWithDomain:@"UpdateChecker" code:-3
-                                             userInfo:@{NSLocalizedDescriptionKey: @"无法解析 release 信息"}]);
+                                             userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1050", nil)}]);
             });
             return;
         }

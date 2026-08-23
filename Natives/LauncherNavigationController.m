@@ -399,10 +399,10 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         self.downloadCenterProgressLabel.text = [NSString stringWithFormat:@"%ld%%", (long)percent];
         [self.downloadCenterActivityIndicator startAnimating];
     } else if (allCompleted) {
-        self.downloadCenterProgressLabel.text = @"完成";
+        self.downloadCenterProgressLabel.text = localize(@"i18n_str_323", nil);
         [self.downloadCenterActivityIndicator stopAnimating];
     } else {
-        self.downloadCenterProgressLabel.text = @"暂停";
+        self.downloadCenterProgressLabel.text = localize(@"i18n_str_128", nil);
         [self.downloadCenterActivityIndicator stopAnimating];
     }
 }
@@ -438,7 +438,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     if (!vc.requiredJavaVersion) {
         // 解析失败（manifest 缺失/主类非法）时明确提示，避免静默 return 让用户以为安装器已启动
         showDialog(localize(@"Error", nil),
-            [NSString stringWithFormat:@"无法解析安装器主类或 Java 版本：%@", path.lastPathComponent]);
+            [NSString stringWithFormat:localize(@"i18n_str_221", nil), path.lastPathComponent]);
         return;
     }
     // execute_jar 路径：Caciocavallo17 jar 现已统一为 Java 17 编译版本，
@@ -452,7 +452,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     NSString *javaHome = getSelectedJavaHome(@"execute_jar", requiredJavaVersion);
     if (!javaHome) {
         showDialog(localize(@"Error", nil),
-            [NSString stringWithFormat:@"执行 JAR 需要 Java %d 或更高版本，但未配置对应的运行时。\n\n请到「设置 → 管理运行时」中为「执行 Jar」标签分配一个 Java %d+ 的运行时。", requiredJavaVersion, requiredJavaVersion]);
+            [NSString stringWithFormat:localize(@"i18n_str_222", nil), requiredJavaVersion, requiredJavaVersion]);
         return;
     }
     [self invokeAfterJITEnabled:^{

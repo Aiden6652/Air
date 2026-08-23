@@ -498,7 +498,7 @@ static NSError* createError(NSString *message, NSInteger code) {
             if (![response isKindOfClass:[NSDictionary class]] ||
                 !response[@"accessToken"] || !response[@"clientToken"] ||
                 !response[@"selectedProfile"]) {
-                NSError *error = createError(@"绑定角色失败：服务器返回缺少 selectedProfile", 1020);
+                NSError *error = createError(localize(@"i18n_str_1106", nil), 1020);
                 callback(error, NO);
                 return;
             }
@@ -506,7 +506,7 @@ static NSError* createError(NSString *message, NSInteger code) {
             NSDictionary *boundProfile = response[@"selectedProfile"];
             // 校验绑定的角色与请求选择的角色一致
             if (![boundProfile[@"id"] isEqualToString:profileToSelect[@"id"]]) {
-                NSError *error = createError(@"绑定角色失败：服务器返回的角色与请求不一致", 1021);
+                NSError *error = createError(localize(@"i18n_str_1107", nil), 1021);
                 callback(error, NO);
                 return;
             }
@@ -534,12 +534,12 @@ static NSError* createError(NSString *message, NSInteger code) {
             // 异步获取头像（与单角色路径一致）
             [weakSelf fetchProfileTextureWithCallback:callback];
         } @catch (NSException *exception) {
-            NSError *error = createError([NSString stringWithFormat:@"解析 refresh 响应异常: %@", exception.reason], 1022);
+            NSError *error = createError([NSString stringWithFormat:localize(@"i18n_str_1108", nil), exception.reason], 1022);
             callback(error, NO);
         }
     } failure:^(NSURLSessionDataTask *task, NSError *error) {
         NSString *errMsg = [self parseErrorMessageFromError:error];
-        NSError *callbackError = createError(errMsg ?: @"绑定角色失败", 1023);
+        NSError *callbackError = createError(errMsg ?: localize(@"i18n_str_1109", nil), 1023);
         callback(callbackError, NO);
     }];
 }
@@ -657,7 +657,7 @@ static NSError* createError(NSString *message, NSInteger code) {
 
             if (!selectedProfile) {
                 // 有 token 但无任何角色：账户未创建游戏角色
-                NSString *errMsg = @"该账户尚未创建游戏角色，请先在皮肤站创建角色后再登录";
+                NSString *errMsg = localize(@"i18n_str_1110", nil);
                 NSError *error = createError(errMsg, 1019);
                 callback(error, NO);
                 return;

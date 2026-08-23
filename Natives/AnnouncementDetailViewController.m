@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  AnnouncementDetailViewController.m
 //  Amethyst
@@ -128,7 +129,7 @@
 
     // 若有 actionURL 显示按钮
     if (self.item.actionURL.length > 0) {
-        NSString *title = self.item.actionTitle.length > 0 ? self.item.actionTitle : @"查看详情";
+        NSString *title = self.item.actionTitle.length > 0 ? self.item.actionTitle : localize(@"i18n_str_19", nil);
         [self.actionButton setTitle:title forState:UIControlStateNormal];
         self.actionButton.hidden = NO;
     } else {

@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  PLDownloadClient.m
 //  Amethyst
@@ -125,8 +126,8 @@ static NSError *_Nullable PLDownloadValidateFile(NSString *path, PLDownloadReque
         NSString *actual = PLDownloadSHA1HexForFile(path);
         if (!actual || ![actual.lowercaseString isEqualToString:request.expectedSHA1.lowercaseString]) {
             return PLDownloadErrorMake(PLDownloadClientErrorCodeChecksumMismatch,
-                [NSString stringWithFormat:@"SHA1 校验失败：期望 %@，实际 %@（%@）",
-                    request.expectedSHA1, actual ?: @"(无法读取)", path.lastPathComponent],
+                [NSString stringWithFormat:localize(@"i18n_str_832", nil),
+                    request.expectedSHA1, actual ?: localize(@"i18n_str_833", nil), path.lastPathComponent],
                 nil);
         }
         return nil;
@@ -136,7 +137,7 @@ static NSError *_Nullable PLDownloadValidateFile(NSString *path, PLDownloadReque
         if ([extension isEqualToString:@"zip"] || [extension isEqualToString:@"jar"]) {
             if (!PLDownloadZipHasEOCDAtPath(path)) {
                 return PLDownloadErrorMake(PLDownloadClientErrorCodeChecksumMismatch,
-                    [NSString stringWithFormat:@"zip 完整性校验失败：文件尾未找到 EOCD 签名（%@）",
+                    [NSString stringWithFormat:localize(@"i18n_str_834", nil),
                         path.lastPathComponent],
                     nil);
             }
@@ -404,7 +405,7 @@ expectedTotalBytes:(int64_t)expectedTotalBytes {
     // 参数校验（轻量，无 IO）
     if (!request || request.candidateURLs.count == 0 || request.destinationPath.length == 0) {
         NSError *error = PLDownloadErrorMake(PLDownloadClientErrorCodeInvalidParameter,
-            @"下载请求参数错误：candidateURLs 与 destinationPath 不能为空", nil);
+            localize(@"i18n_str_835", nil), nil);
         if (completion) {
             dispatch_async(self.stateQueue, ^{
                 completion(NO, error);
@@ -505,7 +506,7 @@ expectedTotalBytes:(int64_t)expectedTotalBytes {
         NSLog(@"[PLDownload] Cancel %@", op.request.destinationPath.lastPathComponent);
         NSError *cancelled = [NSError errorWithDomain:NSURLErrorDomain
                                                   code:NSURLErrorCancelled
-                                              userInfo:@{NSLocalizedDescriptionKey: @"下载已取消"}];
+                                              userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_836", nil)}];
         [self deliverCompletionForOperation:op success:NO error:cancelled];
     });
 }
@@ -565,7 +566,7 @@ expectedTotalBytes:(int64_t)expectedTotalBytes {
         // 理论不可达（URL 已过参数校验）；防御性走失败路径
         [self handleAttemptFailureForOperation:op
             error:PLDownloadErrorMake(PLDownloadClientErrorCodeInvalidParameter,
-                [NSString stringWithFormat:@"无法创建下载任务：%@", url.absoluteString], nil)];
+                [NSString stringWithFormat:localize(@"i18n_str_837", nil), url.absoluteString], nil)];
         return;
     }
 
@@ -622,7 +623,7 @@ expectedTotalBytes:(int64_t)expectedTotalBytes {
             // 理论不可达：didFinishDownloadingToURL 必先于本回调设置 .part 或错误
             [self handleAttemptFailureForOperation:op
                 error:PLDownloadErrorMake(PLDownloadClientErrorCodeNetworkFailure,
-                    @"下载数据缺失（未收到完成文件）", nil)];
+                    localize(@"i18n_str_838", nil), nil)];
             return;
         }
         // 完整性校验：SHA1 → zip EOCD 兜底
@@ -648,7 +649,7 @@ expectedTotalBytes:(int64_t)expectedTotalBytes {
     // 网络错误 → 失败处理（退避重试 / 切换候选 / 聚合失败）
     [self handleAttemptFailureForOperation:op
         error:PLDownloadErrorMake(PLDownloadClientErrorCodeNetworkFailure,
-            [NSString stringWithFormat:@"下载失败（%@）：%@",
+            [NSString stringWithFormat:localize(@"i18n_str_839", nil),
                 op.request.candidateURLs[op.urlIndex].absoluteString, error.localizedDescription],
             error)];
 }
@@ -712,7 +713,7 @@ expectedTotalBytes:(int64_t)expectedTotalBytes {
         }
     }
     NSError *aggregated = PLDownloadErrorMake(PLDownloadClientErrorCodeAllCandidatesExhausted,
-        [NSString stringWithFormat:@"所有 %lu 个下载地址均失败（每个地址已重试 %lu 次）",
+        [NSString stringWithFormat:localize(@"i18n_str_840", nil),
             (unsigned long)op.request.candidateURLs.count, (unsigned long)PLDownloadMaxRetryPerCandidate],
         nil);
     NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithDictionary:aggregated.userInfo];
@@ -788,7 +789,7 @@ didFinishDownloadingToURL:(NSURL *)location {
     [fileManager removeItemAtPath:partPath error:nil];
     if (![fileManager moveItemAtURL:location toURL:[NSURL fileURLWithPath:partPath] error:&moveError]) {
         op.pendingDownloadError = PLDownloadErrorMake(PLDownloadClientErrorCodeFileWriteFailure,
-            [NSString stringWithFormat:@"保存下载文件失败：%@", moveError.localizedDescription], moveError);
+            [NSString stringWithFormat:localize(@"i18n_str_841", nil), moveError.localizedDescription], moveError);
         op.pendingPartPath = nil;
         return;
     }
@@ -931,8 +932,8 @@ didCompleteWithError:(nullable NSError *)error {
     }
     if (!ok) {
         return PLDownloadErrorMake(PLDownloadClientErrorCodeFileWriteFailure,
-            [NSString stringWithFormat:@"写入目标文件失败：%@",
-                error.localizedDescription ?: @"(未知错误)"],
+            [NSString stringWithFormat:localize(@"i18n_str_842", nil),
+                error.localizedDescription ?: localize(@"i18n_str_843", nil)],
             error);
     }
     return nil;

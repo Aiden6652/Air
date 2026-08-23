@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  BackgroundManager.m
 //  Amethyst
@@ -957,7 +958,7 @@ static const NSInteger kDefaultBackgroundTag = 99995;
 - (void)setImageBackground:(UIImage *)image completion:(void (^)(BOOL success, NSError * _Nullable error))completion {
     if (!image) {
         if (completion) {
-            completion(NO, [NSError errorWithDomain:@"BackgroundManager" code:1 userInfo:@{NSLocalizedDescriptionKey: @"图片为空"}]);
+            completion(NO, [NSError errorWithDomain:@"BackgroundManager" code:1 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_48", nil)}]);
         }
         return;
     }
@@ -973,7 +974,7 @@ static const NSInteger kDefaultBackgroundTag = 99995;
         NSData *imageData = UIImageJPEGRepresentation(image, 0.85);
         if (!imageData) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (completion) completion(NO, [NSError errorWithDomain:@"BackgroundManager" code:2 userInfo:@{NSLocalizedDescriptionKey: @"图片压缩失败"}]);
+                if (completion) completion(NO, [NSError errorWithDomain:@"BackgroundManager" code:2 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_49", nil)}]);
             });
             return;
         }
@@ -997,7 +998,7 @@ static const NSInteger kDefaultBackgroundTag = 99995;
             });
         } else {
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (completion) completion(NO, [NSError errorWithDomain:@"BackgroundManager" code:3 userInfo:@{NSLocalizedDescriptionKey: @"保存图片失败"}]);
+                if (completion) completion(NO, [NSError errorWithDomain:@"BackgroundManager" code:3 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_50", nil)}]);
             });
         }
     });
@@ -1006,7 +1007,7 @@ static const NSInteger kDefaultBackgroundTag = 99995;
 - (void)setVideoBackgroundWithURL:(NSURL *)videoURL completion:(void (^)(BOOL success, NSError * _Nullable error))completion {
     if (!videoURL || ![[NSFileManager defaultManager] fileExistsAtPath:videoURL.path]) {
         if (completion) {
-            completion(NO, [NSError errorWithDomain:@"BackgroundManager" code:4 userInfo:@{NSLocalizedDescriptionKey: @"视频文件不存在"}]);
+            completion(NO, [NSError errorWithDomain:@"BackgroundManager" code:4 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_51", nil)}]);
         }
         return;
     }
@@ -1039,7 +1040,7 @@ static const NSInteger kDefaultBackgroundTag = 99995;
             });
         } else {
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (completion) completion(NO, copyError ?: [NSError errorWithDomain:@"BackgroundManager" code:5 userInfo:@{NSLocalizedDescriptionKey: @"复制视频失败"}]);
+                if (completion) completion(NO, copyError ?: [NSError errorWithDomain:@"BackgroundManager" code:5 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_52", nil)}]);
             });
         }
     });

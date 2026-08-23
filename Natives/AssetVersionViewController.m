@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  AssetVersionViewController.m
 //  Amethyst
@@ -30,9 +31,9 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
     dispatch_once(&onceToken, ^{
         items = @[
             @{ @"key": kSortRelevance, @"title": @"相关性" },
-            @{ @"key": kSortDownloads, @"title": @"下载量" },
-            @{ @"key": kSortUpdated,   @"title": @"最新更新" },
-            @{ @"key": kSortCreated,   @"title": @"创建时间" },
+            @{ @"key": kSortDownloads, @"title": localize(@"i18n_str_32", nil) },
+            @{ @"key": kSortUpdated,   @"title": localize(@"i18n_str_33", nil) },
+            @{ @"key": kSortCreated,   @"title": localize(@"i18n_str_34", nil) },
         ];
     });
     return items;
@@ -153,7 +154,7 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
 
     // 用 DownloadViewController 传入的项目展示信息填充
     [self.detailHeaderView configureWithIconURL:self.projectIconURL
-                                          title:self.projectDisplayName ?: @"未知项目"
+                                          title:self.projectDisplayName ?: localize(@"i18n_str_27", nil)
                                          author:self.projectAuthor
                                       downloads:self.projectDownloads
                                           likes:self.projectLikes
@@ -193,11 +194,11 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
 // 根据资产类型返回默认导航栏标题
 - (NSString *)titleForAssetType {
     switch (self.assetType) {
-        case AssetVersionTypeResourcePack: return @"选择资源包版本";
-        case AssetVersionTypeDataPack:     return @"选择数据包版本";
-        case AssetVersionTypeWorld:        return @"选择世界版本";
+        case AssetVersionTypeResourcePack: return localize(@"i18n_str_35", nil);
+        case AssetVersionTypeDataPack:     return localize(@"i18n_str_36", nil);
+        case AssetVersionTypeWorld:        return localize(@"i18n_str_37", nil);
     }
-    return @"选择版本";
+    return localize(@"i18n_str_38", nil);
 }
 
 #pragma mark - 侧边筛选面板（chips 筛选条，阶段3统一）
@@ -230,21 +231,21 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
         UIScrollView *scrollOut = nil;
         UIStackView *chipOut = nil;
         UIStackView *versionRow = [self createFilterRowWithIconName:@"gamecontroller.fill"
-                                                              label:@"版本"
+                                                              label:localize(@"i18n_str_39", nil)
                                                          scrollStackOut:&scrollOut
                                                            chipStackOut:&chipOut];
         self.versionScrollView = scrollOut;
         self.versionChipStack = chipOut;
         [self.filterMainStack addArrangedSubview:versionRow];
     }
-    [self addChipToStack:self.versionChipStack title:@"加载中..." selected:NO action:NULL];
+    [self addChipToStack:self.versionChipStack title:localize(@"i18n_str_40", nil) selected:NO action:NULL];
 
     // ----- 第 2 行：排序方式筛选（相关性 / 下载量 / 最新更新 / 创建时间）-----
     {
         UIScrollView *scrollOut = nil;
         UIStackView *chipOut = nil;
         UIStackView *sortRow = [self createFilterRowWithIconName:@"arrow.up.arrow.down"
-                                                           label:@"排序"
+                                                           label:localize(@"i18n_str_41", nil)
                                                       scrollStackOut:&scrollOut
                                                         chipStackOut:&chipOut];
         self.sortScrollView = scrollOut;
@@ -514,10 +515,10 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
             [self.activityIndicator stopAnimating];
             if (error) {
                 NSLog(@"[AssetVersionVC] Failed to fetch version list: %@", error);
-                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"错误"
-                                                                                message:@"无法获取版本信息"
+                UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_42", nil)
+                                                                                message:localize(@"i18n_str_43", nil)
                                                                          preferredStyle:UIAlertControllerStyleAlert];
-                [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+                [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:nil]];
                 [self presentViewController:alert animated:YES completion:nil];
                 return;
             }

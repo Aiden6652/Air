@@ -382,7 +382,7 @@ static ssize_t writeAll(int fd, const void *buf, size_t len) {
         if (error) {
             *error = [NSError errorWithDomain:kSOCKS5ProxyErrorDomain
                                           code:SOCKS5ProxyErrorCodeAlreadyRunning
-                                      userInfo:@{NSLocalizedDescriptionKey: @"SOCKS5 代理已在运行"}];
+                                      userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_952", nil)}];
         }
         return NO;
     }
@@ -395,7 +395,7 @@ static ssize_t writeAll(int fd, const void *buf, size_t len) {
         if (error) {
             *error = [NSError errorWithDomain:kSOCKS5ProxyErrorDomain
                                           code:SOCKS5ProxyErrorCodeFrameworkUnavailable
-                                      userInfo:@{NSLocalizedDescriptionKey: @"ZeroTier framework 不可用，无法启动 SOCKS5 代理"}];
+                                      userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_953", nil)}];
         }
         return NO;
     }
@@ -409,7 +409,7 @@ static ssize_t writeAll(int fd, const void *buf, size_t len) {
         if (error) {
             *error = [NSError errorWithDomain:kSOCKS5ProxyErrorDomain
                                           code:SOCKS5ProxyErrorCodeSocketCreateFailed
-                                      userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"创建 socket 失败 (errno=%d)", errno]}];
+                                      userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_954", nil), errno]}];
         }
         return NO;
     }
@@ -471,7 +471,7 @@ static ssize_t writeAll(int fd, const void *buf, size_t len) {
                     if (error) {
                         *error = [NSError errorWithDomain:kSOCKS5ProxyErrorDomain
                                                       code:SOCKS5ProxyErrorCodeSocketCreateFailed
-                                                  userInfo:@{NSLocalizedDescriptionKey: @"获取实际监听端口失败"}];
+                                                  userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_955", nil)}];
                     }
                     return NO;
                 }
@@ -499,7 +499,7 @@ static ssize_t writeAll(int fd, const void *buf, size_t len) {
             if (error) {
                 *error = [NSError errorWithDomain:kSOCKS5ProxyErrorDomain
                                               code:SOCKS5ProxyErrorCodeSocketCreateFailed
-                                          userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"创建 socket 失败 (errno=%d)", errno]}];
+                                          userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_954", nil), errno]}];
             }
             return NO;
         }
@@ -515,7 +515,7 @@ static ssize_t writeAll(int fd, const void *buf, size_t len) {
         if (error) {
             *error = [NSError errorWithDomain:kSOCKS5ProxyErrorDomain
                                           code:SOCKS5ProxyErrorCodeBindFailed
-                                      userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"绑定端口 %u 失败 (errno=%d)，且备用端口均不可用", port, lastBindErrno]}];
+                                      userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_956", nil), port, lastBindErrno]}];
         }
         return NO;
     }
@@ -528,7 +528,7 @@ static ssize_t writeAll(int fd, const void *buf, size_t len) {
         if (error) {
             *error = [NSError errorWithDomain:kSOCKS5ProxyErrorDomain
                                           code:SOCKS5ProxyErrorCodeListenFailed
-                                      userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"监听失败 (errno=%d)", errno]}];
+                                      userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_957", nil), errno]}];
         }
         return NO;
     }

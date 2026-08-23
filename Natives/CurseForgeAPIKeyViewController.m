@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  CurseForgeAPIKeyViewController.m
 //  Amethyst
@@ -239,7 +240,7 @@ static UIColor *CFKErrorColor(void) {
 
     _infoDescLabel = [[UILabel alloc] init];
     _infoDescLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    _infoDescLabel.text = @"配置 CurseForge API Key 以使用 CurseForge 资源源。运行时配置的 Key 将覆盖编译时默认值。如需申请 Key，请访问 curseforge.com";
+    _infoDescLabel.text = localize(@"i18n_str_86", nil);
     _infoDescLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
     _infoDescLabel.textColor = CFKSecondaryTextColor();
     _infoDescLabel.numberOfLines = 0;
@@ -259,7 +260,7 @@ static UIColor *CFKErrorColor(void) {
 
     _apiKeyTextField = [[UITextField alloc] init];
     _apiKeyTextField.translatesAutoresizingMaskIntoConstraints = NO;
-    _apiKeyTextField.placeholder = @"输入 CurseForge API Key";
+    _apiKeyTextField.placeholder = localize(@"i18n_str_87", nil);
     _apiKeyTextField.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
     _apiKeyTextField.textColor = CFKPrimaryTextColor();
     _apiKeyTextField.backgroundColor = CFKFieldBackgroundColor();
@@ -292,16 +293,16 @@ static UIColor *CFKErrorColor(void) {
     _actionCardView = [self makeCardView];
     [_contentView addSubview:_actionCardView];
 
-    _saveButton = [self makeFilledButtonWithTitle:@"保存"
+    _saveButton = [self makeFilledButtonWithTitle:localize(@"i18n_str_88", nil)
                                           primary:YES];
     [_saveButton addTarget:self action:@selector(saveButtonTapped) forControlEvents:UIControlEventTouchUpInside];
     [_actionCardView addSubview:_saveButton];
 
-    _testButton = [self makeOutlinedButtonWithTitle:@"测试"];
+    _testButton = [self makeOutlinedButtonWithTitle:localize(@"i18n_str_89", nil)];
     [_testButton addTarget:self action:@selector(testButtonTapped) forControlEvents:UIControlEventTouchUpInside];
     [_actionCardView addSubview:_testButton];
 
-    _clearButton = [self makeOutlinedButtonWithTitle:@"清除"];
+    _clearButton = [self makeOutlinedButtonWithTitle:localize(@"i18n_str_77", nil)];
     [_clearButton addTarget:self action:@selector(clearButtonTapped) forControlEvents:UIControlEventTouchUpInside];
     [_actionCardView addSubview:_clearButton];
 
@@ -500,13 +501,13 @@ static UIColor *CFKErrorColor(void) {
     // 显示来源提示
     NSString *sourceHint;
     if (runtimeKey.length > 0) {
-        sourceHint = @"当前来源：运行时偏好（已覆盖编译时默认值）";
+        sourceHint = localize(@"i18n_str_90", nil);
     } else if (compiledKey.length > 0) {
-        sourceHint = @"当前来源：编译时默认值（保存后将切换为运行时偏好）";
+        sourceHint = localize(@"i18n_str_91", nil);
     } else if (infoPlistKey.length > 0) {
-        sourceHint = @"当前来源：Info.plist";
+        sourceHint = localize(@"i18n_str_92", nil);
     } else {
-        sourceHint = @"当前未配置 API Key，CurseForge 资源源将不可用";
+        sourceHint = localize(@"i18n_str_93", nil);
     }
     _sourceHintLabel.text = sourceHint;
 }
@@ -521,7 +522,7 @@ static UIColor *CFKErrorColor(void) {
         [PLPreferences setCurseForgeAPIKey:key];
     }
     [self loadInitialValue];
-    [self setStatusText:@"已保存" success:YES];
+    [self setStatusText:localize(@"i18n_str_94", nil) success:YES];
 }
 
 - (void)clearButtonTapped {
@@ -533,7 +534,7 @@ static UIColor *CFKErrorColor(void) {
     }
     _apiKeyTextField.text = compiledKey.length > 0 ? compiledKey : @"";
     [self loadInitialValue];
-    [self setStatusText:@"已清除运行时 Key" success:YES];
+    [self setStatusText:localize(@"i18n_str_95", nil) success:YES];
 }
 
 - (void)testButtonTapped {
@@ -545,7 +546,7 @@ static UIColor *CFKErrorColor(void) {
     [PLPreferences setCurseForgeAPIKey:key.length > 0 ? key : nil];
 
     if (key.length == 0) {
-        [self setStatusText:@"✗ Key 无效：未填写 API Key" success:NO];
+        [self setStatusText:localize(@"i18n_str_96", nil) success:NO];
         return;
     }
 
@@ -565,12 +566,12 @@ static UIColor *CFKErrorColor(void) {
             if (!strongSelf) return;
             [strongSelf endTesting];
             if (error) {
-                NSString *desc = error.localizedDescription ?: @"未知错误";
-                [strongSelf setStatusText:[NSString stringWithFormat:@"✗ Key 无效：%@", desc] success:NO];
+                NSString *desc = error.localizedDescription ?: localize(@"i18n_str_97", nil);
+                [strongSelf setStatusText:[NSString stringWithFormat:localize(@"i18n_str_98", nil), desc] success:NO];
             } else if (results) {
-                [strongSelf setStatusText:@"✓ Key 有效" success:YES];
+                [strongSelf setStatusText:localize(@"i18n_str_99", nil) success:YES];
             } else {
-                [strongSelf setStatusText:@"✗ Key 无效：服务器未返回数据" success:NO];
+                [strongSelf setStatusText:localize(@"i18n_str_100", nil) success:NO];
             }
             // 重新刷新来源提示（保存后状态可能变化）
             [strongSelf loadInitialValue];
@@ -589,7 +590,7 @@ static UIColor *CFKErrorColor(void) {
     [_testButton setAlpha:0.5];
     [_clearButton setAlpha:0.5];
     [_testActivityIndicator startAnimating];
-    [self setStatusText:@"正在测试..." success:YES];
+    [self setStatusText:localize(@"i18n_str_101", nil) success:YES];
 }
 
 - (void)endTesting {

@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "DownloadHistoryViewController.h"
 #import "DownloadHistoryStore.h"
 #import "DownloadTaskItem.h"
@@ -75,7 +76,7 @@ static NSString * const kHistoryCellReuseIdentifier = @"DownloadHistoryCell";
 
 - (void)configureWithEntry:(NSDictionary *)entry typeDisplayName:(NSString *)typeDisplayName {
     NSString *name = [entry[@"name"] isKindOfClass:[NSString class]] ? entry[@"name"] : @"";
-    self.nameLabel.text = name.length > 0 ? name : @"(未知)";
+    self.nameLabel.text = name.length > 0 ? name : localize(@"i18n_str_107", nil);
 
     // 大小（记录的是任务总大小）
     long long size = [entry[@"size"] longLongValue];
@@ -258,17 +259,17 @@ static NSString * const kHistoryCellReuseIdentifier = @"DownloadHistoryCell";
 /// 资源类型显示名（与 DownloadTasksViewController 的映射保持一致）
 - (NSString *)displayNameForResourceType:(NSString *)type {
     NSDictionary *map = @{
-        DownloadTaskResourceTypeMinecraft: @"MC 本体",
-        DownloadTaskResourceTypeModloader: @"加载器",
+        DownloadTaskResourceTypeMinecraft: localize(@"i18n_str_113", nil),
+        DownloadTaskResourceTypeModloader: localize(@"i18n_str_114", nil),
         DownloadTaskResourceTypeMod: @"Mod",
-        DownloadTaskResourceTypeShader: @"光影包",
-        DownloadTaskResourceTypeResourcePack: @"资源包",
-        DownloadTaskResourceTypeDataPack: @"数据包",
-        DownloadTaskResourceTypeModpack: @"整合包",
-        DownloadTaskResourceTypeWorld: @"世界",
-        DownloadTaskResourceTypeJavaRuntime: @"Java 运行时"
+        DownloadTaskResourceTypeShader: localize(@"i18n_str_115", nil),
+        DownloadTaskResourceTypeResourcePack: localize(@"i18n_str_116", nil),
+        DownloadTaskResourceTypeDataPack: localize(@"i18n_str_117", nil),
+        DownloadTaskResourceTypeModpack: localize(@"i18n_str_118", nil),
+        DownloadTaskResourceTypeWorld: localize(@"i18n_str_119", nil),
+        DownloadTaskResourceTypeJavaRuntime: localize(@"i18n_str_120", nil)
     };
-    return map[type] ?: (type.length > 0 ? type : @"未知");
+    return map[type] ?: (type.length > 0 ? type : localize(@"i18n_str_121", nil));
 }
 
 @end
