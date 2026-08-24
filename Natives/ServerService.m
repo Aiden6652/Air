@@ -289,6 +289,15 @@ didFinishDownloadingToURL:(NSURL *)location {
     NSString *destinationPath = self.downloadDestinationPaths[downloadTask];
     NSString *taskID = self.downloadTaskIDs[downloadTask];
 
+    // 关键修复（旧任务覆盖新任务）：暂停→继续→重试重建任务后，被取消的旧 downloadTask
+    // 的完成回调不得操作新任务。rawTask 指向当前活动任务，不一致即旧任务残留：丢弃。
+    if (taskID) {
+        DownloadTaskItem *item = [[DownloadTaskManager sharedManager] taskWithId:taskID];
+        if (item && item.rawTask != downloadTask) {
+            return;
+        }
+    }
+
     [self.downloadCompletionHandlers removeObjectForKey:downloadTask];
     [self.downloadDestinationPaths removeObjectForKey:downloadTask];
     [self.downloadProgressHandlers removeObjectForKey:downloadTask];
@@ -331,6 +340,14 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     void(^progress)(NSProgress *) = self.downloadProgressHandlers[downloadTask];
     NSString *taskID = self.downloadTaskIDs[downloadTask];
 
+    // 关键修复（旧任务覆盖新任务）：旧 downloadTask 的进度回调不得推进新任务进度
+    if (taskID) {
+        DownloadTaskItem *item = [[DownloadTaskManager sharedManager] taskWithId:taskID];
+        if (item && item.rawTask != downloadTask) {
+            return;
+        }
+    }
+
     if (taskID && totalBytesExpectedToWrite > 0) {
         double p = (double)totalBytesWritten / (double)totalBytesExpectedToWrite;
         [[DownloadTaskManager sharedManager] updateTaskWithId:taskID
@@ -353,6 +370,16 @@ didCompleteWithError:(NSError *)error {
     if (error) {
         ServerDownloadHandler handler = self.downloadCompletionHandlers[task];
         NSString *taskID = self.downloadTaskIDs[task];
+
+        // 关键修复（旧任务覆盖新任务）：暂停→继续→重试重建任务后，被取消/替换的旧任务
+        // 的取消回调不得把新任务打成 Failed。rawTask 指向当前活动任务，不一致即旧任务残留。
+        if (taskID) {
+            DownloadTaskItem *item = [[DownloadTaskManager sharedManager] taskWithId:taskID];
+            if (item && item.rawTask != task) {
+                return;
+            }
+        }
+
         if (taskID) {
             [[DownloadTaskManager sharedManager] setTaskWithId:taskID completedWithError:error];
         }

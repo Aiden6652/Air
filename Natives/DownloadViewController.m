@@ -3177,18 +3177,38 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                 });
             };
 
-            // 5. KVO 监听进度（用独立 context 与主下载流程区分）
-            [task.progress addObserver:s
-                            forKeyPath:@"fractionCompleted"
-                               options:NSKeyValueObservingOptionInitial
-                               context:(void *)@"VanillaPreinstallContext"];
-            s.isObservingVanillaPreinstall = YES;
-
-            // 6. 后台线程启动下载
+            // 5. 后台线程启动下载 + 轮询等待完成
+            // 关键修复（整合包安装进度卡住）：downloadVersion: 内部的 prepareForDownload
+            // 会重建 self.progress，调用前 addObserver 观察的是旧 progress 对象，下载完成时
+            // KVO 永不触发 → vanillaPreinstallCompletion 不回调 → 整合包任务永久卡在阶段4
+            // （MC 本体任务已完成但整合包进度不走）。参照 ModpackImportService
+            // ensureCompleteVersionInstalled 的轮询方案：每次访问最新 progress.finished，
+            // 杜绝 KVO 悬空。失败由 task.handleError（上方已设置）回调 completion(NO)。
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                 __strong typeof(weakSelf) ss = weakSelf;
                 if (!ss) return;
-                [ss.vanillaPreinstallTask downloadVersion:version];
+                MinecraftResourceDownloadTask *waitTask = ss.vanillaPreinstallTask;
+                [waitTask downloadVersion:version];
+
+                // 轮询等待完成（最长 30 分钟；与 ensureCompleteVersionInstalled 一致）
+                NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:30 * 60];
+                BOOL succeeded = NO;
+                while ([deadline timeIntervalSinceNow] > 0) {
+                    NSProgress *p = waitTask.progress;
+                    if (p && p.finished) {
+                        succeeded = !p.cancelled;
+                        break;
+                    }
+                    [NSThread sleepForTimeInterval:0.5];
+                }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    __strong typeof(weakSelf) s = weakSelf;
+                    if (!s) return;
+                    s.vanillaPreinstallTask = nil;
+                    void (^cb)(BOOL) = s.vanillaPreinstallCompletion;
+                    s.vanillaPreinstallCompletion = nil;
+                    if (cb) cb(succeeded);
+                });
             });
         });
     }];

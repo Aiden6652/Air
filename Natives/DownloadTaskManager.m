@@ -436,6 +436,15 @@ static const NSTimeInterval kUIProgressNotifyThrottleInterval = 0.2;
         return; // 已占用槽位，幂等返回
     }
 
+    // 关键修复（永久卡住）：终态任务拒绝被旧的启动状态（Downloading）覆盖，
+    // 防止"完成回调先于写回 Downloading"时序下终态被回跳导致永久卡在下载中。
+    if (item.state == DownloadTaskStateCompleted ||
+        item.state == DownloadTaskStateFailed ||
+        item.state == DownloadTaskStateCancelled) {
+        [self.lock unlock];
+        return;
+    }
+
     // rawTask=nil（如整合包每文件卡片/聚合卡片）：底层传输由 PLDownloadClient 自身
     // 的连接数上限限流，manager 无可挂起的底层任务，不消耗并发槽位，直接进入
     // Downloading——避免 12 路并发下载在卡片上被误显示为 Pending 排队。
@@ -771,6 +780,19 @@ static const NSTimeInterval kUIProgressNotifyThrottleInterval = 0.2;
     [self.lock lock];
     DownloadTaskItem *item = self.tasks[taskId];
     if (item) {
+        // 关键修复（下载中 100%）：终态任务不再接受进度写入（防旧启动/旧任务的
+        // 滞后进度回调污染已完成状态）。
+        if (item.state == DownloadTaskStateCompleted ||
+            item.state == DownloadTaskStateFailed ||
+            item.state == DownloadTaskStateCancelled) {
+            [self.lock unlock];
+            return;
+        }
+        // 关键修复（下载中 100%）：网络字节全部到达（progress>=1.0）后往往还有
+        // SHA1 校验、原子落盘或解压阶段，此时任务仍处于 Downloading，UI 不应显示
+        // 100%（下载中心以 %.0f/%.1f 四舍五入，0.999 会被显示成 100%）。
+        // 网络进度封顶 0.99，仅真正进入 Completed 终态时 progress 才置 1.0。
+        if (progress >= 1.0) progress = 0.99;
         item.progress = progress;
         if (totalBytes >= 0) item.totalSize = totalBytes;
         item.downloadedSize = downloadedBytes;
@@ -836,6 +858,18 @@ static const NSTimeInterval kUIProgressNotifyThrottleInterval = 0.2;
 
     DownloadTaskState oldState = item.state;
 
+    // 关键修复（下载中 100% / 永久卡住）：任务一旦进入终态（Completed/Failed/Cancelled），
+    // 不再接受任何状态覆盖。此前各资源 Service 的完成回调可能先于"写回 Downloading"执行，
+    // 终态随后被旧的启动状态（setTaskWithId:Downloading）覆盖回 Downloading，造成永久卡住。
+    // 重试不受影响：retryTaskWithId: 内部直接重置状态，不走本方法。
+    if ((oldState == DownloadTaskStateCompleted ||
+         oldState == DownloadTaskStateFailed ||
+         oldState == DownloadTaskStateCancelled) &&
+        state != oldState) {
+        [self.lock unlock];
+        return;
+    }
+
     // 防御：manager 主动 pause/cancel（cancelByProducingResumeData / cancel）后，
     // 业务方 session delegate 会收到 NSURLErrorCancelled 并上报 Failed——此时保持 Paused/Cancelled 不被覆盖
     if (state == DownloadTaskStateFailed &&
@@ -892,6 +926,16 @@ static const NSTimeInterval kUIProgressNotifyThrottleInterval = 0.2;
     [self.lock lock];
     DownloadTaskItem *item = self.tasks[taskId];
     if (!item) { [self.lock unlock]; return; }
+
+    // 关键修复（永久卡住/状态回跳）：已在终态的任务不再被后续完成/失败回调覆盖。
+    // 例：WorldService 解压期间旧任务回调到达，或完成回调先于写回 Downloading 的
+    // 时序竞态，都会把终态回跳。重试走 retryTaskWithId: 内部重置，不受影响。
+    if (item.state == DownloadTaskStateCompleted ||
+        item.state == DownloadTaskStateFailed ||
+        item.state == DownloadTaskStateCancelled) {
+        [self.lock unlock];
+        return;
+    }
 
     // 防御：同 setTaskWithId:state:，抑制 cancelByProducingResumeData 触发的残留失败上报
     if (error &&

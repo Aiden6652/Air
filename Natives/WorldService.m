@@ -539,6 +539,13 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     WorldDownloadProgressHandler progressHandler = self.downloadProgressHandlers[downloadTask];
     DownloadTaskItem *taskItem = self.downloadTaskItems[downloadTask];
 
+    // 关键修复（旧任务覆盖新任务）：暂停→继续→重试会重建底层 downloadTask（newTask），
+    // 被取消的旧 downloadTask 仍会派发滞后回调。taskItem.rawTask 指向当前活动任务，
+    // 与回调来源 downloadTask 不一致即旧任务残留，直接丢弃，避免旧回调污染新任务。
+    if (taskItem && taskItem.rawTask != downloadTask) {
+        return;
+    }
+
     if (taskItem) {
         double fraction = totalBytesExpectedToWrite > 0 ? (double)totalBytesWritten / (double)totalBytesExpectedToWrite : -1.0;
         NSTimeInterval now = [NSDate date].timeIntervalSince1970;
@@ -590,6 +597,12 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     NSString *taskDescription = downloadTask.taskDescription;
     DownloadTaskItem *taskItem = self.downloadTaskItems[downloadTask];
 
+    // 关键修复（旧任务覆盖新任务）：暂停→继续→重试重建任务后，被取消的旧 downloadTask
+    // 的 didFinish 回调不得操作新任务。taskItem.rawTask 指向当前活动任务，不一致即丢弃。
+    if (taskItem && taskItem.rawTask != downloadTask) {
+        return;
+    }
+
     [self.downloadCompletionHandlers removeObjectForKey:downloadTask];
     [self.downloadDestinationPaths removeObjectForKey:downloadTask];
     [self.downloadProgresses removeObjectForKey:downloadTask];
@@ -619,9 +632,10 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
         return;
     }
 
-    if (taskItem) {
-        [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId state:DownloadTaskStateCompleted];
-    }
+    // 关键修复（下载中 100%）：文件移动只是"网络字节已落临时盘"，解压到 saves 目录
+    // 尚未完成。此前此处立即置 Completed，用户在解压期间看到 100% 甚至任务已"完成"；
+    // 且解压失败时任务已无法反映为失败。改为解压完成后才进终态（期间维持 Downloading，
+    // progress 由 manager 封顶 0.99，UI 显示 99%）。
 
     // 解析 taskDescription：worldName 与 savesFolder
     NSString *worldName = nil;
@@ -654,9 +668,19 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
         [fm removeItemAtPath:destinationPath error:nil];
 
         dispatch_async(dispatch_get_main_queue(), ^{
+            // 关键修复（下载中 100%）：解压完成后任务才进终态——成功置 Completed、
+            // 失败置 Failed（而非此前移动文件后就 Completed）
+            DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
             if (success) {
+                if (taskItem) {
+                    [manager setTaskWithId:taskItem.taskId state:DownloadTaskStateCompleted];
+                }
                 handler(YES, nil);
             } else {
+                if (taskItem) {
+                    [manager updateTaskWithId:taskItem.taskId error:extractError];
+                    [manager setTaskWithId:taskItem.taskId state:DownloadTaskStateFailed];
+                }
                 handler(NO, extractError ?: [NSError errorWithDomain:@"WorldServiceError"
                                                                 code:5
                                                             userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1097", nil)}]);
@@ -669,6 +693,20 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     if (error) {
         WorldDownloadCompletionHandler handler = self.downloadCompletionHandlers[task];
         DownloadTaskItem *taskItem = self.downloadTaskItems[task];
+
+        // 关键修复（旧任务覆盖新任务）：暂停→继续→重试重建任务后，被取消/替换的旧
+        // downloadTask 的取消回调不得把新任务打成 Failed。taskItem.rawTask 指向当前
+        // 活动任务，不一致即旧任务残留：仅清理字典，不更新 DownloadTaskManager 状态。
+        if (taskItem && taskItem.rawTask != task) {
+            [self.downloadCompletionHandlers removeObjectForKey:task];
+            [self.downloadDestinationPaths removeObjectForKey:task];
+            [self.downloadProgresses removeObjectForKey:task];
+            [self.downloadProgressHandlers removeObjectForKey:task];
+            [self.downloadTaskItems removeObjectForKey:task];
+            [self.downloadProgressSnapshots removeObjectForKey:task];
+            return;
+        }
+
         if (taskItem) {
             [[DownloadTaskManager sharedManager] updateTaskWithId:taskItem.taskId error:error];
             [[DownloadTaskManager sharedManager] setTaskWithId:taskItem.taskId state:DownloadTaskStateFailed];
