@@ -22,6 +22,8 @@
 // #import "TerracottaManager.h"
 // #import "TerracottaBridge.h"
 #import "AccountListViewController.h"
+#import "AIViewController.h"
+#import "AiSessionStore.h"
 
 // 布局常量（iPad 基准值；iPhone 上通过 LauncherRootLayoutWidth 适配后会变窄）
 static const CGFloat kSidebarWidthPad = 70.0;      // iPad 左侧边栏宽度
@@ -334,6 +336,11 @@ static CGFloat LauncherRootLayoutRightPanelWidth(UITraitCollection *trait) {
                                              selector:@selector(showSettings)
                                                  name:@"ShowSettings"
                                                object:nil];
+    // 监听显示 AI 助手页面
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(showAIPage)
+                                                 name:@"ShowAIPage"
+                                               object:nil];
     // ZeroTier/Terracotta 联机暂时移除（排查启动崩溃）
     // [[NSNotificationCenter defaultCenter] addObserver:self
     //                                          selector:@selector(showMultiplayer)
@@ -481,6 +488,15 @@ static CGFloat LauncherRootLayoutRightPanelWidth(UITraitCollection *trait) {
     // 包装在导航控制器中，使其子页面能够正常导航
     UINavigationController *navVC = [[UINavigationController alloc] initWithRootViewController:vc];
     navVC.navigationBar.prefersLargeTitles = YES;
+    [self setContentViewController:navVC animated:YES];
+}
+
+- (void)showAIPage {
+    // 从 AiSessionStore 取最近会话，没有则让 AIViewController 新建一个
+    AiSession *session = [[AiSessionStore sharedStore] lastActiveSession];
+    AIViewController *vc = [[AIViewController alloc] initWithSession:session];
+    UINavigationController *navVC = [[UINavigationController alloc] initWithRootViewController:vc];
+    navVC.navigationBar.prefersLargeTitles = NO;
     [self setContentViewController:navVC animated:YES];
 }
 

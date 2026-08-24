@@ -51,11 +51,12 @@
     self.menuItems = @[
         @{@"icon": @"house.fill", @"title": @" ", @"index": @0},
         @{@"icon": @"arrow.down.circle.fill", @"title": @" ", @"index": @1},
-        @{@"icon": @"puzzlepiece.fill", @"title": @" ", @"index": @2},
-        // 暂时移除两个联机图标，恢复时取消下方两行注释并将设置项 index 改回 @5
-        // @{@"icon": @"antenna.radiowaves.left.and.right", @"title": @" ", @"index": @3},
-        // @{@"icon": @"network", @"title": @" ", @"index": @4},
-        @{@"icon": @"gearshape.fill", @"title": @" ", @"index": @3}
+        @{@"icon": @"sparkles", @"title": @" ", @"index": @2},
+        @{@"icon": @"puzzlepiece.fill", @"title": @" ", @"index": @3},
+        // 暂时移除两个联机图标，恢复时取消下方两行注释并将设置项 index 改回 @6
+        // @{@"icon": @"antenna.radiowaves.left.and.right", @"title": @" ", @"index": @4},
+        // @{@"icon": @"network", @"title": @" ", @"index": @5},
+        @{@"icon": @"gearshape.fill", @"title": @" ", @"index": @4}
     ];
     
     self.selectedIndex = 0;
@@ -267,11 +268,15 @@
             [[NSNotificationCenter defaultCenter] postNotificationName:@"ShowDownloadPage" object:nil];
             break;
 
-        case 2: // 版本管理（合并了原"当前版本设置"功能）
+        case 2: // AI 助手
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"ShowAIPage" object:nil];
+            break;
+
+        case 3: // 版本管理（合并了原"当前版本设置"功能）
             [self showVersionManager];
             break;
 
-        case 3: // 设置（联机入口暂时移除，恢复时将本 case 改回 case 5）
+        case 4: // 设置（联机入口暂时移除，恢复时顺延 index）
             [self showSettings];
             break;
     }

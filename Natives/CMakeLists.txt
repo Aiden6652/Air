@@ -486,6 +486,19 @@ add_executable(AngelAuraAmethyst
   MarkdownParser.m
   AnnouncementListViewController.m
   AnnouncementDetailViewController.m
+
+  # Air AI Agent（OpenAI 兼容聊天助手）
+  AI/AiProvider.m
+  AI/AiProviderStore.m
+  AI/AiMessage.m
+  AI/AiSession.m
+  AI/AiSessionStore.m
+  AI/AiSettings.m
+  AI/AiAPIClient.m
+  AI/AiAgent.m
+  AI/AIMessageCell.m
+  AI/AIInputBarView.m
+  AI/AIViewController.m
 )
 
 # Add ModLoaderIcons PNG files into the app bundle Resources/ModLoaderIcons so they are available at runtime.
