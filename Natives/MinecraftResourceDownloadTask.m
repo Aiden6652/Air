@@ -363,7 +363,7 @@ static const NSUInteger kMCStageIndexVerify = 5;
                 self.metadata = inheritsFromDict;
             } else {
                 // 父版本不存在或损坏，报错
-                [self finishDownloadWithErrorString:[NSString stringWithFormat:@"缺少父版本 %@ 的 version.json", self.metadata[@"inheritsFrom"]]];
+                [self finishDownloadWithErrorString:[NSString stringWithFormat:localize(@"i18n_str_446", nil), self.metadata[@"inheritsFrom"]]];
                 return;
             }
         }
@@ -395,7 +395,7 @@ static const NSUInteger kMCStageIndexVerify = 5;
                     completionBlock();
                     return;
                 } else {
-                    [self finishDownloadWithErrorString:[NSString stringWithFormat:@"缺少父版本 %@ 的 version.json，且远程版本清单未加载，无法自动下载", json[@"inheritsFrom"]]];
+                    [self finishDownloadWithErrorString:[NSString stringWithFormat:localize(@"i18n_str_447", nil), json[@"inheritsFrom"]]];
                     return;
                 }
             }
@@ -573,7 +573,7 @@ static const NSUInteger kMCStageIndexVerify = 5;
     // Task 5.10：zip 下载阶段以整合包身份展示（显示名/类型/图标），
     // 导入阶段由 ModpackImportService 注册 6 阶段整合包主任务承接。
     NSString *title = [modDetail[@"title"] isKindOfClass:[NSString class]] ? modDetail[@"title"] : nil;
-    self.currentVersionId = title.length > 0 ? title : @"整合包";
+    self.currentVersionId = title.length > 0 ? title : localize(@"i18n_str_118", nil);
     [self prepareForDownload];
     if (self.currentDownloadTaskItem) {
         self.currentDownloadTaskItem.resourceType = DownloadTaskResourceTypeModpack;
@@ -822,12 +822,12 @@ static const NSUInteger kMCStageIndexVerify = 5;
 - (void)finishDownloadWithErrorString:(NSString *)error {
     // 阶段上报：整流程失败时把当前阶段标记为 Failed
     if (self.stageReportingEnabled) {
-        [self mc_finishAllStagesWithFailure:error ?: @"下载失败"];
+        [self mc_finishAllStagesWithFailure:error ?: localize(@"i18n_str_448", nil)];
     }
     if (self.currentDownloadTaskItem && self.currentDownloadTaskItem.state != DownloadTaskStateCancelled) {
         NSError *err = [NSError errorWithDomain:@"MinecraftResourceDownloadTask"
                                            code:1
-                                       userInfo:@{NSLocalizedDescriptionKey: error ?: @"下载失败"}];
+                                       userInfo:@{NSLocalizedDescriptionKey: error ?: localize(@"i18n_str_448", nil)}];
         [[DownloadTaskManager sharedManager] setTaskWithId:self.currentDownloadTaskItem.taskId
                                           completedWithError:err];
     }
@@ -960,14 +960,14 @@ static const NSUInteger kMCStageIndexVerify = 5;
             // 用户可在下载任务列表中看到具体缺失的文件。
             NSArray<NSDictionary *> *failedSnapshot = [self.failedFiles copy];
             if (failedSnapshot.count > 0) {
-                NSMutableString *msg = [NSMutableString stringWithFormat:@"下载完成但有 %lu 个文件失败：", (unsigned long)failedSnapshot.count];
+                NSMutableString *msg = [NSMutableString stringWithFormat:localize(@"i18n_str_449", nil), (unsigned long)failedSnapshot.count];
                 NSUInteger showCount = MIN(failedSnapshot.count, (NSUInteger)5);
                 for (NSUInteger k = 0; k < showCount; k++) {
                     NSString *n = failedSnapshot[k][@"name"];
                     [msg appendFormat:@"\n  • %@", n ?: @"(unknown)"];
                 }
                 if (failedSnapshot.count > showCount) {
-                    [msg appendFormat:@"\n  ...等共 %lu 个", (unsigned long)failedSnapshot.count];
+                    [msg appendFormat:localize(@"i18n_str_450", nil), (unsigned long)failedSnapshot.count];
                 }
                 NSLog(@"[MCDL] %@", msg);
                 NSError *partialError = [NSError errorWithDomain:@"MinecraftResourceDownloadTask"

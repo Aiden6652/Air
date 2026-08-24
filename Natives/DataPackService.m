@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  DataPackService.m
 //  Amethyst
@@ -211,7 +212,7 @@
 
     if (!dataPacksPath) {
         if (error) {
-            *error = [NSError errorWithDomain:@"DataPackService" code:1 userInfo:@{NSLocalizedDescriptionKey: @"无法确定游戏目录"}];
+            *error = [NSError errorWithDomain:@"DataPackService" code:1 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_105", nil)}];
         }
         return nil;
     }
@@ -409,7 +410,7 @@
                 if (completion) {
                     NSError *error = [NSError errorWithDomain:@"DataPackServiceError"
                                                          code:1
-                                                     userInfo:@{NSLocalizedDescriptionKey: @"找不到游戏目录。"}];
+                                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_106", nil)}];
                     dispatch_async(dispatch_get_main_queue(), ^{ completion(NO, error); });
                 }
                 return;

@@ -1,343 +1,66 @@
+//
+//  ModTableViewCell.m
+//  Amethyst
+//
+//  Mod 卡片 Cell 实现（继承 ResourceCardTableViewCell）。
+//  卡片三层背景 / 圆角 / 阴影 / 选中态视觉由基类提供，
+//  本类仅补充 Mod 专属内容：图标（jar 内嵌 > 加载器品牌 > 语义色回退）、
+//  文字三行（名称 / 文件名 / 版本·游戏版本）、启用开关与在线模式按钮。
+//
+
 #import "ModTableViewCell.h"
 #import "ModItem.h"
 #import "ModService.h"
-#import "IconLoader.h"
+#import "ModLoaderIconHelper.h"
+#import "LauncherPreferences.h"
+#import "utils.h"
 #import <QuartzCore/QuartzCore.h>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability-new"
-// 注意：UIKit+AFNetworking 已移除，改用 IconLoader 统一加载器
-// （AFNetworking 仅内存缓存无降采样，IconLoader 提供双层缓存+降采样+CDN镜像+并发控制）
-#pragma clang diagnostic pop
-
 @interface ModTableViewCell ()
-@property (nonatomic, strong) ModItem *currentMod;
-@property (nonatomic, strong) UIImageView *loaderIconView;
+// 当前配置的 Mod 与显示模式（外观变化时用于重新加载图标）
+@property (nonatomic, strong, nullable) ModItem *currentMod;
+@property (nonatomic, assign) ModTableViewCellDisplayMode currentMode;
+// 在线模式专属 accessory（懒加载，本地列表不创建）
+@property (nonatomic, strong, nullable) UIButton *downloadButton;
+@property (nonatomic, strong, nullable) UIButton *openLinkButton;
 @end
 
 @implementation ModTableViewCell
 
+#pragma mark - Init
+
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
-    if (self = [super initWithStyle:style reuseIdentifier:reuseIdentifier]) {
-        self.selectionStyle = UITableViewCellSelectionStyleNone;
-        self.backgroundColor = [UIColor clearColor]; // Use clear color for custom background view
-        // contentView 也设为 clearColor：由 BackgroundManager.applyEffectToCell: 统一注入
-        // 毛玻璃 backgroundView 或半透明 backgroundColor，避免遮挡自定义启动器背景
-        self.contentView.backgroundColor = [UIColor clearColor];
-
-        // --- Initialization of UI Elements ---
-        _modIconView = [self createImageViewWithCornerRadius:4];
-        _nameLabel = [self createLabelWithFont:[UIFont boldSystemFontOfSize:13] textColor:[UIColor labelColor] numberOfLines:1];
-
-        _loaderIconView = [self createImageViewWithCornerRadius:0];
-
-        // --- NEW: Version Labels ---
-        _modVersionLabel = [self createLabelWithFont:[UIFont systemFontOfSize:10 weight:UIFontWeightMedium] textColor:[UIColor secondaryLabelColor] numberOfLines:1];
-        _gameVersionLabel = [self createLabelWithFont:[UIFont systemFontOfSize:10 weight:UIFontWeightMedium] textColor:[UIColor systemGreenColor] numberOfLines:1];
-
-        _authorLabel = [self createLabelWithFont:[UIFont systemFontOfSize:9] textColor:[UIColor secondaryLabelColor] numberOfLines:1];
-        _descLabel = [self createLabelWithFont:[UIFont systemFontOfSize:9] textColor:[UIColor secondaryLabelColor] numberOfLines:2];
-        _statsLabel = [self createLabelWithFont:[UIFont systemFontOfSize:9] textColor:[UIColor secondaryLabelColor] numberOfLines:1];
-        _categoryLabel = [self createLabelWithFont:[UIFont systemFontOfSize:9] textColor:[UIColor systemBlueColor] numberOfLines:1];
-
-        _enableSwitch = [[UISwitch alloc] init];
-        _enableSwitch.transform = CGAffineTransformMakeScale(0.75, 0.75); // Scale down for compact view
-        _enableSwitch.translatesAutoresizingMaskIntoConstraints = NO;
-        [_enableSwitch addTarget:self action:@selector(toggleTapped) forControlEvents:UIControlEventValueChanged];
-
-        _downloadButton = [self createButtonWithTitle:@"下载" titleColor:[UIColor whiteColor] action:@selector(downloadTapped)];
-        _downloadButton.backgroundColor = [UIColor systemGreenColor];
-        _downloadButton.layer.cornerRadius = 10;
-        _downloadButton.titleLabel.font = [UIFont boldSystemFontOfSize:10];
-        _downloadButton.contentEdgeInsets = UIEdgeInsetsMake(4, 8, 4, 8);
-
-        _openLinkButton = [self createButtonWithImage:[UIImage systemImageNamed:@"globe"] action:@selector(openLinkTapped)];
-
-        _loaderBadgesStackView = [[UIStackView alloc] init];
-        _loaderBadgesStackView.translatesAutoresizingMaskIntoConstraints = NO;
-        _loaderBadgesStackView.axis = UILayoutConstraintAxisHorizontal;
-        _loaderBadgesStackView.spacing = 4;
-        _loaderBadgesStackView.alignment = UIStackViewAlignmentCenter;
-
-        // Add subviews
-        [self.contentView addSubview:_loaderBadgesStackView];
-        [self.contentView addSubview:_modIconView];
-        [self.contentView addSubview:_loaderIconView];
-        [self.contentView addSubview:_nameLabel];
-        [self.contentView addSubview:_modVersionLabel];
-        [self.contentView addSubview:_gameVersionLabel];
-        [self.contentView addSubview:_authorLabel];
-        [self.contentView addSubview:_descLabel];
-        [self.contentView addSubview:_statsLabel];
-        [self.contentView addSubview:_categoryLabel];
-        [self.contentView addSubview:_enableSwitch];
-        [self.contentView addSubview:_downloadButton];
-        [self.contentView addSubview:_openLinkButton];
-
-        [self setupConstraints];
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        // 触发基类懒加载创建启用开关插槽并绑定事件（本地模式显示）
+        [self.toggleSwitch addTarget:self action:@selector(toggleTapped) forControlEvents:UIControlEventValueChanged];
     }
     return self;
 }
 
-#pragma mark - UI Element Factory Methods
-
-- (UIImageView *)createImageViewWithCornerRadius:(CGFloat)radius {
-    UIImageView *imageView = [[UIImageView alloc] init];
-    imageView.translatesAutoresizingMaskIntoConstraints = NO;
-    imageView.layer.cornerRadius = radius;
-    imageView.clipsToBounds = YES;
-    imageView.contentMode = UIViewContentModeScaleAspectFill;
-    imageView.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    return imageView;
-}
-
-- (UILabel *)createLabelWithFont:(UIFont *)font textColor:(UIColor *)color numberOfLines:(NSInteger)lines {
-    UILabel *label = [[UILabel alloc] init];
-    label.translatesAutoresizingMaskIntoConstraints = NO;
-    label.font = font;
-    label.textColor = color;
-    label.numberOfLines = lines;
-    [label setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
-    [label setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
-    return label;
-}
-
-- (UIButton *)createButtonWithAction:(SEL)action {
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
-    return button;
-}
-
-- (UIButton *)createButtonWithTitle:(NSString *)title titleColor:(UIColor *)color action:(SEL)action {
-    UIButton *button = [self createButtonWithAction:action];
-    [button setTitle:title forState:UIControlStateNormal];
-    [button setTitleColor:color forState:UIControlStateNormal];
-    button.titleLabel.font = [UIFont boldSystemFontOfSize:15];
-    return button;
-}
-
-- (UIButton *)createButtonWithImage:(UIImage *)image action:(SEL)action {
-    UIButton *button = [self createButtonWithAction:action];
-    [button setImage:image forState:UIControlStateNormal];
-    return button;
-}
-
-- (UIImageView *)createBadgeImageView:(NSString *)imageName {
-    UIImage *image = [self loadImageWithName:imageName];
-    UIImageView *imageView = [[UIImageView alloc] initWithImage:image];
-    imageView.contentMode = UIViewContentModeScaleAspectFit;
-    return imageView;
-}
-
-- (UIImage *)loadImageWithName:(NSString *)imageName {
-    NSBundle *bundle = [NSBundle mainBundle];
-    NSString *resourcePath = [bundle resourcePath];
-
-    // 修复模组加载器图标不显示：原实现只查找 ModLoaderIcons/{name}_{light|dark}.png 主题文件，
-    // 但 HMCL 官方图标是标准单文件 ModLoaderIcons/{name}.png（不区分深浅色），
-    // 导致 fabric/forge/neoforge/quilt/optifine 的 PNG 永远找不到，回退到空白或自编图标。
-    // 现在改为：优先加载标准单文件 → 再尝试主题文件 → 最后返回 nil。
-    // 与 ModLoaderIconHelper 的 iconImageForLoader: 加载顺序保持一致。
-
-    // 1. 优先加载 HMCL 官方标准单文件（不区分深浅色主题）
-    NSString *standardPath = [resourcePath stringByAppendingPathComponent:
-                              [NSString stringWithFormat:@"ModLoaderIcons/%@.png", imageName]];
-    UIImage *image = [UIImage imageWithContentsOfFile:standardPath];
-    if (image) {
-        return image;
-    }
-
-    // 2. 回退到旧格式主题文件（区分 light/dark）
-    BOOL isDarkMode = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    NSString *theme = isDarkMode ? @"dark" : @"light";
-    NSString *themedPath = [resourcePath stringByAppendingPathComponent:
-                            [NSString stringWithFormat:@"ModLoaderIcons/%@_%@.png", imageName, theme]];
-    image = [UIImage imageWithContentsOfFile:themedPath];
-    if (!image) {
-        // 3. 尝试相反主题
-        theme = isDarkMode ? @"light" : @"dark";
-        themedPath = [resourcePath stringByAppendingPathComponent:
-                      [NSString stringWithFormat:@"ModLoaderIcons/%@_%@.png", imageName, theme]];
-        image = [UIImage imageWithContentsOfFile:themedPath];
-    }
-
-    return image;
-}
-
-#pragma mark - UIAppearance & Trait Collection
-
-- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
-    [super traitCollectionDidChange:previousTraitCollection];
-    
-    // Reload loader icons when interface style changes
-    if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
-        // Simply reload the current cell configuration to update icons
-        if (self.currentMod) {
-            [self configureForLocalMode:self.currentMod];
-        }
-    }
-}
-
-#pragma mark - Auto Layout Constraints
-
-- (void)setupConstraints {
-    CGFloat padding = 7.0;
-    CGFloat iconSize = 36.0;
-
-    // --- Common Left-aligned Elements ---
-    [NSLayoutConstraint activateConstraints:@[
-        [_modIconView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:padding],
-        [_modIconView.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-        [_modIconView.widthAnchor constraintEqualToConstant:iconSize],
-        [_modIconView.heightAnchor constraintEqualToConstant:iconSize],
-
-        [_loaderIconView.leadingAnchor constraintEqualToAnchor:_modIconView.trailingAnchor constant:8],
-        [_loaderIconView.centerYAnchor constraintEqualToAnchor:_nameLabel.centerYAnchor],
-        [_loaderIconView.widthAnchor constraintEqualToConstant:16.0],
-        [_loaderIconView.heightAnchor constraintEqualToConstant:16.0],
-
-        [_nameLabel.leadingAnchor constraintEqualToAnchor:_loaderIconView.trailingAnchor constant:6],
-        [_nameLabel.topAnchor constraintEqualToAnchor:_modIconView.topAnchor constant:-2], // Shift up slightly
-
-        // --- NEW: Version Label Constraints ---
-        [_modVersionLabel.leadingAnchor constraintEqualToAnchor:_nameLabel.leadingAnchor],
-        [_modVersionLabel.topAnchor constraintEqualToAnchor:_nameLabel.bottomAnchor constant:2],
-        [_gameVersionLabel.leadingAnchor constraintEqualToAnchor:_modVersionLabel.trailingAnchor constant:5],
-        [_gameVersionLabel.centerYAnchor constraintEqualToAnchor:_modVersionLabel.centerYAnchor],
-
-
-        [_descLabel.leadingAnchor constraintEqualToAnchor:_nameLabel.leadingAnchor],
-        [_descLabel.topAnchor constraintEqualToAnchor:_modVersionLabel.bottomAnchor constant:2],
-
-        [_authorLabel.leadingAnchor constraintEqualToAnchor:_nameLabel.leadingAnchor],
-        [_authorLabel.topAnchor constraintEqualToAnchor:_nameLabel.bottomAnchor constant:1],
-        [_statsLabel.leadingAnchor constraintEqualToAnchor:_authorLabel.trailingAnchor constant:4],
-        [_statsLabel.centerYAnchor constraintEqualToAnchor:_authorLabel.centerYAnchor],
-
-        // --- Right-aligned Action Buttons (Side-by-side) ---
-        [_downloadButton.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-padding],
-        [_downloadButton.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-        [_enableSwitch.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-padding],
-        [_enableSwitch.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-
-        [_openLinkButton.trailingAnchor constraintEqualToAnchor:_enableSwitch.leadingAnchor constant:-4],
-        [_openLinkButton.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-        [_openLinkButton.widthAnchor constraintEqualToConstant:28],
-        [_openLinkButton.heightAnchor constraintEqualToConstant:28],
-
-        // --- Text Content Trailing Constraints ---
-        [_nameLabel.trailingAnchor constraintEqualToAnchor:_openLinkButton.leadingAnchor constant:-padding],
-        [_modVersionLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_openLinkButton.leadingAnchor constant:-padding],
-        [_descLabel.trailingAnchor constraintEqualToAnchor:_openLinkButton.leadingAnchor constant:-padding],
-        [_statsLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_openLinkButton.leadingAnchor constant:-padding],
-
-        // --- Loader Badges ---
-        [_loaderBadgesStackView.centerYAnchor constraintEqualToAnchor:_nameLabel.centerYAnchor],
-        [_loaderBadgesStackView.heightAnchor constraintEqualToConstant:12],
-        [_loaderBadgesStackView.leadingAnchor constraintGreaterThanOrEqualToAnchor:_nameLabel.trailingAnchor constant:4],
-        [_loaderBadgesStackView.trailingAnchor constraintEqualToAnchor:_openLinkButton.leadingAnchor constant:-4],
-    ]];
-}
-
 #pragma mark - Configuration
-
-- (void)prepareForReuse {
-    [super prepareForReuse];
-    // 取消该 cell 上正在进行的图标加载请求（cell 复用时旧请求不应继续占用网络与回调）
-    // 对应 Glide 的 clear() + ZL2 Compose 组合自动取消
-    [IconLoader cancelLoadingForImageView:_modIconView];
-    _modIconView.image = [UIImage systemImageNamed:@"puzzlepiece.extension"];
-    _loaderIconView.image = nil;
-    _nameLabel.text = nil;
-    _modVersionLabel.text = nil;
-    _gameVersionLabel.text = nil;
-    _descLabel.text = nil;
-    _authorLabel.text = nil;
-    _statsLabel.text = nil;
-
-    // 清除旧的 loader badges
-    for (UIView *view in self.loaderBadgesStackView.arrangedSubviews) {
-        [self.loaderBadgesStackView removeArrangedSubview:view];
-        [view removeFromSuperview];
-    }
-}
 
 - (void)configureWithMod:(ModItem *)mod displayMode:(ModTableViewCellDisplayMode)mode {
     self.currentMod = mod;
+    self.currentMode = mode;
 
-    _nameLabel.text = mod.displayName ?: mod.fileName;
+    [self configureIconForMod:mod];
 
-    if (mod.icon) {
-        // 本地已加载的图标（如从 jar 内解析的 pack.png）：直接显示，无需网络加载
-        [IconLoader cancelLoadingForImageView:_modIconView];
-        _modIconView.image = mod.icon;
-    } else if (mod.iconURL) {
-        // 在线图标：使用 IconLoader 加载（双层缓存 + 降采样 + CDN 镜像）
-        // 图标显示尺寸 36x36（在 setupConstraints 中定义），降采样到此尺寸避免按原图解码
-        UIImage *placeholder = [UIImage systemImageNamed:@"puzzlepiece.extension"];
-        [IconLoader loadIconForImageView:_modIconView
-                                     URL:mod.iconURL
-                             placeholder:placeholder
-                                fallback:placeholder
-                               targetSize:CGSizeMake(36, 36)];
-    } else {
-        [IconLoader cancelLoadingForImageView:_modIconView];
-        _modIconView.image = [UIImage systemImageNamed:@"puzzlepiece.extension"];
-    }
+    // 主标题：显示名（回退文件名）
+    self.nameLabel.text = mod.displayName.length > 0 ? mod.displayName
+                       : (mod.fileName.length > 0 ? mod.fileName : mod.basename);
 
     if (mode == ModTableViewCellDisplayModeLocal) {
-        [self configureForLocalMode:mod];
+        [self configureLocalContent:mod];
     } else {
-        [self configureForOnlineMode:mod];
+        [self configureOnlineContent:mod];
     }
 }
 
-- (void)configureForLocalMode:(ModItem *)mod {
-    // Hide online/unused elements
-    _authorLabel.hidden = YES;
-    _statsLabel.hidden = YES;
-    _categoryLabel.hidden = YES;
-    _downloadButton.hidden = YES;
-    _descLabel.hidden = NO;
-
-    // Show local elements
-    _openLinkButton.hidden = NO;
-    _enableSwitch.hidden = NO;
-    _loaderBadgesStackView.hidden = NO;
-    _modVersionLabel.hidden = NO;
-    _gameVersionLabel.hidden = NO;
-
-    // Populate version labels
-    if (mod.version && mod.version.length > 0) {
-        _modVersionLabel.text = [NSString stringWithFormat:@"v%@", mod.version];
-        _modVersionLabel.hidden = NO;
-    } else {
-        _modVersionLabel.text = nil;
-        _modVersionLabel.hidden = YES;
-    }
-
-    if (mod.gameVersion && mod.gameVersion.length > 0) {
-        _gameVersionLabel.text = [NSString stringWithFormat:@"MC %@", mod.gameVersion];
-        _gameVersionLabel.hidden = NO;
-    } else {
-        _gameVersionLabel.text = nil;
-        _gameVersionLabel.hidden = YES;
-    }
-
-    // Clear previous badges
-    for (UIView *view in self.loaderBadgesStackView.arrangedSubviews) {
-        [self.loaderBadgesStackView removeArrangedSubview:view];
-        [view removeFromSuperview];
-    }
-
-    // Add new badges
-    if (mod.isFabric) [self.loaderBadgesStackView addArrangedSubview:[self createBadgeImageView:@"fabric"]];
-    if (mod.isForge) [self.loaderBadgesStackView addArrangedSubview:[self createBadgeImageView:@"forge"]];
-    if (mod.isNeoForge) [self.loaderBadgesStackView addArrangedSubview:[self createBadgeImageView:@"neoforge"]];
-
-    [self updateToggleState:mod.disabled];
-
+/// 配置左侧图标：
+/// jar 内嵌图标 > 加载器品牌图标（PNG/SF Symbol，ModLoaderIconHelper 统一）> puzzlepiece 回退
+/// 图标容器背景使用加载器品牌色（无加载器信息时用 Mod 语义色橙色）
+- (void)configureIconForMod:(ModItem *)mod {
     NSString *loaderName = nil;
     if (mod.isFabric) {
         loaderName = @"fabric";
@@ -346,56 +69,146 @@
     } else if (mod.isNeoForge) {
         loaderName = @"neoforge";
     }
-    if (loaderName) {
-        _loaderIconView.image = [self loadImageWithName:loaderName];
-        _loaderIconView.hidden = NO;
-    } else {
-        _loaderIconView.image = nil;
-        _loaderIconView.hidden = YES;
+
+    UIColor *brandColor = loaderName ? [ModLoaderIconHelper brandColorForLoader:loaderName] : nil;
+    self.iconContainer.backgroundColor = brandColor ?: [UIColor systemOrangeColor];
+
+    if (mod.icon) {
+        // 本地已解析的 jar 内嵌图标（pack.png 等）：直接显示，不做着色
+        self.iconImageView.image = mod.icon;
+        self.iconImageView.tintColor = nil;
+        return;
     }
 
-    if (mod.modDescription && mod.modDescription.length > 0) {
-        _descLabel.text = mod.modDescription;
-        _descLabel.hidden = NO;
+    if (loaderName) {
+        // 加载器品牌图标：PNG 优先（保持原色），SF Symbol 回退（品牌色着色）
+        [ModLoaderIconHelper configureImageView:self.iconImageView
+                                      forLoader:loaderName
+                              traitCollection:self.traitCollection];
     } else {
-        _descLabel.text = nil;
-        _descLabel.hidden = YES;
+        self.iconImageView.image = nil;
+    }
+    // 无图标可用时的语义色回退（容器内 SF Symbol，非裸图标）
+    if (!self.iconImageView.image) {
+        self.iconImageView.image = [UIImage systemImageNamed:@"puzzlepiece.extension.fill"];
+        self.iconImageView.tintColor = [UIColor whiteColor];
     }
 }
 
-- (void)configureForOnlineMode:(ModItem *)mod {
-    // Hide local/unused elements
-    _enableSwitch.hidden = YES;
-    _loaderBadgesStackView.hidden = YES;
-    _descLabel.hidden = YES;
-    _modVersionLabel.hidden = YES;
-    _gameVersionLabel.hidden = YES;
+/// 本地模式：副标题 = 文件名，元信息 = 版本 · 游戏版本，右侧 = 启用开关
+- (void)configureLocalContent:(ModItem *)mod {
+    self.subtitleLabel.text = mod.fileName.length > 0 ? mod.fileName : mod.basename;
+    self.subtitleLabel.hidden = (self.subtitleLabel.text.length == 0);
 
-    // Ensure loader icon is not shown on download (online) list
-    _loaderIconView.image = nil;
-    _loaderIconView.hidden = YES;
+    // 版本信息行：v版本 · MC 游戏版本（两者都缺省时隐藏）
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    if (mod.version.length > 0) [parts addObject:[NSString stringWithFormat:@"v%@", mod.version]];
+    if (mod.gameVersion.length > 0) [parts addObject:[NSString stringWithFormat:@"MC %@", mod.gameVersion]];
+    self.detailLabel.text = [parts componentsJoinedByString:@" · "];
+    self.detailLabel.hidden = (parts.count == 0);
 
-    // Show online elements
-    _authorLabel.hidden = NO;
-    _statsLabel.hidden = NO;
-    _downloadButton.hidden = NO;
-    _openLinkButton.hidden = NO;
+    // accessory：本地模式只显示启用开关（基类插槽，stack 自动收起隐藏项）
+    self.toggleSwitch.hidden = NO;
+    if (self.downloadButton) self.downloadButton.hidden = YES;
+    if (self.openLinkButton) self.openLinkButton.hidden = YES;
+    self.chevronImageView.hidden = YES;
 
-    _authorLabel.text = [NSString stringWithFormat:@"by %@", mod.author ?: @"Unknown"];
+    [self updateToggleState:mod.disabled];
+}
+
+/// 在线模式：副标题 = 作者，元信息 = 下载量，右侧 = 链接 + 下载按钮
+- (void)configureOnlineContent:(ModItem *)mod {
+    self.subtitleLabel.text = [NSString stringWithFormat:@"by %@", mod.author ?: @"Unknown"];
 
     NSNumberFormatter *formatter = [[NSNumberFormatter alloc] init];
     formatter.numberStyle = NSNumberFormatterDecimalStyle;
     NSString *downloadsStr = [formatter stringFromNumber:mod.downloads ?: @0];
+    self.detailLabel.text = [NSString stringWithFormat:localize(@"resman.mods.download_count", nil), downloadsStr];
+    self.detailLabel.hidden = NO;
 
-    _statsLabel.text = [NSString stringWithFormat:@"%@ 下载", downloadsStr];
+    // accessory：隐藏开关，显示链接 + 下载
+    self.toggleSwitch.hidden = YES;
+    self.downloadButton.hidden = NO;
+    self.openLinkButton.hidden = NO;
+    self.chevronImageView.hidden = YES;
+
+    self.contentView.alpha = 1.0;
 }
 
+#pragma mark - Lazy accessory（在线模式专属）
+
+- (UIButton *)downloadButton {
+    if (!_downloadButton) {
+        _downloadButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _downloadButton.translatesAutoresizingMaskIntoConstraints = NO;
+        [_downloadButton setTitle:localize(@"resman.mods.download", nil) forState:UIControlStateNormal];
+        [_downloadButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        _downloadButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        _downloadButton.backgroundColor = accentColor();
+        _downloadButton.contentEdgeInsets = UIEdgeInsetsMake(5, 12, 5, 12);
+        _downloadButton.layer.cornerRadius = 13.0;
+        _downloadButton.layer.cornerCurve = kCACornerCurveContinuous;
+        _downloadButton.layer.masksToBounds = YES;
+        [_downloadButton setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_downloadButton setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_downloadButton addTarget:self action:@selector(downloadTapped) forControlEvents:UIControlEventTouchUpInside];
+        _downloadButton.hidden = YES;
+        [self.accessoryStack insertArrangedSubview:_downloadButton atIndex:0];
+    }
+    return _downloadButton;
+}
+
+- (UIButton *)openLinkButton {
+    if (!_openLinkButton) {
+        _openLinkButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _openLinkButton.translatesAutoresizingMaskIntoConstraints = NO;
+        UIImage *image = [[UIImage systemImageNamed:@"globe"] imageWithTintColor:[UIColor secondaryLabelColor]];
+        [_openLinkButton setImage:image forState:UIControlStateNormal];
+        _openLinkButton.contentMode = UIViewContentModeScaleAspectFit;
+        [_openLinkButton setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_openLinkButton setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [_openLinkButton addTarget:self action:@selector(openLinkTapped) forControlEvents:UIControlEventTouchUpInside];
+        _openLinkButton.hidden = YES;
+        [self.accessoryStack insertArrangedSubview:_openLinkButton atIndex:0];
+        [NSLayoutConstraint activateConstraints:@[
+            [_openLinkButton.widthAnchor constraintEqualToConstant:28],
+            [_openLinkButton.heightAnchor constraintEqualToConstant:28],
+        ]];
+    }
+    return _openLinkButton;
+}
 
 #pragma mark - State Updates
 
 - (void)updateToggleState:(BOOL)disabled {
-    [_enableSwitch setOn:!disabled animated:YES];
+    [self.toggleSwitch setOn:!disabled animated:YES];
+    // 已禁用 Mod 整体降透明度（含文字与图标，与旧版视觉一致）
     self.contentView.alpha = disabled ? 0.6 : 1.0;
+}
+
+- (void)setUpdateAvailable:(BOOL)available {
+    self.updateBadge.hidden = !available;
+}
+
+#pragma mark - Trait Collection（深浅色切换重载加载器 PNG 图标）
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+        if (self.currentMod && self.currentMode == ModTableViewCellDisplayModeLocal) {
+            [self configureIconForMod:self.currentMod];
+        }
+    }
+}
+
+#pragma mark - Reuse
+
+- (void)prepareForReuse {
+    [super prepareForReuse]; // 基类已复位文字 / 图标 / accessory 插槽
+    self.contentView.alpha = 1.0;
+    if (self.downloadButton) self.downloadButton.hidden = YES;
+    if (self.openLinkButton) self.openLinkButton.hidden = YES;
+    self.currentMod = nil;
 }
 
 #pragma mark - Actions
@@ -419,4 +232,3 @@
 }
 
 @end
-#pragma clang diagnostic pop

@@ -1,3 +1,4 @@
+#import "utils.h"
 // VersionCardCell.m
 // 参照 FCL (item_remote_version.xml) 与 ZL2 (VersionItemLayout) 的单列横向列表行设计：
 // - 左侧：类型图标容器（40x40 圆角方块，类型色背景 + 白色 SF Symbol）
@@ -253,16 +254,16 @@
     // old_beta  → clock.fill + systemPurple（远古 beta）
     NSString *iconName = @"cube.fill";
     UIColor *typeColor = [UIColor systemGreenColor];
-    NSString *typeText = @"正式版";
+    NSString *typeText = localize(@"i18n_str_2058", nil);
 
     if ([type isEqualToString:@"正式版"] || [type isEqualToString:@"release"]) {
         iconName = @"cube.fill";
         typeColor = [UIColor systemGreenColor];
-        typeText = @"正式版";
+        typeText = localize(@"i18n_str_2058", nil);
     } else if ([type isEqualToString:@"测试版"] || [type isEqualToString:@"snapshot"]) {
         iconName = @"hammer.fill";
         typeColor = [UIColor systemOrangeColor];
-        typeText = @"测试版";
+        typeText = localize(@"i18n_str_2059", nil);
     } else if ([type isEqualToString:@"old_alpha"]) {
         iconName = @"clock.fill";
         typeColor = [UIColor systemPurpleColor];
@@ -275,7 +276,7 @@
         // 兜底：远古版（合并 old_alpha + old_beta 时使用）
         iconName = @"clock.fill";
         typeColor = [UIColor systemPurpleColor];
-        typeText = @"远古版";
+        typeText = localize(@"i18n_str_154", nil);
     }
 
     UIImage *symbol = [UIImage systemImageNamed:iconName];

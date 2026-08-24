@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  MurmurHash2.m
 //  Amethyst
@@ -46,7 +47,7 @@ static inline BOOL MurmurHash2_ShouldSkipByte(uint8_t b) {
         if (error) {
             *error = [NSError errorWithDomain:NSCocoaErrorDomain
                                          code:NSFileNoSuchFileError
-                                     userInfo:@{NSLocalizedDescriptionKey: @"文件路径为空"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_791", nil)}];
         }
         return 0;
     }
@@ -58,7 +59,7 @@ static inline BOOL MurmurHash2_ShouldSkipByte(uint8_t b) {
         if (error) {
             *error = [NSError errorWithDomain:NSCocoaErrorDomain
                                          code:NSFileNoSuchFileError
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"文件不存在或为目录: %@", filePath]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_792", nil), filePath]}];
         }
         return 0;
     }
@@ -92,7 +93,7 @@ static inline BOOL MurmurHash2_ShouldSkipByte(uint8_t b) {
         if (error) {
             *error = [NSError errorWithDomain:NSCocoaErrorDomain
                                          code:NSFileReadUnknownError
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法创建输入流"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_793", nil)}];
         }
         return 0;
     }
@@ -140,7 +141,7 @@ static inline BOOL MurmurHash2_ShouldSkipByte(uint8_t b) {
         if (error) {
             *error = [NSError errorWithDomain:NSCocoaErrorDomain
                                          code:NSFileReadUnknownError
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法创建输入流"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_793", nil)}];
         }
         return 0;
     }

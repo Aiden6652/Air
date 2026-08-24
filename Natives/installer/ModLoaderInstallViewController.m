@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  ModLoaderInstallViewController.m
 //  Amethyst
@@ -123,7 +124,7 @@
 - (void)setIncompatible:(BOOL)incompatible reason:(NSString *)reason {
     if (incompatible) {
         self.stateLabel.hidden = NO;
-        self.stateLabel.text = reason ?: @"不兼容";
+        self.stateLabel.text = reason ?: localize(@"i18n_str_1199", nil);
         self.stateLabel.textColor = [UIColor systemRedColor];
         self.nameLabel.textColor = [UIColor tertiaryLabelColor];
         self.iconView.alpha = 0.45;
@@ -147,14 +148,14 @@
         self.stateLabel.textColor = [UIColor systemGreenColor];
     } else {
         self.stateLabel.hidden = NO;
-        self.stateLabel.text = @"点击选择版本";
+        self.stateLabel.text = localize(@"i18n_str_1200", nil);
         self.stateLabel.textColor = [UIColor secondaryLabelColor];
     }
 }
 
 - (void)clearStatusText {
     self.stateLabel.hidden = NO;
-    self.stateLabel.text = @"未安装";
+    self.stateLabel.text = localize(@"i18n_str_1201", nil);
     self.stateLabel.textColor = [UIColor secondaryLabelColor];
 }
 
@@ -180,7 +181,7 @@
         if (versionDisplay.length > 0) {
             [self setSelectedVersionText:versionDisplay];
         } else if ([row.identifier isEqualToString:@"vanilla"]) {
-            [self setSelectedVersionText:@"已选择"];
+            [self setSelectedVersionText:localize(@"i18n_str_1202", nil)];
         } else {
             [self setSelectedVersionText:nil];
         }
@@ -389,12 +390,12 @@
 }
 
 - (NSString *)pickerTitle {
-    if ([_loaderId isEqualToString:@"fabric"])   return @"Fabric 版本";
-    if ([_loaderId isEqualToString:@"forge"])    return @"Forge 版本";
-    if ([_loaderId isEqualToString:@"neoforge"]) return @"NeoForge 版本";
-    if ([_loaderId isEqualToString:@"quilt"])    return @"Quilt 版本";
-    if ([_loaderId isEqualToString:@"optifine"]) return @"OptiFine 版本";
-    return @"选择版本";
+    if ([_loaderId isEqualToString:@"fabric"])   return localize(@"i18n_str_1203", nil);
+    if ([_loaderId isEqualToString:@"forge"])    return localize(@"i18n_str_1204", nil);
+    if ([_loaderId isEqualToString:@"neoforge"]) return localize(@"i18n_str_1205", nil);
+    if ([_loaderId isEqualToString:@"quilt"])    return localize(@"i18n_str_1206", nil);
+    if ([_loaderId isEqualToString:@"optifine"]) return localize(@"i18n_str_1207", nil);
+    return localize(@"i18n_str_38", nil);
 }
 
 - (void)setupTableView {
@@ -422,7 +423,7 @@
 
     _emptyLabel = [[UILabel alloc] init];
     _emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    _emptyLabel.text = @"暂无可用版本";
+    _emptyLabel.text = localize(@"i18n_str_1208", nil);
     _emptyLabel.textAlignment = NSTextAlignmentCenter;
     _emptyLabel.textColor = [UIColor secondaryLabelColor];
     _emptyLabel.font = [UIFont systemFontOfSize:15];
@@ -431,7 +432,7 @@
 
     _errorLabel = [[UILabel alloc] init];
     _errorLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    _errorLabel.text = @"加载失败，请检查网络";
+    _errorLabel.text = localize(@"i18n_str_1209", nil);
     _errorLabel.textAlignment = NSTextAlignmentCenter;
     _errorLabel.textColor = [UIColor systemRedColor];
     _errorLabel.font = [UIFont systemFontOfSize:15];
@@ -661,7 +662,7 @@
         _versions = @[];
         _errorLabel.hidden = NO;
         _emptyLabel.hidden = YES;
-        _errorLabel.text = [NSString stringWithFormat:@"加载失败：%@", error.localizedDescription ?: @"未知错误"];
+        _errorLabel.text = [NSString stringWithFormat:localize(@"i18n_str_1210", nil), error.localizedDescription ?: localize(@"i18n_str_97", nil)];
     } else {
         _versions = versions ?: @[];
         _errorLabel.hidden = YES;
@@ -800,7 +801,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"选择安装方式";
+    self.title = localize(@"i18n_str_1211", nil);
     self.view.backgroundColor = [UIColor clearColor];
     if (self.navigationController) {
         [[BackgroundManager sharedManager] applyEffectToNavigationBar:self.navigationController.navigationBar];
@@ -851,12 +852,12 @@
 
     // 通过 ModLoaderIconHelper 统一获取加载器图标和品牌色（优先 PNG，回退 SF Symbol）
     NSArray *defs = @[
-        @{ @"id": @"vanilla",  @"name": @"原版 (Vanilla)", @"desc": @"纯净 Minecraft，不包含任何模组加载器", @"compatible": @YES },
-        @{ @"id": @"fabric",   @"name": @"Fabric",        @"desc": @"轻量级模组加载器，适合小型模组",      @"compatible": @(fabricCompatible) },
-        @{ @"id": @"forge",    @"name": @"Forge",         @"desc": @"经典模组加载器，模组生态丰富",        @"compatible": @(forgeCompatible) },
-        @{ @"id": @"neoforge", @"name": @"NeoForge",      @"desc": @"Forge 的分支，支持 1.20.1+",          @"compatible": @(neoForgeCompatible) },
-        @{ @"id": @"quilt",    @"name": @"Quilt",         @"desc": @"基于 Fabric 的新一代加载器",         @"compatible": @(quiltCompatible) },
-        @{ @"id": @"optifine", @"name": @"OptiFine",      @"desc": @"光影与画质优化（作为版本补丁安装）",  @"compatible": @(optiFineCompatible) },
+        @{ @"id": @"vanilla",  @"name": localize(@"i18n_str_1212", nil), @"desc": localize(@"i18n_str_1213", nil), @"compatible": @YES },
+        @{ @"id": @"fabric",   @"name": @"Fabric",        @"desc": localize(@"i18n_str_1214", nil),      @"compatible": @(fabricCompatible) },
+        @{ @"id": @"forge",    @"name": @"Forge",         @"desc": localize(@"i18n_str_1215", nil),        @"compatible": @(forgeCompatible) },
+        @{ @"id": @"neoforge", @"name": @"NeoForge",      @"desc": localize(@"i18n_str_1216", nil),          @"compatible": @(neoForgeCompatible) },
+        @{ @"id": @"quilt",    @"name": @"Quilt",         @"desc": localize(@"i18n_str_1217", nil),         @"compatible": @(quiltCompatible) },
+        @{ @"id": @"optifine", @"name": @"OptiFine",      @"desc": localize(@"i18n_str_1218", nil),  @"compatible": @(optiFineCompatible) },
     ];
 
     for (NSDictionary *d in defs) {
@@ -891,7 +892,7 @@
 
     UILabel *label = [[UILabel alloc] init];
     label.translatesAutoresizingMaskIntoConstraints = NO;
-    label.text = @"版本名";
+    label.text = localize(@"i18n_str_1219", nil);
     label.font = [UIFont systemFontOfSize:[ScreenUtils sp:13] weight:UIFontWeightMedium];
     label.textColor = [UIColor secondaryLabelColor];
     label.adjustsFontForContentSizeCategory = NO;
@@ -901,7 +902,7 @@
     _versionNameField.translatesAutoresizingMaskIntoConstraints = NO;
     _versionNameField.font = [UIFont systemFontOfSize:[ScreenUtils sp:14]];
     _versionNameField.textColor = [UIColor labelColor];
-    _versionNameField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"输入版本名"
+    _versionNameField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:localize(@"i18n_str_1220", nil)
                                                                              attributes:@{
         NSForegroundColorAttributeName: [UIColor placeholderTextColor]
     }];
@@ -1036,22 +1037,22 @@
     if ([loaderId isEqualToString:@"fabric"] || [loaderId isEqualToString:@"forge"] ||
         [loaderId isEqualToString:@"neoforge"] || [loaderId isEqualToString:@"quilt"]) {
         // 加载器组互斥
-        if (fabricSelected  && ![loaderId isEqualToString:@"fabric"])  return @"与 Fabric 冲突";
-        if (forgeSelected   && ![loaderId isEqualToString:@"forge"])   return @"与 Forge 冲突";
-        if (neoSelected     && ![loaderId isEqualToString:@"neoforge"]) return @"与 NeoForge 冲突";
-        if (quiltSelected   && ![loaderId isEqualToString:@"quilt"])   return @"与 Quilt 冲突";
+        if (fabricSelected  && ![loaderId isEqualToString:@"fabric"])  return localize(@"i18n_str_1221", nil);
+        if (forgeSelected   && ![loaderId isEqualToString:@"forge"])   return localize(@"i18n_str_1222", nil);
+        if (neoSelected     && ![loaderId isEqualToString:@"neoforge"]) return localize(@"i18n_str_1223", nil);
+        if (quiltSelected   && ![loaderId isEqualToString:@"quilt"])   return localize(@"i18n_str_1224", nil);
         // optifine 与 fabric/quilt/neoforge 互斥
         if (optiSelected) {
-            if ([loaderId isEqualToString:@"fabric"])  return @"与 OptiFine 冲突";
-            if ([loaderId isEqualToString:@"quilt"])   return @"与 OptiFine 冲突";
-            if ([loaderId isEqualToString:@"neoforge"]) return @"与 OptiFine 冲突";
+            if ([loaderId isEqualToString:@"fabric"])  return localize(@"i18n_str_1225", nil);
+            if ([loaderId isEqualToString:@"quilt"])   return localize(@"i18n_str_1225", nil);
+            if ([loaderId isEqualToString:@"neoforge"]) return localize(@"i18n_str_1225", nil);
         }
     }
 
     if ([loaderId isEqualToString:@"optifine"]) {
-        if (fabricSelected)  return @"与 Fabric 冲突";
-        if (quiltSelected)   return @"与 Quilt 冲突";
-        if (neoSelected)     return @"与 NeoForge 冲突";
+        if (fabricSelected)  return localize(@"i18n_str_1221", nil);
+        if (quiltSelected)   return localize(@"i18n_str_1224", nil);
+        if (neoSelected)     return localize(@"i18n_str_1223", nil);
     }
 
     return nil;
@@ -1115,21 +1116,21 @@
 
 - (void)installTapped {
     if (_selectedLoaderId.length == 0) {
-        [self showAlert:@"请选择安装方式" message:nil];
+        [self showAlert:localize(@"i18n_str_1226", nil) message:nil];
         return;
     }
 
     if (![_selectedLoaderId isEqualToString:@"vanilla"] && ![_selectedLoaderId isEqualToString:@"optifine"]) {
         NSString *selectedVersion = [self selectedVersionForLoader:_selectedLoaderId];
         if (selectedVersion.length == 0) {
-            [self showAlert:@"请选择版本" message:@"请先选择加载器的版本号"];
+            [self showAlert:localize(@"i18n_str_1227", nil) message:localize(@"i18n_str_1228", nil)];
             return;
         }
     }
 
     // OptiFine 单独安装时必须有选中版本
     if ([_selectedLoaderId isEqualToString:@"optifine"] && _selectedOptiFineVersion.length == 0) {
-        [self showAlert:@"请选择 OptiFine 版本" message:nil];
+        [self showAlert:localize(@"i18n_str_1229", nil) message:nil];
         return;
     }
 
@@ -1183,7 +1184,7 @@
 
 - (void)showAlert:(NSString *)title message:(NSString *)message {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好的" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_406", nil) style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -1226,8 +1227,8 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (section == 0) return @"模组加载器";
-    return [self currentOptions].count > 0 ? @"附加选项" : nil;
+    if (section == 0) return localize(@"i18n_str_160", nil);
+    return [self currentOptions].count > 0 ? localize(@"i18n_str_2048", nil) : nil;
 }
 
 - (NSMutableArray *)currentOptions {
@@ -1267,7 +1268,7 @@
         NSString *reason = nil;
         if (!row.compatible) {
             incompatible = YES;
-            reason = @"当前版本不支持";
+            reason = localize(@"i18n_str_1231", nil);
         } else {
             reason = [self incompatibleReasonForLoaderId:row.identifier];
             if (reason) incompatible = YES;
@@ -1289,13 +1290,13 @@
         NSString *type = opt[@"type"];
 
         if ([type isEqualToString:@"fabric_api"]) {
-            cell.titleLabel.text = @"同时安装 Fabric API";
-            cell.descLabel.text = @"Fabric 模组的核心依赖库，建议保持开启";
+            cell.titleLabel.text = localize(@"i18n_str_1232", nil);
+            cell.descLabel.text = localize(@"i18n_str_1233", nil);
             cell.switchControl.on = _installFabricAPI;
             cell.switchControl.tag = 1001;
         } else if ([type isEqualToString:@"optifine_mod"]) {
-            cell.titleLabel.text = @"同时安装 OptiFine";
-            cell.descLabel.text = @"作为 mod 安装到 mods 目录，与 Forge 共存";
+            cell.titleLabel.text = localize(@"i18n_str_1234", nil);
+            cell.descLabel.text = localize(@"i18n_str_1235", nil);
             cell.switchControl.on = _installOptiFine;
             cell.switchControl.tag = 1002;
         } else {

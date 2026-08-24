@@ -68,7 +68,7 @@
         // 提示用户并尽早返回，避免把状态搞得更乱。
         NSLog(@"[GameDir] createSymbolicLink failed: %@", linkError.localizedDescription);
         showDialog(localize(@"Error", nil),
-                   [NSString stringWithFormat:@"切换游戏目录失败：无法创建符号链接\n\n%@", linkError.localizedDescription]);
+                   [NSString stringWithFormat:localize(@"i18n_str_363", nil), linkError.localizedDescription]);
         return;
     }
     [NSFileManager.defaultManager changeCurrentDirectoryPath:lasmPath];

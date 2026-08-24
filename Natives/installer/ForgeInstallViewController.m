@@ -283,7 +283,7 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
     if (self.completionHandler) {
         NSError *cancelError = [NSError errorWithDomain:ForgeInstallerFlowErrorDomain
                                                    code:ForgeInstallerFlowErrorCodeCancelled
-                                               userInfo:@{NSLocalizedDescriptionKey: @"用户已取消安装流程"}];
+                                               userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1135", nil)}];
         self.completionHandler(NO, nil, cancelError);
     }
     // 兼容两种呈现方式：push 到中间内容区时用 pop，模态呈现时用 dismiss
@@ -435,7 +435,7 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
                         dispatch_async(dispatch_get_main_queue(), ^{
                             self.isDataLoading = NO;
                             [self.refreshControl endRefreshing];
-                            showDialog(localize(@"Error", nil), @"无法获取 NeoForge 版本列表，请检查网络连接");
+                            showDialog(localize(@"Error", nil), localize(@"i18n_str_1318", nil));
                             [self actionClose];
                         });
                     }
@@ -471,7 +471,7 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
                 dispatch_async(dispatch_get_main_queue(), ^{
                     self.isDataLoading = NO;
                     [self.refreshControl endRefreshing];
-                    showDialog(localize(@"Error", nil), @"无法获取 Forge 版本列表，请检查网络连接或切换下载源");
+                    showDialog(localize(@"Error", nil), localize(@"i18n_str_1319", nil));
                     [self actionClose];
                 });
             };
@@ -1060,7 +1060,7 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
         if (self.completionHandler) {
             NSError *cancelError = [NSError errorWithDomain:ForgeInstallerFlowErrorDomain
                                                        code:ForgeInstallerFlowErrorCodeCancelled
-                                                   userInfo:@{NSLocalizedDescriptionKey: @"用户取消安装方案选择"}];
+                                                   userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1138", nil)}];
             self.completionHandler(NO, nil, cancelError);
         }
         return;
@@ -1070,15 +1070,15 @@ NSString * const ForgeInstallerFlowErrorDomain = @"ForgeInstallerFlowErrorDomain
         // 弹窗告知用户风险，让用户决定是否继续或改用直装方案
         if ([self isOriginalSchemeIncompatible]) {
             UIAlertController *alert = [UIAlertController
-                alertControllerWithTitle:@"原版方案可能不可用"
-                                 message:@"iOS 沙箱禁止 fork/exec，installer.jar 内部的 processors 无法运行。\nForge 1.13+ 和所有 NeoForge 版本必须使用直装方案。\n仅 Forge 1.12- 可尝试原版方案（仍需手动操作 AWT GUI）。"
+                alertControllerWithTitle:localize(@"i18n_str_1139", nil)
+                                 message:localize(@"i18n_str_1140", nil)
                           preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"改用直装方案"
+            [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_1141", nil)
                                                       style:UIAlertActionStyleDefault
                                                     handler:^(UIAlertAction *a) {
                 [self startDownloadWithScheme:1];
             }]];
-            [alert addAction:[UIAlertAction actionWithTitle:@"我已知风险，继续"
+            [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_1142", nil)
                                                       style:UIAlertActionStyleDestructive
                                                     handler:^(UIAlertAction *a) {
                 [self startDownloadWithScheme:0];

@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  MinecraftNewsService.m
 //  Amethyst
@@ -69,7 +70,7 @@ static NSString * const MCNewsBaseAPIURL = @"https://net-secondary.web.minecraft
     if (!url) {
         if (completion) completion(@[], 0, [NSError errorWithDomain:MCNewsErrorDomain
                                                                  code:MCNewsErrorCodeNetwork
-                                                             userInfo:@{NSLocalizedDescriptionKey: @"无效的 API URL"}]);
+                                                             userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_443", nil)}]);
         return;
     }
 
@@ -109,7 +110,7 @@ static NSString * const MCNewsBaseAPIURL = @"https://net-secondary.web.minecraft
         if (parseError || ![json isKindOfClass:[NSDictionary class]]) {
             NSError *err = [NSError errorWithDomain:MCNewsErrorDomain
                                                code:MCNewsErrorCodeParsing
-                                           userInfo:@{NSLocalizedDescriptionKey: @"JSON 解析失败"}];
+                                           userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_444", nil)}];
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (completion) completion(@[], 0, err);
             });

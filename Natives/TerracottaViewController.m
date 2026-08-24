@@ -98,7 +98,7 @@
     ztFab.layer.cornerRadius = 18;
     ztFab.layer.masksToBounds = YES;
     ztFab.translatesAutoresizingMaskIntoConstraints = NO;
-    ztFab.accessibilityLabel = @"ZeroTier 联机";
+    ztFab.accessibilityLabel = localize(@"i18n_str_1007", nil);
     [ztFab addTarget:self action:@selector(switchToZeroTier:) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:ztFab];
     [self.view bringSubviewToFront:ztFab];
@@ -337,7 +337,7 @@
 }
 
 - (void)setupTabControl {
-    self.tabControl = [[UISegmentedControl alloc] initWithItems:@[@"创建房间", @"加入房间"]];
+    self.tabControl = [[UISegmentedControl alloc] initWithItems:@[localize(@"i18n_str_1008", nil), localize(@"i18n_str_1009", nil)]];
     self.tabControl.translatesAutoresizingMaskIntoConstraints = NO;
     self.tabControl.selectedSegmentIndex = 0;
     [self.tabControl addTarget:self action:@selector(tabChanged:)
@@ -361,16 +361,16 @@
     self.createHintLabel = [self makeLabelWithFont:[UIFont systemFontOfSize:13]
                                         textColor:[UIColor secondaryLabelColor]];
     self.createHintLabel.numberOfLines = 0;
-    self.createHintLabel.text = @"先在 Minecraft 中点击「对局域网开放」，记下显示的端口号，填入下方后点击创建。";
+    self.createHintLabel.text = localize(@"i18n_str_1010", nil);
     [self.createPanel addSubview:self.createHintLabel];
 
-    self.portField = [self makeTextFieldWithPlaceholder:@"MC LAN 端口（如 25565）"
+    self.portField = [self makeTextFieldWithPlaceholder:localize(@"i18n_str_1011", nil)
                                             keyboardType:UIKeyboardTypeNumberPad];
     self.portField.text = @"25565";
     self.portField.delegate = self;
     [self.createPanel addSubview:self.portField];
 
-    self.createButton = [self makePrimaryButtonWithTitle:@"创建房间"
+    self.createButton = [self makePrimaryButtonWithTitle:localize(@"i18n_str_1008", nil)
                                                   action:@selector(createRoomTapped:)];
     [self.createPanel addSubview:self.createButton];
 
@@ -407,17 +407,17 @@
     self.joinHintLabel = [self makeLabelWithFont:[UIFont systemFontOfSize:13]
                                        textColor:[UIColor secondaryLabelColor]];
     self.joinHintLabel.numberOfLines = 0;
-    self.joinHintLabel.text = @"输入房主分享的邀请码，加入后在 Minecraft 多人游戏界面直接连接 127.0.0.1:25565。";
+    self.joinHintLabel.text = localize(@"i18n_str_1012", nil);
     [self.joinPanel addSubview:self.joinHintLabel];
 
-    self.inviteField = [self makeTextFieldWithPlaceholder:@"邀请码"
+    self.inviteField = [self makeTextFieldWithPlaceholder:localize(@"i18n_str_1013", nil)
                                               keyboardType:UIKeyboardTypeDefault];
     self.inviteField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     self.inviteField.autocorrectionType = UITextAutocorrectionTypeNo;
     self.inviteField.delegate = self;
     [self.joinPanel addSubview:self.inviteField];
 
-    self.joinButton = [self makePrimaryButtonWithTitle:@"加入房间"
+    self.joinButton = [self makePrimaryButtonWithTitle:localize(@"i18n_str_1009", nil)
                                                  action:@selector(joinRoomTapped:)];
     [self.joinPanel addSubview:self.joinButton];
 
@@ -447,7 +447,7 @@
 - (void)setupSessionFooter {
     self.playersTitleLabel = [self makeLabelWithFont:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
                                           textColor:[UIColor labelColor]];
-    self.playersTitleLabel.text = @"玩家列表";
+    self.playersTitleLabel.text = localize(@"i18n_str_1014", nil);
     [self.contentView addSubview:self.playersTitleLabel];
 
     self.playersList = [[UIStackView alloc] init];
@@ -459,7 +459,7 @@
 
     self.disconnectButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.disconnectButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.disconnectButton setTitle:@"断开连接" forState:UIControlStateNormal];
+    [self.disconnectButton setTitle:localize(@"i18n_str_694", nil) forState:UIControlStateNormal];
     [self.disconnectButton setTitleColor:[UIColor systemRedColor] forState:UIControlStateNormal];
     self.disconnectButton.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
     self.disconnectButton.layer.cornerRadius = 12;
@@ -547,7 +547,7 @@
 - (void)createRoomTapped:(UIButton *)sender {
     uint16_t port = (uint16_t)[self.portField.text integerValue];
     if (port == 0) {
-        [self showToast:@"请输入有效端口"];
+        [self showToast:localize(@"i18n_str_1015", nil)];
         return;
     }
     [self.view endEditing:YES];
@@ -561,7 +561,7 @@
     NSString *code = [self.inviteField.text stringByTrimmingCharactersInSet:
                       [NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (code.length == 0) {
-        [self showToast:@"请输入邀请码"];
+        [self showToast:localize(@"i18n_str_1016", nil)];
         return;
     }
     [self.view endEditing:YES];
@@ -569,7 +569,7 @@
     BOOL ok = [[TerracottaManager shared] joinRoomWithInviteCode:code
                                                       playerName:playerName];
     if (!ok) {
-        [self showToast:[[TerracottaManager shared] lastError] ?: @"邀请码无效"];
+        [self showToast:[[TerracottaManager shared] lastError] ?: localize(@"i18n_str_1017", nil)];
     }
 }
 
@@ -581,14 +581,14 @@
     NSString *code = [TerracottaManager shared].currentInviteCode;
     if (code.length == 0) return;
     [UIPasteboard generalPasteboard].string = code;
-    [self showToast:@"邀请码已复制"];
+    [self showToast:localize(@"i18n_str_1018", nil)];
 }
 
 - (void)copyDirectURL:(UIButton *)sender {
     NSString *url = [TerracottaManager shared].directConnectURL;
     if (url.length == 0) return;
     [UIPasteboard generalPasteboard].string = url;
-    [self showToast:@"地址已复制"];
+    [self showToast:localize(@"i18n_str_1019", nil)];
 }
 
 - (void)close {
@@ -606,11 +606,11 @@
     TerracottaStatus status = [TerracottaManager shared].status;
     if (status != TerracottaStatusDisconnected) {
         UIAlertController *alert = [UIAlertController
-            alertControllerWithTitle:@"切换到 ZeroTier 联机"
-                              message:@"当前陶瓦联机正在进行中，切换将断开当前会话。是否继续？"
+            alertControllerWithTitle:localize(@"i18n_str_1020", nil)
+                              message:localize(@"i18n_str_1021", nil)
                        preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-        [alert addAction:[UIAlertAction actionWithTitle:@"切换" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_1022", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
             [[TerracottaManager shared] stopSession];
             [self presentZeroTierVC];
         }]];
@@ -672,7 +672,7 @@
 
     /* 邀请码 */
     if (mgr.currentInviteCode.length > 0) {
-        self.inviteCodeLabel.text = [NSString stringWithFormat:@"邀请码：%@", mgr.currentInviteCode];
+        self.inviteCodeLabel.text = [NSString stringWithFormat:localize(@"i18n_str_1023", nil), mgr.currentInviteCode];
         self.inviteCopyButton.hidden = NO;
     } else {
         self.inviteCodeLabel.text = nil;
@@ -681,7 +681,7 @@
 
     /* 直连地址 */
     if (mgr.directConnectURL.length > 0) {
-        self.directConnectLabel.text = [NSString stringWithFormat:@"MC 直连：%@", mgr.directConnectURL];
+        self.directConnectLabel.text = [NSString stringWithFormat:localize(@"i18n_str_1024", nil), mgr.directConnectURL];
         self.directCopyButton.hidden = NO;
     } else {
         self.directConnectLabel.text = nil;
@@ -715,7 +715,7 @@
     if (players.count == 0) {
         UILabel *empty = [self makeLabelWithFont:[UIFont systemFontOfSize:13]
                                        textColor:[UIColor tertiaryLabelColor]];
-        empty.text = (role == TerracottaRoleHost) ? @"等待玩家加入…" : @"暂无玩家信息";
+        empty.text = (role == TerracottaRoleHost) ? localize(@"i18n_str_2045", nil) : localize(@"i18n_str_1026", nil);
         [self.playersList addArrangedSubview:empty];
         return;
     }
@@ -773,20 +773,20 @@
 
 - (NSString *)playerRoleText:(TerracottaPlayerProfile *)profile role:(TerracottaRole)myRole {
     NSString *kind = profile.kind;
-    if ([kind isEqualToString:@"host"]) return @"房主";
-    if ([kind isEqualToString:@"guest"]) return @"访客";
+    if ([kind isEqualToString:@"host"]) return localize(@"i18n_str_1027", nil);
+    if ([kind isEqualToString:@"guest"]) return localize(@"i18n_str_1028", nil);
     /* 没有 kind 字段时用 profile_index == 0 推断房主 */
-    return @"玩家";
+    return localize(@"i18n_str_351", nil);
 }
 
 - (NSString *)statusDisplayText:(TerracottaStatus)status role:(TerracottaRole)role {
     switch (status) {
-        case TerracottaStatusDisconnected: return @"未联机";
+        case TerracottaStatusDisconnected: return localize(@"i18n_str_1029", nil);
         case TerracottaStatusConnecting:
-            return (role == TerracottaRoleHost) ? @"创建房间中…" : @"加入房间中…";
+            return (role == TerracottaRoleHost) ? localize(@"i18n_str_2046", nil) : localize(@"i18n_str_1031", nil);
         case TerracottaStatusConnected:
-            return (role == TerracottaRoleHost) ? @"房主已就绪" : @"已加入房间";
-        case TerracottaStatusError: return @"联机出错";
+            return (role == TerracottaRoleHost) ? localize(@"i18n_str_2047", nil) : localize(@"i18n_str_1006", nil);
+        case TerracottaStatusError: return localize(@"i18n_str_1033", nil);
     }
     return @"";
 }

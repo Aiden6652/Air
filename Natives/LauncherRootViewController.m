@@ -511,10 +511,10 @@ static CGFloat LauncherRootLayoutRightPanelWidth(UITraitCollection *trait) {
 }
 - (void)showMultiplayerDisabledAlert {
     UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"联机功能暂时不可用"
-                          message:@"联机模块（ZeroTier/Terracotta）正在排查启动崩溃问题，暂时禁用，请等待后续版本恢复。"
+        alertControllerWithTitle:localize(@"i18n_str_320", nil)
+                          message:localize(@"i18n_str_321", nil)
                    preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_322", nil) style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -529,7 +529,6 @@ static CGFloat LauncherRootLayoutRightPanelWidth(UITraitCollection *trait) {
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vm];
     nav.navigationBar.prefersLargeTitles = NO;
     ModsManagerViewController *m = [[ModsManagerViewController alloc] init];
-    m.initialMode = ModsManagerModeLocal;
     [nav pushViewController:m animated:NO];
     [self setContentViewController:nav animated:YES];
 }

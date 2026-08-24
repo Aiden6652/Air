@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "TerracottaManager.h"
 #import "TerracottaBridge.h"
 #import "SilentAudioPlayer.h"
@@ -70,7 +71,7 @@ NSNotificationName TerracottaManagerStateDidChangeNotification = @"TerracottaMan
     BOOL ok = [TerracottaBridge startWithWorkingDirectory:workDir loggingPath:logPath];
     if (!ok) {
         NSLog(@"[TerracottaManager] terracotta_ios_start failed");
-        self.lastError = @"Terracotta 初始化失败";
+        self.lastError = localize(@"i18n_str_996", nil);
         self.status = TerracottaStatusError;
         return;
     }
@@ -88,7 +89,7 @@ NSNotificationName TerracottaManagerStateDidChangeNotification = @"TerracottaMan
     self.currentPort = port;
     self.currentInviteCode = inviteCode;
     self.status = TerracottaStatusConnecting;
-    self.stageDescription = @"正在创建房间…";
+    self.stageDescription = localize(@"i18n_str_997", nil);
     self.lastError = nil;
 
     [[SilentAudioPlayer shared] startKeepingAlive];
@@ -98,7 +99,7 @@ NSNotificationName TerracottaManagerStateDidChangeNotification = @"TerracottaMan
                                         playerName:playerName];
     if (!ok) {
         self.status = TerracottaStatusError;
-        self.lastError = @"无法启动房主（请确认当前无活动会话）";
+        self.lastError = localize(@"i18n_str_998", nil);
         [[SilentAudioPlayer shared] stopKeepingAlive];
         [self notifyStateChanged];
         return;
@@ -110,14 +111,14 @@ NSNotificationName TerracottaManagerStateDidChangeNotification = @"TerracottaMan
 - (BOOL)joinRoomWithInviteCode:(NSString *)inviteCode
                     playerName:(NSString *)playerName {
     if (![TerracottaBridge verifyRoomCode:inviteCode]) {
-        self.lastError = @"邀请码格式不正确";
+        self.lastError = localize(@"i18n_str_999", nil);
         return NO;
     }
     [self resetSessionState];
     self.role = TerracottaRoleClient;
     self.currentInviteCode = inviteCode;
     self.status = TerracottaStatusConnecting;
-    self.stageDescription = @"正在加入房间…";
+    self.stageDescription = localize(@"i18n_str_1000", nil);
     self.lastError = nil;
 
     [[SilentAudioPlayer shared] startKeepingAlive];
@@ -125,7 +126,7 @@ NSNotificationName TerracottaManagerStateDidChangeNotification = @"TerracottaMan
     BOOL ok = [TerracottaBridge setGuestingWithRoom:inviteCode playerName:playerName];
     if (!ok) {
         self.status = TerracottaStatusError;
-        self.lastError = @"无法加入（邀请码无效或当前已有会话）";
+        self.lastError = localize(@"i18n_str_1001", nil);
         [[SilentAudioPlayer shared] stopKeepingAlive];
         [self notifyStateChanged];
         return NO;
@@ -207,27 +208,27 @@ NSNotificationName TerracottaManagerStateDidChangeNotification = @"TerracottaMan
             break;
         case TerracottaStateKindHostScanning:
             self.status = TerracottaStatusConnecting;
-            self.stageDescription = @"正在扫描 MC 局域网端口…";
+            self.stageDescription = localize(@"i18n_str_1002", nil);
             break;
         case TerracottaStateKindHostStarting:
             self.status = TerracottaStatusConnecting;
-            self.stageDescription = @"正在启动 EasyTier 网络…";
+            self.stageDescription = localize(@"i18n_str_1003", nil);
             break;
         case TerracottaStateKindHostOk:
             self.status = TerracottaStatusConnected;
-            self.stageDescription = @"房间已创建，等待玩家加入";
+            self.stageDescription = localize(@"i18n_str_1004", nil);
             break;
         case TerracottaStateKindGuestConnecting:
             self.status = TerracottaStatusConnecting;
-            self.stageDescription = @"正在连接房主…";
+            self.stageDescription = localize(@"i18n_str_1005", nil);
             break;
         case TerracottaStateKindGuestStarting:
             self.status = TerracottaStatusConnecting;
-            self.stageDescription = @"正在启动 EasyTier 网络…";
+            self.stageDescription = localize(@"i18n_str_1003", nil);
             break;
         case TerracottaStateKindGuestOk:
             self.status = TerracottaStatusConnected;
-            self.stageDescription = @"已加入房间";
+            self.stageDescription = localize(@"i18n_str_1006", nil);
             break;
         case TerracottaStateKindException:
             self.status = TerracottaStatusError;

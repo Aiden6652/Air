@@ -1,3 +1,4 @@
+#import "utils.h"
 #import "ModrinthAPI.h"
 #import "PLMirrorCenter.h"
 
@@ -145,7 +146,7 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
     NSString *modID = item[@"id"];
     if (!modID || modID.length == 0) {
         if (completion) completion(NO, [NSError errorWithDomain:@"ModrinthAPIError" code:1
-                                                       userInfo:@{NSLocalizedDescriptionKey: @"缺少 mod ID"}]);
+                                                       userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1238", nil)}]);
         return;
     }
 
@@ -153,7 +154,7 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {
         if (completion) completion(NO, [NSError errorWithDomain:@"ModrinthAPIError" code:2
-                                                       userInfo:@{NSLocalizedDescriptionKey: @"无效的 URL"}]);
+                                                       userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1048", nil)}]);
         return;
     }
 
@@ -172,7 +173,7 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
         }
         if (!data) {
             NSError *err = [NSError errorWithDomain:@"ModrinthAPIError" code:3
-                                           userInfo:@{NSLocalizedDescriptionKey: @"无数据返回"}];
+                                           userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1239", nil)}];
             self.lastError = err;
             if (completion) completion(NO, err);
             return;
@@ -182,7 +183,7 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
         id jsonResult = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
         if (jsonError || ![jsonResult isKindOfClass:[NSArray class]]) {
             NSError *err = jsonError ?: [NSError errorWithDomain:@"ModrinthAPIError" code:4
-                                                       userInfo:@{NSLocalizedDescriptionKey: @"JSON 解析失败"}];
+                                                       userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_444", nil)}];
             self.lastError = err;
             if (completion) completion(NO, err);
             return;
@@ -259,7 +260,12 @@ static NSString *MRAMirrorResolvedURL(NSString *urlString) {
 
 - (NSMutableDictionary *)projectForFileHash:(NSString *)sha1 projectType:(NSString *)projectType {
     if (sha1.length == 0) return nil;
-    NSDictionary *response = [self getEndpoint:@"version_file" params:@{@"hash": sha1}];
+    // 修复：Modrinth 文件反查 API 要求 hash 作为路径参数（GET /v2/version_file/{sha1}?algorithm=sha1）。
+    // 原实现把 hash 放进 getEndpoint 的查询参数（生成 ?hash=xxx），该路由不存在，导致反查永远 404。
+    // 参照本类 loadDetailsOfMod 中 project/%@/version 的写法，把 sha1 拼进 endpoint 路径，
+    // algorithm=sha1 作为查询参数仍由 params 生成。
+    NSString *endpoint = [NSString stringWithFormat:@"version_file/%@", sha1];
+    NSDictionary *response = [self getEndpoint:endpoint params:@{@"algorithm": @"sha1"}];
     if (![response isKindOfClass:[NSDictionary class]]) return nil;
     
     NSMutableDictionary *result = [NSMutableDictionary new];

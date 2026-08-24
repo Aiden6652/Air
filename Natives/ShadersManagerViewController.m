@@ -2,226 +2,152 @@
 //  ShadersManagerViewController.m
 //  Amethyst
 //
-//  Shader manager implementation - mirrors ModsManagerViewController
+//  光影管理界面实现 —— 接入 ResourceListViewController / ResourceCardTableViewCell 基类
 //
 
 #import "ShadersManagerViewController.h"
-#import "ShaderTableViewCell.h"
+#import "ResourceCardTableViewCell.h"
 #import "ShaderService.h"
 #import "ShaderItem.h"
-#import "ModItem.h"
-#import "ModUpdateViewController.h"
-#import "PLProfiles.h"
-#import "installer/modpack/ModrinthAPI.h"
-#import "LauncherPreferences.h"
-#import "BackgroundManager.h"
+#import "DownloadViewController.h"
+#import "utils.h"
 
-@interface ShadersManagerViewController () <UITableViewDataSource, UITableViewDelegate, ShaderTableViewCellDelegate, UISearchBarDelegate, ShaderVersionViewControllerDelegate, UIDocumentPickerDelegate>
+#pragma mark - ShaderCardCell（光影卡片，Air-Design L2 标准卡片）
 
-@property (nonatomic, strong) UISearchBar *searchBar;
-@property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) UIActivityIndicatorView *activityIndicator;
-@property (nonatomic, strong) UILabel *emptyLabel;
+// 光影本地条目卡片：三层卡片背景/图标容器/文字层级均由基类提供。
+// 图标用光影类型语义色（紫 paintbrush.fill，Air-Design 2.4）；
+// 光影无启用开关（本界面只用于查看/删除），右侧不占 accessory 插槽。
+@interface ShaderCardCell : ResourceCardTableViewCell
+/// 配置本地光影条目：标题=显示名、副标题=文件名、元信息=大小或描述
+- (void)configureWithShader:(ShaderItem *)shader;
+@end
+
+@implementation ShaderCardCell
+
+- (void)configureWithShader:(ShaderItem *)shader {
+    // 元信息：优先显示描述（本地扫描一般为空），否则显示文件大小
+    NSString *detail = nil;
+    if (shader.shaderDescription.length > 0) {
+        detail = shader.shaderDescription;
+    } else if (shader.filePath.length > 0) {
+        unsigned long long fileSize = [[[NSFileManager defaultManager] attributesOfItemAtPath:shader.filePath error:nil] fileSize];
+        if (fileSize > 0) {
+            // 文件大小统一用 File 计数风格（Air-Design 3.3）
+            detail = [NSByteCountFormatter stringFromByteCount:fileSize countStyle:NSByteCountFormatterCountStyleFile];
+        }
+    }
+    // 已禁用（.zip.disabled）时在元信息末尾追加标记
+    if (shader.disabled) {
+        detail = detail.length > 0 ? [NSString stringWithFormat:localize(@"resman.common.disabled_format", nil), detail] : localize(@"resman.common.disabled_tag", nil);
+    }
+
+    [self configureWithIcon:@"paintbrush.fill"
+                  iconColor:[UIColor systemPurpleColor]
+                      title:(shader.displayName ?: shader.fileName)
+                   subtitle:shader.fileName
+                     detail:detail];
+}
+
+@end
+
+#pragma mark - ShadersManagerViewController
+
+// 光影卡片行高（L2 卡片：三行文字 + 上下 8pt 内边距 + 余量）
+static CGFloat const kShaderCardRowHeight = 76.0;
+// 光影卡片 Cell 复用标识
+static NSString * const kShaderCardCellIdentifier = @"ShaderCardCell";
+
+@interface ShadersManagerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, UIDocumentPickerDelegate>
+
 @property (nonatomic, strong) UIBarButtonItem *refreshButton;
-@property (nonatomic, strong) UIBarButtonItem *checkUpdateButton;
 @property (nonatomic, strong) UIBarButtonItem *importButton;
+@property (nonatomic, strong) UIBarButtonItem *selectButtonItem;
+@property (nonatomic, strong) UIBarButtonItem *doneButtonItem;
+@property (nonatomic, strong) UIBarButtonItem *closeButtonItem;
+/// 批量工具栏"删除选中"按钮（加入基类 batchActionStack）
+@property (nonatomic, strong) UIButton *batchDeleteButton;
+
 @property (nonatomic, strong) NSMutableArray<ShaderItem *> *localShaders;
 @property (nonatomic, strong) NSMutableArray<ShaderItem *> *filteredLocalShaders;
 
-// ===== 选择模式相关 =====
-@property (nonatomic, assign) BOOL isSelectMode; // 是否处于选择模式
-@property (nonatomic, strong) NSMutableArray<ShaderItem *> *selectedShaders; // 已选中的光影列表
-@property (nonatomic, strong) UIToolbar *bottomToolbar; // 底部工具栏（选择模式下显示）
-@property (nonatomic, strong) UIBarButtonItem *selectButtonItem; // 导航栏"选择"按钮（普通模式进入选择模式）
-@property (nonatomic, strong) UIBarButtonItem *doneButtonItem; // 导航栏"完成"按钮（退出选择模式）
-@property (nonatomic, strong) UIBarButtonItem *navSelectAllButtonItem; // 导航栏左侧"全选"按钮
-@property (nonatomic, strong) UIBarButtonItem *toolbarSelectAllButtonItem; // 底部工具栏"全选"按钮
-@property (nonatomic, strong) UIBarButtonItem *toolbarDeselectAllButtonItem; // 底部工具栏"取消全选"按钮
-@property (nonatomic, strong) UIBarButtonItem *toolbarDeleteButtonItem; // 底部工具栏"删除选中"按钮
-@property (nonatomic, strong) UIBarButtonItem *flexibleSpaceItem; // 工具栏弹性间距
-@property (nonatomic, copy) NSString *originalTitle; // 进入选择模式前的原始标题，用于退出时恢复
+/// 首次加载完成后是否已播放过连锁进场动画（仅首屏播放一次）
+@property (nonatomic, assign) BOOL hasPlayedInitialChainAnimation;
 
 @end
 
 @implementation ShadersManagerViewController
 
+- (instancetype)init {
+    // 兼容既有调用方（[[ShadersManagerViewController alloc] init]）：
+    // 转发到基类便利初始化，注入光影类型图标与语义色（Air-Design 2.4）
+    return [self initWithTitle:localize(@"resman.shaders.title", nil) resourceTypeIcon:@"paintbrush.fill" iconColor:[UIColor systemPurpleColor]];
+}
+
+#pragma mark - Lifecycle
+
 - (void)viewDidLoad {
-    [super viewDidLoad];
-    self.title = @"管理光影";
-    self.originalTitle = self.title; // 保存原始标题，退出选择模式时恢复
-    self.view.backgroundColor = [UIColor systemBackgroundColor];
-    // 适配自定义启动器背景：透明化当前 VC，让全局背景图/毛玻璃透出
-    [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
-    self.currentMode = ShadersManagerModeLocal; // 始终使用本地模式（在线下载入口已移至下载界面）
+    [super viewDidLoad]; // 基类完成标题/毛玻璃背景/搜索栏/表格/三态视图/批量工具栏构建
+
+    // 始终使用本地模式（在线下载入口已移至下载界面）
     self.localShaders = [NSMutableArray array];
     self.filteredLocalShaders = [NSMutableArray array];
-    self.onlineSearchResults = [NSMutableArray array];
-    self.selectedShaders = [NSMutableArray array]; // 初始化已选中光影列表
-    self.isSelectMode = NO;
-    [self setupUI];
-    // 修复"前一个页面没有及时消失"：给 view 添加毛玻璃遮挡层，
-    // 防止 push 转场时透出栈底 ProfileSettingsViewController 的内容
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    // 透明化 tableView 背景，避免遮挡全局背景
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-    [self updateUIForCurrentMode];
-    [self refreshLocalShadersList];
 
-    // 监听背景效果变化通知，背景切换时重新应用透明效果
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(reapplyBackgroundEffect)
-                                                 name:@"BackgroundUIEffectChanged"
-                                               object:nil];
-}
-
-- (void)reapplyBackgroundEffect {
-    // 背景效果改变时重新透明化当前 VC
-    [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
-    // 重新应用 view 毛玻璃遮挡层
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    // 重新设置 tableView 背景为透明，确保背景效果切换后仍透出全局背景
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-    // 重新应用 searchBar 透明化效果（毛玻璃↔半透明切换后输入框背景需刷新）
-    [[BackgroundManager sharedManager] applyEffectToSearchBar:self.searchBar];
-    // 重新加载 cell，让每个 cell 重新应用 applyEffectToCell:（毛玻璃/半透明）
-    [self.tableView reloadData];
-}
-
-- (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated];
-    // 修复"前一个页面没有及时消失"：
-    // viewDidLoad 时 self.view.bounds 可能为 zero，applyEffectToView: 插入的 blurView
-    // frame 为 zero，push 转场第一帧无法遮挡栈底 VersionManagerViewController 的卡片。
-    // 在 viewWillAppear 中重新应用（此时 bounds 已正确），确保转场前遮挡到位。
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-}
-
-- (void)dealloc {
-    // 移除通知观察者，避免dealloc后收到通知导致崩溃
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-}
-
-- (void)setupUI {
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectZero];
-    self.searchBar.translatesAutoresizingMaskIntoConstraints = NO;
+    // 搜索栏（基类已构建）：只搜本地
+    self.searchBar.placeholder = localize(@"resman.shaders.search_placeholder", nil);
     self.searchBar.delegate = self;
-    self.searchBar.placeholder = @"搜索本地光影...";
-    // 适配自定义启动器背景：透明化 searchBar 默认不透明背景，让全局背景图/毛玻璃透出
-    [[BackgroundManager sharedManager] applyEffectToSearchBar:self.searchBar];
-    [self.view addSubview:self.searchBar];
 
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
-    self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.tableView registerClass:[ShaderTableViewCell class] forCellReuseIdentifier:@"ShaderCell"];
+    // 表格（基类已构建）：注册卡片 Cell；一节一卡 + 4pt 透明 header 形成卡片间距
+    [self.tableView registerClass:[ShaderCardCell class] forCellReuseIdentifier:kShaderCardCellIdentifier];
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
-    self.tableView.rowHeight = 80;
-    self.tableView.tableFooterView = [UIView new];
-    [self.view addSubview:self.tableView];
+    self.tableView.rowHeight = kShaderCardRowHeight;
 
-    UIRefreshControl *rc = [UIRefreshControl new];
-    [rc addTarget:self action:@selector(handleRefresh:) forControlEvents:UIControlEventValueChanged];
-    self.tableView.refreshControl = rc;
+    // 下拉刷新
+    UIRefreshControl *refreshControl = [UIRefreshControl new];
+    [refreshControl addTarget:self action:@selector(handleRefresh:) forControlEvents:UIControlEventValueChanged];
+    self.tableView.refreshControl = refreshControl;
 
-    self.activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
-    self.activityIndicator.translatesAutoresizingMaskIntoConstraints = NO;
-    self.activityIndicator.hidesWhenStopped = YES;
-    [self.view addSubview:self.activityIndicator];
+    [self setupNavigationButtons];
 
-    self.emptyLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyLabel.textAlignment = NSTextAlignmentCenter;
-    self.emptyLabel.textColor = [UIColor secondaryLabelColor];
-    self.emptyLabel.hidden = YES;
-    [self.view addSubview:self.emptyLabel];
+    [self refreshLocalShadersList];
+}
+
+#pragma mark - 导航栏
+
+- (void)setupNavigationButtons {
+    // 左侧：关闭（兼容 push / present 两种容器）
+    self.closeButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeTapped)];
 
     self.refreshButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(handleRefresh:)];
 
-    UIImage *checkImage = [UIImage systemImageNamed:@"arrow.triangle.2.circlepath"];
-    self.checkUpdateButton = [[UIBarButtonItem alloc] initWithImage:checkImage style:UIBarButtonItemStylePlain target:self action:@selector(checkForUpdates)];
-    self.checkUpdateButton.accessibilityLabel = @"检查更新";
-
     UIImage *importImage = [UIImage systemImageNamed:@"square.and.arrow.down"] ?: [UIImage systemImageNamed:@"plus"];
     self.importButton = [[UIBarButtonItem alloc] initWithImage:importImage style:UIBarButtonItemStylePlain target:self action:@selector(importShaderTapped)];
-    self.importButton.accessibilityLabel = @"导入光影";
+    self.importButton.accessibilityLabel = localize(@"resman.shaders.import", nil);
 
-    // 选择模式相关按钮初始化
+    // "选择"按钮：进入基类批量选择模式（编辑勾选 + 底部工具栏）
     UIImage *selectImage = [UIImage systemImageNamed:@"checklist"] ?: [UIImage systemImageNamed:@"checkmark.circle"];
-    self.selectButtonItem = [[UIBarButtonItem alloc] initWithImage:selectImage style:UIBarButtonItemStylePlain target:self action:@selector(enterSelectMode)];
-    self.selectButtonItem.accessibilityLabel = @"选择";
+    self.selectButtonItem = [[UIBarButtonItem alloc] initWithImage:selectImage style:UIBarButtonItemStylePlain target:self action:@selector(toggleSelectMode)];
+    self.selectButtonItem.accessibilityLabel = localize(@"resman.common.select", nil);
 
     self.doneButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(exitSelectMode)];
-    self.doneButtonItem.accessibilityLabel = @"完成";
-
-    self.navSelectAllButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"全选" style:UIBarButtonItemStylePlain target:self action:@selector(toggleSelectAll)];
-    self.toolbarSelectAllButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"全选" style:UIBarButtonItemStylePlain target:self action:@selector(selectAll)];
-    self.toolbarDeselectAllButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消全选" style:UIBarButtonItemStylePlain target:self action:@selector(deselectAll)];
-    self.toolbarDeleteButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"删除选中" style:UIBarButtonItemStylePlain target:self action:@selector(deleteSelectedShaders)];
-    self.toolbarDeleteButtonItem.tintColor = [UIColor systemRedColor];
-    self.flexibleSpaceItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
-
-    // 底部工具栏（选择模式下显示）
-    self.bottomToolbar = [[UIToolbar alloc] initWithFrame:CGRectZero];
-    self.bottomToolbar.translatesAutoresizingMaskIntoConstraints = NO;
-    self.bottomToolbar.hidden = YES; // 初始隐藏，进入选择模式时显示
-    [self.view addSubview:self.bottomToolbar];
+    self.doneButtonItem.accessibilityLabel = localize(@"resman.common.done", nil);
 
     [self updateNavigationButtons];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [self.searchBar.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8],
-        [self.searchBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.searchBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-
-        [self.tableView.topAnchor constraintEqualToAnchor:self.searchBar.bottomAnchor],
-        [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        // tableView 底部根据是否选择模式动态绑定到工具栏顶部或安全区底部
-        // 这里默认绑定安全区底部；进入选择模式时通过代码调整
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
-
-        [self.activityIndicator.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
-        [self.activityIndicator.centerYAnchor constraintEqualToAnchor:self.tableView.centerYAnchor],
-
-        [self.emptyLabel.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
-        [self.emptyLabel.centerYAnchor constraintEqualToAnchor:self.tableView.centerYAnchor],
-
-        // 底部工具栏布局：贴底显示，左右贴边
-        [self.bottomToolbar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.bottomToolbar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.bottomToolbar.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]
-    ]];
-}
-
-- (void)updateUIForCurrentMode {
-    self.searchBar.placeholder = @"搜索本地光影...";
-    self.emptyLabel.text = @"未发现光影";
-    self.emptyLabel.hidden = self.localShaders.count > 0;
-    self.tableView.refreshControl.enabled = YES;
-    [self updateNavigationButtons];
-    [self.tableView reloadData];
 }
 
 - (void)updateNavigationButtons {
-    if (self.isSelectMode) {
-        // 选择模式：左侧"全选"，右侧"完成"，标题显示已选数量
-        [self updateSelectAllButtonTitle];
-        self.navigationItem.leftBarButtonItem = self.navSelectAllButtonItem;
+    if (self.selectModeEnabled) {
+        // 选择模式：右侧"完成"退出；标题实时显示已选数量
+        self.navigationItem.leftBarButtonItem = nil;
         self.navigationItem.rightBarButtonItems = @[self.doneButtonItem];
         [self updateSelectModeTitle];
     } else {
-        // 普通模式：左侧关闭按钮，右侧依次为：选择、导入、刷新、检查更新
-        UIBarButtonItem *closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeTapped)];
+        // 普通模式：左侧关闭，右侧依次（从右到左）为：导入、刷新、选择
+        self.navigationItem.leftBarButtonItem = self.closeButtonItem;
+        self.navigationItem.rightBarButtonItems = @[self.importButton, self.refreshButton, self.selectButtonItem];
+        self.title = self.pageTitle;
         // 列表为空时禁用"选择"按钮
         self.selectButtonItem.enabled = self.filteredLocalShaders.count > 0;
-        // rightBarButtonItems 从右到左显示：导入、刷新、检查更新、选择
-        self.navigationItem.rightBarButtonItems = @[self.importButton, self.refreshButton, self.checkUpdateButton, self.selectButtonItem];
-        self.navigationItem.leftBarButtonItem = closeButton;
-        self.title = self.originalTitle;
     }
 }
 
@@ -236,107 +162,85 @@
     }
 }
 
-#pragma mark - Select Mode (选择模式)
+#pragma mark - 批量选择模式（基类工具栏）
 
-// 进入选择模式
-- (void)enterSelectMode {
-    if (self.filteredLocalShaders.count == 0) return; // 没有数据时不允许进入选择模式
-
-    self.isSelectMode = YES;
-    [self.selectedShaders removeAllObjects]; // 进入选择模式时清空已选列表
-    // 显示底部工具栏
-    self.bottomToolbar.hidden = NO;
-    self.bottomToolbar.items = @[self.toolbarSelectAllButtonItem,
-                                  self.flexibleSpaceItem,
-                                  self.toolbarDeselectAllButtonItem,
-                                  self.flexibleSpaceItem,
-                                  self.toolbarDeleteButtonItem];
-    // 调整 tableView 底部内边距，避免最后一行被工具栏遮挡
-    CGFloat toolbarHeight = self.bottomToolbar.bounds.size.height;
-    if (toolbarHeight <= 0) {
-        // 工具栏尚未完成布局时使用估算值
-        [self.bottomToolbar layoutIfNeeded];
-        toolbarHeight = self.bottomToolbar.bounds.size.height;
-        if (toolbarHeight <= 0) toolbarHeight = 44.0;
-    }
-    {
-        UIEdgeInsets inset = self.tableView.contentInset;
-        inset.bottom = toolbarHeight;
-        self.tableView.contentInset = inset;
-        UIEdgeInsets scrollInset = self.tableView.scrollIndicatorInsets;
-        scrollInset.bottom = toolbarHeight;
-        self.tableView.scrollIndicatorInsets = scrollInset;
-    }
-
-    [self updateNavigationButtons];
-    [self.tableView reloadData];
+- (void)toggleSelectMode {
+    // 没有数据时不允许进入选择模式
+    if (!self.selectModeEnabled && self.filteredLocalShaders.count == 0) return;
+    [self setSelectMode:!self.selectModeEnabled];
 }
 
-// 退出选择模式，清除所有选择
 - (void)exitSelectMode {
-    self.isSelectMode = NO;
-    [self.selectedShaders removeAllObjects]; // 退出时清除所有选择
-    self.bottomToolbar.hidden = YES;
-    self.bottomToolbar.items = nil;
-    // 恢复 tableView 底部内边距
-    {
-        UIEdgeInsets inset = self.tableView.contentInset;
-        inset.bottom = 0;
-        self.tableView.contentInset = inset;
-        UIEdgeInsets scrollInset = self.tableView.scrollIndicatorInsets;
-        scrollInset.bottom = 0;
-        self.tableView.scrollIndicatorInsets = scrollInset;
+    [self setSelectMode:NO];
+}
+
+- (void)selectModeDidChange:(BOOL)enabled {
+    // 基类钩子：切换时填充/清理 batchActionStack 中的批量操作按钮并刷新导航栏
+    for (UIView *subview in [self.batchActionStack.arrangedSubviews copy]) {
+        [self.batchActionStack removeArrangedSubview:subview];
+        [subview removeFromSuperview];
     }
-
-    [self updateNavigationButtons];
-    [self.tableView reloadData];
-}
-
-// 切换全选/取消全选（导航栏左侧按钮使用）
-- (void)toggleSelectAll {
-    if (self.selectedShaders.count == self.filteredLocalShaders.count) {
-        [self deselectAll];
-    } else {
-        [self selectAll];
+    if (enabled) {
+        [self.batchActionStack addArrangedSubview:self.batchDeleteButton];
     }
+    [self updateNavigationButtons];
 }
 
-// 全选：将当前过滤后列表中的所有光影加入已选列表
-- (void)selectAll {
-    [self.selectedShaders removeAllObjects];
-    [self.selectedShaders addObjectsFromArray:self.filteredLocalShaders];
-    [self updateNavigationButtons];
-    [self reloadVisibleCellsCheckbox];
+- (void)selectionDidChange {
+    // 基类钩子：全选/取消全选后同步"已选 N 个"标题
+    [self updateSelectModeTitle];
 }
 
-// 取消全选：清空已选列表
-- (void)deselectAll {
-    [self.selectedShaders removeAllObjects];
-    [self updateNavigationButtons];
-    [self reloadVisibleCellsCheckbox];
+- (UIButton *)batchDeleteButton {
+    if (!_batchDeleteButton) {
+        // 危险操作 pill：红底白字胶囊（高 32 / 圆角 16，Air-Design 7）
+        _batchDeleteButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        [_batchDeleteButton setTitle:localize(@"resman.shaders.delete_selected", nil) forState:UIControlStateNormal];
+        [_batchDeleteButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        _batchDeleteButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        _batchDeleteButton.backgroundColor = [UIColor systemRedColor];
+        _batchDeleteButton.contentEdgeInsets = UIEdgeInsetsMake(6, 16, 6, 16);
+        _batchDeleteButton.layer.cornerRadius = 16.0;
+        _batchDeleteButton.layer.cornerCurve = kCACornerCurveContinuous;
+        _batchDeleteButton.layer.masksToBounds = YES;
+        [_batchDeleteButton addTarget:self action:@selector(deleteSelectedShaders) forControlEvents:UIControlEventTouchUpInside];
+        [_batchDeleteButton.heightAnchor constraintEqualToConstant:32].active = YES;
+    }
+    return _batchDeleteButton;
+}
+
+- (void)updateSelectModeTitle {
+    if (self.selectModeEnabled) {
+        self.title = [NSString stringWithFormat:localize(@"resman.common.selected_count", nil), (long)self.selectedIndexPaths.count];
+    }
 }
 
 // 删除选中的光影（带确认弹窗）
 - (void)deleteSelectedShaders {
-    if (self.selectedShaders.count == 0) {
-        [self showSimpleAlertWithTitle:@"提示" message:@"尚未选择任何光影"];
+    // 一节一卡：indexPath.section 即列表行号
+    NSMutableArray<ShaderItem *> *shadersToDelete = [NSMutableArray array];
+    for (NSIndexPath *indexPath in self.selectedIndexPaths) {
+        if (indexPath.section < (NSInteger)self.filteredLocalShaders.count) {
+            [shadersToDelete addObject:self.filteredLocalShaders[indexPath.section]];
+        }
+    }
+    if (shadersToDelete.count == 0) {
+        [self showSimpleAlertWithTitle:localize(@"resman.common.notice", nil) message:localize(@"resman.shaders.none_selected", nil)];
         return;
     }
 
-    NSString *message = [NSString stringWithFormat:@"确定要删除选中的 %ld 个光影吗？\n此操作无法撤销。", (long)self.selectedShaders.count];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"批量删除" message:message preferredStyle:UIAlertControllerStyleAlert];
+    NSString *message = [NSString stringWithFormat:localize(@"resman.shaders.batch_delete_message", nil), (long)shadersToDelete.count];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"resman.common.batch_delete", nil) message:message preferredStyle:UIAlertControllerStyleAlert];
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-        [weakSelf performDeleteSelectedShaders];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.delete", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        [self performDeleteShaders:shadersToDelete];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
 // 执行批量删除
-- (void)performDeleteSelectedShaders {
-    NSArray<ShaderItem *> *shadersToDelete = [self.selectedShaders copy];
+- (void)performDeleteShaders:(NSArray<ShaderItem *> *)shadersToDelete {
     NSMutableArray<ShaderItem *> *failedShaders = [NSMutableArray array];
 
     for (ShaderItem *shader in shadersToDelete) {
@@ -357,122 +261,29 @@
         if (idxInFiltered != NSNotFound) [self.filteredLocalShaders removeObjectAtIndex:idxInFiltered];
     }
 
-    // 清空已选列表（失败的项目不再标记为选中）
-    [self.selectedShaders removeAllObjects];
-
     if (failedShaders.count > 0) {
         // 部分失败时保留选择模式，提示用户哪些失败
         NSMutableArray<NSString *> *names = [NSMutableArray array];
-        for (ShaderItem *s in failedShaders) [names addObject:s.displayName];
-        [self showSimpleAlertWithTitle:[NSString stringWithFormat:@"删除完成，%ld 项失败", (long)failedShaders.count]
+        for (ShaderItem *shader in failedShaders) [names addObject:shader.displayName];
+        [self showSimpleAlertWithTitle:[NSString stringWithFormat:localize(@"resman.common.delete_complete_failures", nil), (long)failedShaders.count]
                                message:[names componentsJoinedByString:@"\n"]];
+        [self.tableView reloadData]; // reloadData 会清空勾选状态
+        [self updateEmptyState];
         [self updateNavigationButtons];
-        [self.tableView reloadData];
     } else {
-        // 全部删除成功，退出选择模式
-        [self exitSelectMode];
+        // 全部删除成功，退出选择模式并刷新列表/空状态
+        [self setSelectMode:NO];
+        [self filterLocalShaders];
     }
 }
 
-// 判断指定光影是否处于选中状态
-- (BOOL)isShaderSelected:(ShaderItem *)shader {
-    return [self.selectedShaders containsObject:shader];
-}
-
-// 切换某个光影的选中状态（行点击触发）
-- (void)toggleSelectionForShader:(ShaderItem *)shader {
-    if ([self.selectedShaders containsObject:shader]) {
-        [self.selectedShaders removeObject:shader];
-    } else {
-        [self.selectedShaders addObject:shader];
-    }
-    [self updateNavigationButtons];
-}
-
-// 更新导航栏标题，显示已选数量
-- (void)updateSelectModeTitle {
-    if (self.isSelectMode) {
-        self.title = [NSString stringWithFormat:@"已选 %ld 个", (long)self.selectedShaders.count];
-    }
-}
-
-// 更新"全选"按钮的标题（已全选时显示"取消全选"）
-- (void)updateSelectAllButtonTitle {
-    if (self.selectedShaders.count > 0 && self.selectedShaders.count == self.filteredLocalShaders.count && self.filteredLocalShaders.count > 0) {
-        self.navSelectAllButtonItem.title = @"取消全选";
-        self.toolbarSelectAllButtonItem.enabled = NO;
-        self.toolbarDeselectAllButtonItem.enabled = YES;
-    } else if (self.selectedShaders.count == 0) {
-        self.navSelectAllButtonItem.title = @"全选";
-        self.toolbarSelectAllButtonItem.enabled = YES;
-        self.toolbarDeselectAllButtonItem.enabled = NO;
-    } else {
-        self.navSelectAllButtonItem.title = @"全选";
-        self.toolbarSelectAllButtonItem.enabled = YES;
-        self.toolbarDeselectAllButtonItem.enabled = YES;
-    }
-    // 没有任何数据时禁用全选相关按钮
-    if (self.filteredLocalShaders.count == 0) {
-        self.navSelectAllButtonItem.enabled = NO;
-        self.toolbarSelectAllButtonItem.enabled = NO;
-        self.toolbarDeselectAllButtonItem.enabled = NO;
-    } else {
-        self.navSelectAllButtonItem.enabled = YES;
-    }
-    // 删除按钮：未选中时禁用
-    self.toolbarDeleteButtonItem.enabled = self.selectedShaders.count > 0;
-}
-
-// 刷新所有可见 Cell 的复选框状态（避免整表 reloadData 引起闪烁）
-- (void)reloadVisibleCellsCheckbox {
-    for (NSIndexPath *indexPath in [self.tableView indexPathsForVisibleRows]) {
-        UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
-        if (!cell) continue;
-        ShaderItem *shader = self.filteredLocalShaders[indexPath.row];
-        [self applyCheckboxToCell:cell selected:[self isShaderSelected:shader]];
-    }
-}
-
-// 为 Cell 应用复选框（选择模式下显示，普通模式下隐藏）
-- (void)applyCheckboxToCell:(UITableViewCell *)cell selected:(BOOL)selected {
-    if (self.isSelectMode) {
-        // 创建复选框 ImageView 作为 accessoryView
-        UIImageView *checkbox = [[UIImageView alloc] init];
-        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightMedium];
-        if (selected) {
-            checkbox.image = [[UIImage systemImageNamed:@"checkmark.circle.fill"] imageByApplyingSymbolConfiguration:config];
-            checkbox.tintColor = [UIColor systemBlueColor];
-        } else {
-            checkbox.image = [[UIImage systemImageNamed:@"circle"] imageByApplyingSymbolConfiguration:config];
-            checkbox.tintColor = [UIColor systemGrayColor];
-        }
-        checkbox.frame = CGRectMake(0, 0, 24, 24);
-        cell.accessoryView = checkbox;
-        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-        // 隐藏 openLinkButton，避免与复选框视觉冲突（光影的 enableSwitch 默认已隐藏）
-        if ([cell isKindOfClass:[ShaderTableViewCell class]]) {
-            ShaderTableViewCell *shaderCell = (ShaderTableViewCell *)cell;
-            shaderCell.openLinkButton.hidden = YES;
-        }
-    } else {
-        // 普通模式：清除复选框，恢复原有控件可见性
-        cell.accessoryView = nil;
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        if ([cell isKindOfClass:[ShaderTableViewCell class]]) {
-            ShaderTableViewCell *shaderCell = (ShaderTableViewCell *)cell;
-            // openLinkButton 的最终可见性以 configureWithShader 的设置为准
-            shaderCell.openLinkButton.hidden = NO;
-        }
-    }
-}
-
-#pragma mark - Import Shader
+#pragma mark - 导入光影
 
 - (void)importShaderTapped {
     NSError *dirError = nil;
     NSString *shadersDir = [[ShaderService sharedService] ensureShadersFolderForProfile:nil error:&dirError];
     if (!shadersDir) {
-        [self showSimpleAlertWithTitle:@"无法导入" message:dirError.localizedDescription ?: @"无法确定 shaderpacks 目录"];
+        [self showSimpleAlertWithTitle:localize(@"resman.common.cannot_import", nil) message:dirError.localizedDescription ?: localize(@"resman.shaders.dir_not_found", nil)];
         return;
     }
 
@@ -480,7 +291,7 @@
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.zip-archive", @"public.item"] inMode:UIDocumentPickerModeImport];
     picker.allowsMultipleSelection = YES;
     picker.delegate = self;
-    picker.title = @"选择光影包文件";
+    picker.title = localize(@"resman.shaders.picker_title", nil);
     [self presentViewController:picker animated:YES completion:nil];
 }
 
@@ -490,7 +301,7 @@
     NSError *dirError = nil;
     NSString *shadersDir = [[ShaderService sharedService] ensureShadersFolderForProfile:nil error:&dirError];
     if (!shadersDir) {
-        [self showSimpleAlertWithTitle:@"导入失败" message:dirError.localizedDescription ?: @"无法确定 shaderpacks 目录"];
+        [self showSimpleAlertWithTitle:localize(@"resman.common.import_failed", nil) message:dirError.localizedDescription ?: localize(@"resman.shaders.dir_not_found", nil)];
         return;
     }
 
@@ -525,94 +336,27 @@
     [self refreshLocalShadersList];
 
     if (failedFiles.count > 0) {
-        [self showSimpleAlertWithTitle:[NSString stringWithFormat:@"导入完成（%ld 成功，%ld 失败）", (long)successCount, (long)failedFiles.count]
+        [self showSimpleAlertWithTitle:[NSString stringWithFormat:localize(@"resman.common.import_result", nil), (long)successCount, (long)failedFiles.count]
                                message:[failedFiles componentsJoinedByString:@"\n"]];
     } else {
         NSLog(@"[ShadersManager] Successfully imported %ld shader packs", (long)successCount);
     }
 }
 
-
-
-#pragma mark - Check for Updates
-
-- (void)checkForUpdates {
-    // 将本地 ShaderItem 列表转换为 ModItem 列表，适配 ModUpdateViewController
-    NSArray<ModItem *> *mods = [self convertShadersToMods:self.localShaders];
-    if (mods.count == 0) {
-        [self showSimpleAlertWithTitle:@"提示" message:@"当前没有本地光影，无法检查更新。"];
-        return;
-    }
-
-    // 从当前 profile 的 lastVersionId 解析 gameVersion 和 loader
-    NSString *lastVersionId = PLProfiles.current.selectedProfile[@"lastVersionId"];
-    if (!lastVersionId || lastVersionId.length == 0) {
-        [self showSimpleAlertWithTitle:@"提示" message:@"无法获取当前版本信息。"];
-        return;
-    }
-
-    NSString *gameVersion = nil;
-    NSString *loader = nil;
-    NSArray<NSString *> *loaders = @[@"forge", @"fabric", @"neoforge", @"quilt"];
-    for (NSString *name in loaders) {
-        NSString *delimiter = [NSString stringWithFormat:@"-%@-", name];
-        NSRange range = [lastVersionId rangeOfString:delimiter];
-        if (range.location != NSNotFound) {
-            gameVersion = [lastVersionId substringToIndex:range.location];
-            loader = name;
-            break;
-        }
-    }
-    if (!gameVersion) {
-        // 纯 <mc> 格式，无 loader
-        gameVersion = lastVersionId;
-        loader = nil;
-    }
-
-    [self presentModUpdateViewControllerWithMods:mods gameVersion:gameVersion loader:loader];
-}
-
-- (NSArray<ModItem *> *)convertShadersToMods:(NSArray<ShaderItem *> *)shaders {
-    NSMutableArray<ModItem *> *result = [NSMutableArray arrayWithCapacity:shaders.count];
-    for (ShaderItem *shader in shaders) {
-        ModItem *mod = [[ModItem alloc] init];
-        mod.filePath = shader.filePath;
-        mod.fileSHA1 = shader.fileSHA1;
-        mod.version = shader.version;
-        mod.fileName = shader.fileName;
-        mod.displayName = shader.displayName;
-        [result addObject:mod];
-    }
-    return result;
-}
-
-- (void)presentModUpdateViewControllerWithMods:(NSArray *)mods gameVersion:(NSString *)gameVersion loader:(NSString *)loader {
-    ModUpdateViewController *vc = [[ModUpdateViewController alloc] initWithMods:mods gameVersion:gameVersion loader:loader projectType:@"shader"];
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
-    nav.modalPresentationStyle = UIModalPresentationFullScreen;
-    [self presentViewController:nav animated:YES completion:nil];
-}
-
-#pragma mark - Data Loading
+#pragma mark - 数据加载与三态
 
 - (void)handleRefresh:(id)sender {
     // 刷新前若处于选择模式，先退出（数据即将更新，避免选择状态与新数据不一致）
-    if (self.isSelectMode) {
-        [self exitSelectMode];
+    if (self.selectModeEnabled) {
+        [self setSelectMode:NO];
     }
     [self refreshLocalShadersList];
 }
 
 - (void)setLoading:(BOOL)loading {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (loading) {
-            self.emptyLabel.hidden = YES;
-            [self.activityIndicator startAnimating];
-        } else {
-            [self.activityIndicator stopAnimating];
-            [self.tableView.refreshControl endRefreshing];
-        }
-    });
+    // 加载中隐藏空状态，避免与中央转圈重叠（转圈由基类提供）
+    if (loading) [self hideEmptyState];
+    [super setLoading:loading];
 }
 
 - (void)refreshLocalShadersList {
@@ -624,11 +368,54 @@
             [self.localShaders addObjectsFromArray:shaders];
             [self filterLocalShaders];
             [self setLoading:NO];
+            [self.tableView.refreshControl endRefreshing];
+
+            // 首次加载完成：播放连锁进场动画（首屏 ≤10 项，每项延迟 50ms 滑入）
+            if (!self.hasPlayedInitialChainAnimation) {
+                self.hasPlayedInitialChainAnimation = YES;
+                [self.tableView layoutIfNeeded]; // 先完成布局，visibleCells 才是新的一批
+                [self animateCellsInChain];
+            }
         });
     }];
 }
 
-#pragma mark - UISearchBarDelegate
+- (void)updateEmptyState {
+    if (self.filteredLocalShaders.count > 0) {
+        [self hideEmptyState];
+        return;
+    }
+    if (self.localShaders.count == 0) {
+        // 目录为空：引导去统一下载界面获取光影
+        __weak typeof(self) weakSelf = self;
+        [self showEmptyStateWithIcon:@"paintbrush.fill"
+                           iconColor:[UIColor systemPurpleColor]
+                             message:localize(@"resman.shaders.empty", nil)
+                        actionTitle:localize(@"resman.common.go_download", nil)
+                      actionHandler:^{
+                          [weakSelf openDownloadPage];
+                      }];
+    } else {
+        // 仅搜索无结果：无引导按钮
+        [self showEmptyStateWithIcon:nil iconColor:nil message:localize(@"resman.shaders.search_empty", nil) actionTitle:nil actionHandler:nil];
+    }
+}
+
+- (void)openDownloadPage {
+    // 跳转统一下载界面并定位到光影 tab（在线下载入口已统一收口到下载页）
+    DownloadViewController *downloadVC = [[DownloadViewController alloc] init];
+    downloadVC.initialTabIndex = 2; // 0版本 1模组 2光影
+    if (self.navigationController) {
+        [self.navigationController pushViewController:downloadVC animated:YES];
+    } else {
+        // 兼容 present 弹窗容器（无导航栈时全屏模态）
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:downloadVC];
+        nav.modalPresentationStyle = UIModalPresentationFullScreen;
+        [self presentViewController:nav animated:YES completion:nil];
+    }
+}
+
+#pragma mark - 搜索（UISearchBarDelegate）
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
     [self filterLocalShaders];
@@ -657,57 +444,57 @@
             }
         }
     }
-    self.emptyLabel.hidden = self.filteredLocalShaders.count > 0;
-    if (!self.emptyLabel.hidden) {
-        self.emptyLabel.text = @"未找到本地光影";
-    }
-    // 更新导航按钮状态（"选择"按钮的可用性、"全选"按钮标题等）
+    // 更新空状态与导航按钮状态（"选择"按钮的可用性等）
+    [self updateEmptyState];
     [self updateNavigationButtons];
     [self.tableView reloadData];
 }
 
 #pragma mark - UITableView DataSource & Delegate
 
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    // 一节一卡：section 即列表行，节间 4pt 透明 header 形成卡片间距
     return self.filteredLocalShaders.count;
 }
 
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return 1;
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    ShaderTableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"ShaderCell" forIndexPath:indexPath];
-    cell.delegate = self;
-
-    ShaderItem *shader = self.filteredLocalShaders[indexPath.row];
-    [cell configureWithShader:shader displayMode:ShaderTableViewCellDisplayModeLocal];
-
-    // 根据选择模式应用复选框显示
-    if (self.isSelectMode) {
-        [self applyCheckboxToCell:cell selected:[self isShaderSelected:shader]];
-    } else {
-        [self applyCheckboxToCell:cell selected:NO];
-    }
-
-    // 适配自定义启动器背景：为 cell 注入毛玻璃/半透明效果
-    // ShaderTableViewCell 自身 contentView 背景为 clearColor，由 BackgroundManager 统一注入
-    [[BackgroundManager sharedManager] applyEffectToCell:cell];
-
+    ShaderCardCell *cell = [tableView dequeueReusableCellWithIdentifier:kShaderCardCellIdentifier forIndexPath:indexPath];
+    [cell configureWithShader:self.filteredLocalShaders[indexPath.section]];
     return cell;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return ResourceListCardSpacing;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    return [ResourceListViewController cardSpacingHeaderView];
+}
+
+- (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
+    // 批量选择模式：多选勾选样式（圆形勾选圈由系统提供，不显示删除按钮）
+    return UITableViewCellEditingStyleNone;
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
     // 选择模式下禁用滑动删除，避免误操作
-    if (self.isSelectMode) return nil;
+    if (self.selectModeEnabled) return nil;
 
-    UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
+    UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:localize(@"resman.common.delete", nil) handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
 
-        ShaderItem *shaderToDelete = self.filteredLocalShaders[indexPath.row];
+        ShaderItem *shaderToDelete = self.filteredLocalShaders[indexPath.section];
 
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认删除" message:[NSString stringWithFormat:@"确定要删除 %@ 吗？\n此操作无法撤销。", shaderToDelete.displayName] preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"resman.common.confirm_delete", nil) message:[NSString stringWithFormat:localize(@"resman.common.delete_message_irreversible", nil), shaderToDelete.displayName] preferredStyle:UIAlertControllerStyleAlert];
 
-        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
             completionHandler(NO);
         }]];
 
-        [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.delete", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
             NSError *error = nil;
             [[ShaderService sharedService] deleteShader:shaderToDelete error:&error];
 
@@ -715,14 +502,18 @@
                 NSLog(@"[ShadersManager] Error deleting shader: %@", error);
                 completionHandler(NO);
             } else {
-                NSInteger indexInFullList = [self.localShaders indexOfObject:shaderToDelete];
-                if (indexInFullList != NSNotFound) {
-                    [self.localShaders removeObjectAtIndex:indexInFullList];
+                // 一节一卡：删除对应 section（indexPath.section 可能因前序删除过期，按对象重新定位）
+                NSUInteger idxInFull = [self.localShaders indexOfObject:shaderToDelete];
+                if (idxInFull != NSNotFound) [self.localShaders removeObjectAtIndex:idxInFull];
+                NSUInteger idxInFiltered = [self.filteredLocalShaders indexOfObject:shaderToDelete];
+                if (idxInFiltered != NSNotFound) {
+                    [self.filteredLocalShaders removeObjectAtIndex:idxInFiltered];
+                    [tableView deleteSections:[NSIndexSet indexSetWithIndex:idxInFiltered] withRowAnimation:UITableViewRowAnimationAutomatic];
+                } else {
+                    [self.tableView reloadData];
                 }
-                [self.filteredLocalShaders removeObjectAtIndex:indexPath.row];
-
-                [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-
+                [self updateEmptyState];
+                [self updateNavigationButtons];
                 completionHandler(YES);
             }
         }]];
@@ -738,110 +529,28 @@
     return configuration;
 }
 
-#pragma mark - ShaderTableViewCellDelegate (Download Implementation)
-
-- (void)shaderCellDidTapDownload:(UITableViewCell *)cell {
-    // 在线下载入口已移除（请使用下载界面），此方法保留以实现协议
-}
-
-#pragma mark - ShaderVersionViewControllerDelegate
-
-- (void)shaderVersionViewController:(ShaderVersionViewController *)viewController didSelectVersion:(ShaderVersion *)version {
-    ShaderItem *itemToDownload = viewController.shaderItem;
-
-    // Find the primary file to download
-    NSDictionary *primaryFile = version.primaryFile;
-    if (!primaryFile || ![primaryFile[@"url"] isKindOfClass:[NSString class]]) {
-        [self showSimpleAlertWithTitle:@"错误" message:@"未找到有效的下载链接。"];
-        return;
-    }
-
-    itemToDownload.selectedVersionDownloadURL = primaryFile[@"url"];
-    itemToDownload.fileName = primaryFile[@"filename"];
-    // spec Task 5.1 收尾：版本模型 primaryFile hashes.sha1 接到下载调用，启用 SHA1 校验
-    NSDictionary *hashes = [primaryFile[@"hashes"] isKindOfClass:[NSDictionary class]] ? primaryFile[@"hashes"] : nil;
-    NSString *sha1 = [hashes[@"sha1"] isKindOfClass:[NSString class]] ? hashes[@"sha1"] : nil;
-    itemToDownload.fileSHA1 = (sha1.length > 0) ? sha1 : nil;
-
-    [self startDownloadForItem:itemToDownload];
-}
-
-- (void)startDownloadForItem:(ShaderItem *)item {
-    // redesign-download-ui Task 6.3：下载进度统一由 ShaderService 注册的
-    // DownloadTaskManager 任务 + 统一进度页（autoPresentDetail 自动弹出）展示，
-    // 不再弹"正在下载" alert（无进度的转圈弹窗会与统一进度页模态冲突）。
-    [[ShaderService sharedService] downloadShader:item
-                                         toProfile:self.profileName
-                                      expectedSHA1:item.fileSHA1
-                                          progress:nil
-                                        completion:^(NSError * _Nullable error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self showDownloadResultAlertForItem:item error:error];
-        });
-    }];
-}
-
-- (void)showDownloadResultAlertForItem:(ShaderItem *)item error:(NSError *)error {
-    if (error) {
-        [self showSimpleAlertWithTitle:@"下载失败" message:error.localizedDescription];
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.selectModeEnabled) {
+        // 选择模式：编辑多选勾选由系统处理，这里同步"已选 N 个"标题
+        [self updateSelectModeTitle];
     } else {
-        UIAlertController *successAlert = [UIAlertController alertControllerWithTitle:@"下载成功"
-                                                                              message:[NSString stringWithFormat:@"%@ 已成功安装。", item.displayName]
-                                                                       preferredStyle:UIAlertControllerStyleAlert];
-        [successAlert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-            // After user acknowledges, refresh local shaders list
-            [self refreshLocalShadersList];
-        }]];
-        [self presentViewController:successAlert animated:YES completion:nil];
+        // 普通模式：点击无动作，仅取消高亮
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
     }
 }
+
+- (void)tableView:(UITableView *)tableView didDeselectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.selectModeEnabled) {
+        [self updateSelectModeTitle];
+    }
+}
+
+#pragma mark - Helpers
 
 - (void)showSimpleAlertWithTitle:(NSString *)title message:(NSString *)message {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.ok", nil) style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (self.isSelectMode) {
-        // 选择模式下：点击行切换该光影的选中状态
-        ShaderItem *shader = self.filteredLocalShaders[indexPath.row];
-        [self toggleSelectionForShader:shader];
-        // 直接更新对应 Cell 的复选框，避免整表刷新造成闪烁
-        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-        if (cell) {
-            [self applyCheckboxToCell:cell selected:[self isShaderSelected:shader]];
-        }
-        // 取消选中高亮
-        [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    } else {
-        // 普通模式：仅取消高亮，无具体动作
-        [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    }
-}
-
-// 禁用光影切换功能 - 光影管理只用于查看和删除
-- (void)shaderCellDidTapToggle:(UITableViewCell *)cell {
-    // 功能已禁用
-}
-
-- (void)shaderCellDidTapOpenLink:(UITableViewCell *)cell {
-    NSIndexPath *indexPath = [self.tableView indexPathForCell:cell];
-    if (!indexPath) return;
-
-    ShaderItem *shaderItem = self.filteredLocalShaders[indexPath.row];
-
-    if (shaderItem.onlineID && shaderItem.onlineID.length > 0) {
-        NSString *urlString = [NSString stringWithFormat:@"https://modrinth.com/shader/%@", shaderItem.onlineID];
-        NSURL *url = [NSURL URLWithString:urlString];
-        if (url) {
-            [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
-        }
-    } else {
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"链接不可用" message:@"该光影没有可用的在线链接。" preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-        [self presentViewController:alert animated:YES completion:nil];
-    }
 }
 
 @end

@@ -2,206 +2,114 @@
 //  WorldsManagerViewController.m
 //  Amethyst
 //
-//  世界存档管理视图控制器实现，参照 ModsManagerViewController
-//  使用 WorldService 进行本地扫描与下载（含健壮解压）
-//  使用 AssetVersionViewController 进行在线版本选择
-//  使用 ModrinthAPI 进行在线搜索（projectType=world）
-//  支持通过 UIDocumentPicker 导入本地世界 zip
+//  世界存档管理视图控制器实现（继承 ResourceListViewController 基类）
+//  使用 WorldService 进行本地扫描与删除（含健壮解压导入）
+//  在线下载入口已移至统一下载界面：空状态提供"去下载"引导按钮
 //
 
 #import "WorldsManagerViewController.h"
 #import "WorldService.h"
 #import "WorldItem.h"
-#import "AssetVersionViewController.h"
-#import "ModVersion.h"
-#import "installer/modpack/ModrinthAPI.h"
-#import "PLProfiles.h"
-#import "LauncherPreferences.h"
-#import "BackgroundManager.h"
+#import "ResourceCardTableViewCell.h"
+#import "DownloadViewController.h"
+#import "utils.h"
 
-@interface WorldsManagerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, AssetVersionViewControllerDelegate, UIDocumentPickerDelegate>
+#pragma mark - 世界卡片 Cell（继承 Air-Design 卡片基类，本文件内轻量子类）
 
-@property (nonatomic, strong) UISegmentedControl *modeSwitcher;
-@property (nonatomic, strong) UISearchBar *searchBar;
-@property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) UIActivityIndicatorView *activityIndicator;
-@property (nonatomic, strong) UILabel *emptyLabel;
+@interface WorldCardCell : ResourceCardTableViewCell
+@end
+
+@implementation WorldCardCell
+
+- (void)configureWithWorld:(WorldItem *)item {
+    NSString *title = item.worldName.length > 0 ? item.worldName : item.displayName;
+    // 副标题：最后游玩时间
+    NSString *subtitle = item.lastPlayed.length > 0 ? [NSString stringWithFormat:localize(@"resman.worlds.last_played", nil), item.lastPlayed] : nil;
+    // 元信息：世界大小
+    NSString *detail = nil;
+    if (item.worldSize) {
+        unsigned long long bytes = [item.worldSize unsignedLongValue];
+        if (bytes >= 1024 * 1024) {
+            detail = [NSString stringWithFormat:@"%.1f MB", bytes / (1024.0 * 1024.0)];
+        } else if (bytes >= 1024) {
+            detail = [NSString stringWithFormat:@"%.1f KB", bytes / 1024.0];
+        } else {
+            detail = [NSString stringWithFormat:@"%llu B", bytes];
+        }
+    }
+
+    [self configureWithIcon:@"globe.asia.australia.fill"
+                  iconColor:[UIColor systemGreenColor]
+                      title:title
+                   subtitle:subtitle
+                     detail:detail];
+    // 世界暂无详情页：不显示 chevron / 开关
+}
+
+@end
+
+#pragma mark - 视图控制器
+
+@interface WorldsManagerViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, UIDocumentPickerDelegate>
+
 @property (nonatomic, strong) UIBarButtonItem *refreshButton;
 @property (nonatomic, strong) UIBarButtonItem *importButton;
 
 @property (nonatomic, strong) NSMutableArray<WorldItem *> *localItems;
 @property (nonatomic, strong) NSMutableArray<WorldItem *> *filteredLocalItems;
-@property (nonatomic, strong, nullable) WorldItem *pendingDownloadItem;
+
+// 首屏连锁进场动画只播一次
+@property (nonatomic, assign) BOOL didPlayChainAnimation;
 
 @end
 
 @implementation WorldsManagerViewController
 
+#pragma mark - Init
+
+- (instancetype)init {
+    // 接入资源列表基类：标题 + 世界类型语义色图标（绿 / globe.asia.australia.fill）
+    // 兼容既有调用方 [[WorldsManagerViewController alloc] init] 的创建方式
+    return [super initWithTitle:localize(@"resman.worlds.title", nil) resourceTypeIcon:@"globe.asia.australia.fill" iconColor:[UIColor systemGreenColor]];
+}
+
+#pragma mark - Lifecycle
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"管理世界";
-    self.view.backgroundColor = [UIColor systemBackgroundColor];
-    // 适配自定义启动器背景：透明化当前 VC，让全局背景图/毛玻璃透出
-    [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
-    self.currentMode = self.initialMode;
+    // 在线下载入口已移至下载界面：固定本地模式（currentMode 等属性保留仅为兼容 .h 既有声明）
+    self.currentMode = WorldsManagerModeLocal;
     self.localItems = [NSMutableArray array];
     self.filteredLocalItems = [NSMutableArray array];
     self.onlineSearchResults = [NSMutableArray array];
-    [self setupUI];
-    // 修复"前一个页面没有及时消失"：给 view 添加毛玻璃遮挡层，
-    // 防止 push 转场时透出栈底 ProfileSettingsViewController 的内容
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    // 透明化 tableView 背景与 backgroundView，避免遮挡全局背景
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-    [self updateUIForCurrentMode];
-    if (self.currentMode == WorldsManagerModeLocal) {
-        [self refreshLocalList];
-    }
-    // 监听背景效果变化通知，背景切换时重新应用透明效果
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(reapplyBackgroundEffect)
-                                                 name:@"BackgroundUIEffectChanged"
-                                               object:nil];
-}
 
-/// 背景效果变化时重新应用透明化处理，确保背景切换后仍透出全局背景
-- (void)reapplyBackgroundEffect {
-    // 重新透明化当前 VC
-    [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
-    // 重新应用 view 毛玻璃遮挡层
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    // 重新设置 tableView 背景为透明，确保背景效果切换后仍透出全局背景
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-    // 重新应用 searchBar 透明化效果（毛玻璃↔半透明切换后输入框背景需刷新）
-    [[BackgroundManager sharedManager] applyEffectToSearchBar:self.searchBar];
-    // 重新加载 cell，让每个 cell 重新应用 applyEffectToCell:（毛玻璃/半透明）
-    [self.tableView reloadData];
-}
-
-- (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated];
-    // 修复"前一个页面没有及时消失"：
-    // viewDidLoad 时 self.view.bounds 可能为 zero，applyEffectToView: 插入的 blurView
-    // frame 为 zero，push 转场第一帧无法遮挡栈底 VersionManagerViewController 的卡片。
-    // 在 viewWillAppear 中重新应用（此时 bounds 已正确），确保转场前遮挡到位。
-    [[BackgroundManager sharedManager] applyEffectToView:self.view];
-    self.tableView.backgroundColor = [UIColor clearColor];
-    self.tableView.backgroundView = nil;
-}
-
-- (void)dealloc {
-    // 移除背景效果变化通知的观察者，避免 dealloc 后收到通知导致野指针崩溃
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-}
-
-- (void)setupUI {
-    self.modeSwitcher = [[UISegmentedControl alloc] initWithItems:@[@"本地世界", @"在线搜索 (Modrinth)"]];
-    self.modeSwitcher.translatesAutoresizingMaskIntoConstraints = NO;
-    self.modeSwitcher.selectedSegmentIndex = self.currentMode;
-    [self.modeSwitcher addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
-    [self.view addSubview:self.modeSwitcher];
-
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectZero];
-    self.searchBar.translatesAutoresizingMaskIntoConstraints = NO;
+    // 搜索栏（基类构建）：只搜本地
     self.searchBar.delegate = self;
-    self.searchBar.placeholder = @"搜索本地世界...";
-    // 适配自定义启动器背景：透明化 searchBar 默认不透明背景，让全局背景图/毛玻璃透出
-    [[BackgroundManager sharedManager] applyEffectToSearchBar:self.searchBar];
-    [self.view addSubview:self.searchBar];
+    self.searchBar.placeholder = localize(@"resman.worlds.search_placeholder", nil);
 
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
-    self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"WorldCell"];
+    // 列表（基类构建）：注册卡片 Cell + 下拉刷新
+    [self.tableView registerClass:[WorldCardCell class] forCellReuseIdentifier:@"WorldCardCell"];
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
-    self.tableView.rowHeight = 72;
-    self.tableView.tableFooterView = [UIView new];
-    [self.view addSubview:self.tableView];
+    self.tableView.rowHeight = 84;
 
     UIRefreshControl *rc = [UIRefreshControl new];
     [rc addTarget:self action:@selector(handleRefresh:) forControlEvents:UIControlEventValueChanged];
     self.tableView.refreshControl = rc;
 
-    self.activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
-    self.activityIndicator.translatesAutoresizingMaskIntoConstraints = NO;
-    self.activityIndicator.hidesWhenStopped = YES;
-    [self.view addSubview:self.activityIndicator];
-
-    self.emptyLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyLabel.textAlignment = NSTextAlignmentCenter;
-    self.emptyLabel.textColor = [UIColor secondaryLabelColor];
-    self.emptyLabel.numberOfLines = 0;
-    self.emptyLabel.hidden = YES;
-    [self.view addSubview:self.emptyLabel];
-
+    // 导航按钮：左侧关闭，右侧导入 + 刷新
+    UIBarButtonItem *closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeTapped)];
     self.refreshButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(handleRefresh:)];
     UIImage *importImage = [UIImage systemImageNamed:@"square.and.arrow.down"] ?: [UIImage systemImageNamed:@"plus"];
     self.importButton = [[UIBarButtonItem alloc] initWithImage:importImage style:UIBarButtonItemStylePlain target:self action:@selector(importTapped)];
-    self.importButton.accessibilityLabel = @"导入世界";
-
-    [self updateNavigationButtons];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [self.modeSwitcher.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8],
-        [self.modeSwitcher.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:16],
-        [self.modeSwitcher.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16],
-
-        [self.searchBar.topAnchor constraintEqualToAnchor:self.modeSwitcher.bottomAnchor constant:8],
-        [self.searchBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.searchBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-
-        [self.tableView.topAnchor constraintEqualToAnchor:self.searchBar.bottomAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
-        [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-
-        [self.activityIndicator.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
-        [self.activityIndicator.centerYAnchor constraintEqualToAnchor:self.tableView.centerYAnchor],
-
-        [self.emptyLabel.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
-        [self.emptyLabel.centerYAnchor constraintEqualToAnchor:self.tableView.centerYAnchor],
-        [self.emptyLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.view.leadingAnchor constant:16],
-        [self.emptyLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.view.trailingAnchor constant:-16],
-    ]];
-}
-
-- (void)modeChanged:(UISegmentedControl *)sender {
-    self.currentMode = (WorldsManagerMode)sender.selectedSegmentIndex;
-    [self.searchBar resignFirstResponder];
-    self.searchBar.text = @"";
-    [self.onlineSearchResults removeAllObjects];
-    [self filterLocalItems];
-    [self.tableView reloadData];
-    [self updateUIForCurrentMode];
-}
-
-- (void)updateUIForCurrentMode {
-    if (self.currentMode == WorldsManagerModeLocal) {
-        self.searchBar.placeholder = @"搜索本地世界...";
-        self.emptyLabel.text = @"未发现世界存档";
-        self.emptyLabel.hidden = self.localItems.count > 0;
-    } else {
-        self.searchBar.placeholder = @"在线搜索 Modrinth...";
-        self.emptyLabel.text = @"输入关键词进行在线搜索";
-        self.emptyLabel.hidden = self.onlineSearchResults.count > 0;
-    }
-    self.tableView.refreshControl.enabled = YES;
-    [self updateNavigationButtons];
-    [self.tableView reloadData];
-}
-
-- (void)updateNavigationButtons {
-    UIBarButtonItem *closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeTapped)];
-    if (self.currentMode == WorldsManagerModeLocal) {
-        self.navigationItem.rightBarButtonItems = @[self.importButton, self.refreshButton];
-    } else {
-        self.navigationItem.rightBarButtonItems = nil;
-    }
+    self.importButton.accessibilityLabel = localize(@"resman.worlds.import", nil);
     self.navigationItem.leftBarButtonItem = closeButton;
+    self.navigationItem.rightBarButtonItems = @[self.importButton, self.refreshButton];
+
+    [self refreshLocalList];
 }
+
+#pragma mark - 关闭
 
 - (void)closeTapped {
     // 兼容两种容器：
@@ -220,7 +128,7 @@
     NSError *dirError = nil;
     NSString *dir = [[WorldService sharedService] ensureWorldsFolderForProfile:self.profileName error:&dirError];
     if (!dir) {
-        [self showSimpleAlertWithTitle:@"无法导入" message:dirError.localizedDescription ?: @"无法确定 saves 目录"];
+        [self showSimpleAlertWithTitle:localize(@"resman.common.cannot_import", nil) message:dirError.localizedDescription ?: localize(@"resman.worlds.dir_not_found", nil)];
         return;
     }
 
@@ -228,7 +136,7 @@
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.zip", @"public.item"] inMode:UIDocumentPickerModeImport];
     picker.allowsMultipleSelection = YES;
     picker.delegate = self;
-    picker.title = @"选择世界 zip 文件";
+    picker.title = localize(@"resman.worlds.picker_title", nil);
     [self presentViewController:picker animated:YES completion:nil];
 }
 
@@ -250,7 +158,7 @@
     __weak typeof(self) weakSelf = self;
 
     // 显示导入中提示
-    UIAlertController *importingAlert = [UIAlertController alertControllerWithTitle:@"正在导入"
+    UIAlertController *importingAlert = [UIAlertController alertControllerWithTitle:localize(@"resman.worlds.importing", nil)
                                                                              message:[NSString stringWithFormat:@"%@ (%ld/%ld)...", url.lastPathComponent, (long)(index + 1), (long)queue.count]
                                                                       preferredStyle:UIAlertControllerStyleAlert];
     UIActivityIndicatorView *indicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
@@ -270,8 +178,8 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             [importingAlert dismissViewControllerAnimated:YES completion:^{
                 if (!success || error) {
-                    [weakSelf showSimpleAlertWithTitle:@"导入失败"
-                                                message:[NSString stringWithFormat:@"%@: %@", url.lastPathComponent, error.localizedDescription ?: @"未知错误"]];
+                    [weakSelf showSimpleAlertWithTitle:localize(@"resman.common.import_failed", nil)
+                                                message:[NSString stringWithFormat:@"%@: %@", url.lastPathComponent, error.localizedDescription ?: localize(@"resman.common.unknown_error", nil)]];
                 }
                 // 继续处理下一个文件
                 [weakSelf importNextURLFromQueue:queue index:index + 1];
@@ -283,32 +191,10 @@
 #pragma mark - 数据加载
 
 - (void)handleRefresh:(id)sender {
-    if (self.currentMode == WorldsManagerModeLocal) {
-        [self refreshLocalList];
-    } else {
-        if (self.searchBar.text.length > 0) {
-            [self performOnlineSearch];
-        } else {
-            [self.tableView.refreshControl endRefreshing];
-        }
-    }
-}
-
-- (void)setLoading:(BOOL)loading {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (loading) {
-            self.emptyLabel.hidden = YES;
-            [self.activityIndicator startAnimating];
-        } else {
-            [self.activityIndicator stopAnimating];
-            [self.tableView.refreshControl endRefreshing];
-        }
-    });
+    [self refreshLocalList];
 }
 
 - (void)refreshLocalList {
-    if (self.currentMode != WorldsManagerModeLocal) return;
-
     [self setLoading:YES];
     NSString *profile = self.profileName ?: @"default";
     [[WorldService sharedService] scanWorldsForProfile:profile completion:^(NSArray<WorldItem *> *items) {
@@ -317,88 +203,30 @@
             [self.localItems addObjectsFromArray:items];
             [self filterLocalItems];
             [self setLoading:NO];
+            [self.tableView.refreshControl endRefreshing];
+            // 首屏连锁进场动画（Air-Design 15.3）：只播一次
+            if (!self.didPlayChainAnimation && self.filteredLocalItems.count > 0) {
+                self.didPlayChainAnimation = YES;
+                [self animateCellsInChain];
+            }
         });
     }];
 }
 
-- (void)performOnlineSearch {
-    NSString *searchText = self.searchBar.text;
-    if (searchText.length == 0) return;
-
-    [self setLoading:YES];
-    [self.onlineSearchResults removeAllObjects];
-    [self.tableView reloadData];
-
-    NSString *gameVersion = nil;
-    [self resolveCurrentGameVersion:&gameVersion];
-
-    NSMutableDictionary *filters = [NSMutableDictionary dictionary];
-    filters[@"name"] = searchText;
-    filters[@"projectType"] = @"world";
-    if (gameVersion.length > 0) {
-        filters[@"mcVersion"] = gameVersion;
-    }
-
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSMutableArray *results = [[ModrinthAPI sharedInstance] searchModWithFilters:filters previousPageResult:nil];
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (results) {
-                [self.onlineSearchResults addObjectsFromArray:results];
-            }
-            [self setLoading:NO];
-            self.emptyLabel.hidden = self.onlineSearchResults.count > 0;
-            if (self.onlineSearchResults.count == 0) {
-                self.emptyLabel.text = @"未找到在线结果";
-            }
-            [self.tableView reloadData];
-        });
-    });
-}
-
-- (void)resolveCurrentGameVersion:(NSString **)outGameVersion {
-    if (outGameVersion) *outGameVersion = nil;
-    NSDictionary *selectedProfile = PLProfiles.current.selectedProfile;
-    NSString *lastVersionId = selectedProfile[@"lastVersionId"];
-    if (![lastVersionId isKindOfClass:[NSString class]] || lastVersionId.length == 0) return;
-
-    NSArray<NSString *> *loaders = @[@"forge", @"fabric", @"neoforge", @"quilt"];
-    for (NSString *name in loaders) {
-        NSString *delimiter = [NSString stringWithFormat:@"-%@-", name];
-        NSRange range = [lastVersionId rangeOfString:delimiter];
-        if (range.location != NSNotFound) {
-            if (outGameVersion) *outGameVersion = [lastVersionId substringToIndex:range.location];
-            return;
-        }
-    }
-    if (outGameVersion) *outGameVersion = lastVersionId;
-}
-
-#pragma mark - UISearchBarDelegate
+#pragma mark - 搜索与空状态
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
-    if (self.currentMode == WorldsManagerModeLocal) {
-        [self filterLocalItems];
-    }
+    [self filterLocalItems];
 }
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
-    if (self.currentMode == WorldsManagerModeOnline) {
-        [self performOnlineSearch];
-    }
 }
 
 - (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
     searchBar.text = @"";
     [searchBar resignFirstResponder];
-    if (self.currentMode == WorldsManagerModeLocal) {
-        [self filterLocalItems];
-    } else {
-        [self.onlineSearchResults removeAllObjects];
-        [self.tableView reloadData];
-        [self updateUIForCurrentMode];
-    }
+    [self filterLocalItems];
 }
 
 - (void)filterLocalItems {
@@ -414,93 +242,89 @@
             }
         }
     }
-    self.emptyLabel.hidden = self.filteredLocalItems.count > 0;
-    if (!self.emptyLabel.hidden) {
-        self.emptyLabel.text = @"未找到本地世界";
-    }
     [self.tableView reloadData];
+    [self updateEmptyState];
+}
+
+- (void)updateEmptyState {
+    if (self.filteredLocalItems.count > 0) {
+        [self hideEmptyState];
+        return;
+    }
+    if (self.localItems.count == 0) {
+        // 目录为空：类型图标 + "去下载"引导（跳转统一下载界面）
+        [self showEmptyStateWithIcon:nil
+                           iconColor:nil
+                             message:localize(@"resman.worlds.empty", nil)
+                        actionTitle:localize(@"resman.common.go_download", nil)
+                      actionHandler:^{
+                          [self openDownloadPage];
+                      }];
+    } else {
+        // 搜索无结果：不放引导按钮
+        [self showEmptyStateWithIcon:@"magnifyingglass"
+                           iconColor:[UIColor secondaryLabelColor]
+                             message:localize(@"resman.worlds.search_empty", nil)
+                        actionTitle:nil
+                      actionHandler:nil];
+    }
+}
+
+#pragma mark - 跳转统一下载界面
+
+- (void)openDownloadPage {
+    // 在线下载入口已收敛到统一下载界面（未区分资源类型 Tab，进入默认页）
+    DownloadViewController *downloadVC = [[DownloadViewController alloc] init];
+    if (self.navigationController) {
+        [self.navigationController pushViewController:downloadVC animated:YES];
+    } else {
+        // 无导航栈（旧 present 路径）时全屏弹出
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:downloadVC];
+        nav.modalPresentationStyle = UIModalPresentationFullScreen;
+        [self presentViewController:nav animated:YES completion:nil];
+    }
 }
 
 #pragma mark - UITableView DataSource & Delegate
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.currentMode == WorldsManagerModeLocal ? self.filteredLocalItems.count : self.onlineSearchResults.count;
+    return self.filteredLocalItems.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"WorldCell" forIndexPath:indexPath];
-    cell.accessoryView = nil;
-    cell.accessoryType = UITableViewCellAccessoryNone;
-    cell.imageView.image = [UIImage systemImageNamed:@"globe.asia.australia.fill"];
-    cell.imageView.tintColor = [UIColor systemGreenColor];
-
-    if (self.currentMode == WorldsManagerModeLocal) {
-        WorldItem *item = self.filteredLocalItems[indexPath.row];
-        cell.textLabel.text = item.worldName ?: item.displayName;
-
-        // 详情：上次游玩 + 世界大小
-        NSMutableArray<NSString *> *parts = [NSMutableArray array];
-        if (item.lastPlayed.length > 0) {
-            [parts addObject:[NSString stringWithFormat:@"上次游玩 %@", item.lastPlayed]];
-        }
-        if (item.worldSize) {
-            unsigned long long bytes = [item.worldSize unsignedLongLongValue];
-            NSString *sizeStr;
-            if (bytes >= 1024 * 1024) {
-                sizeStr = [NSString stringWithFormat:@"%.1f MB", bytes / (1024.0 * 1024.0)];
-            } else if (bytes >= 1024) {
-                sizeStr = [NSString stringWithFormat:@"%.1f KB", bytes / 1024.0];
-            } else {
-                sizeStr = [NSString stringWithFormat:@"%llu B", bytes];
-            }
-            [parts addObject:sizeStr];
-        }
-        cell.detailTextLabel.text = parts.count > 0 ? [parts componentsJoinedByString:@" · "] : nil;
-        cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-    } else {
-        NSDictionary *data = self.onlineSearchResults[indexPath.row];
-        cell.textLabel.text = data[@"title"] ?: @"";
-        cell.detailTextLabel.text = data[@"description"] ?: @"";
-        cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-
-        UIButton *downloadButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        [downloadButton setTitle:@"下载" forState:UIControlStateNormal];
-        downloadButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
-        downloadButton.tag = indexPath.row;
-        [downloadButton addTarget:self action:@selector(downloadButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
-        downloadButton.contentEdgeInsets = UIEdgeInsetsMake(4, 8, 4, 8);
-        cell.accessoryView = downloadButton;
-    }
-    // 适配自定义启动器背景：为 cell 注入毛玻璃/半透明效果
-    [[BackgroundManager sharedManager] applyEffectToCell:cell];
+    WorldCardCell *cell = [tableView dequeueReusableCellWithIdentifier:@"WorldCardCell" forIndexPath:indexPath];
+    WorldItem *item = self.filteredLocalItems[indexPath.row];
+    [cell configureWithWorld:item];
     return cell;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    // 卡片间距（Air-Design space-sm）：顶部留白 + 卡片之间留白
+    return ResourceListCardSpacing;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    return [ResourceListViewController cardSpacingHeaderView];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (self.currentMode == WorldsManagerModeOnline) {
-        [self startVersionSelectionForOnlineRow:indexPath.row];
-    }
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (self.currentMode != WorldsManagerModeLocal) {
-        return nil;
-    }
-
     __weak typeof(self) weakSelf = self;
-    UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
+    UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:localize(@"resman.common.delete", nil) handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
         WorldItem *item = weakSelf.filteredLocalItems[indexPath.row];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认删除"
-                                                                        message:[NSString stringWithFormat:@"确定要删除世界 %@ 吗？\n此操作无法撤销。", item.worldName ?: item.displayName]
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"resman.common.confirm_delete", nil)
+                                                                        message:[NSString stringWithFormat:localize(@"resman.worlds.delete_message", nil), item.worldName ?: item.displayName]
                                                                  preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
             completionHandler(NO);
         }]];
-        [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.delete", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
             NSError *error = nil;
             if (![[WorldService sharedService] deleteWorld:item error:&error]) {
-                [weakSelf showSimpleAlertWithTitle:@"删除失败" message:error.localizedDescription];
+                [weakSelf showSimpleAlertWithTitle:localize(@"resman.common.delete_failed", nil) message:error.localizedDescription];
                 completionHandler(NO);
                 return;
             }
@@ -519,75 +343,11 @@
     return [UISwipeActionsConfiguration configurationWithActions:@[deleteAction]];
 }
 
-#pragma mark - 在线下载
-
-- (void)downloadButtonTapped:(UIButton *)sender {
-    [self startVersionSelectionForOnlineRow:sender.tag];
-}
-
-- (void)startVersionSelectionForOnlineRow:(NSInteger)row {
-    if (row >= (NSInteger)self.onlineSearchResults.count) return;
-    NSDictionary *data = self.onlineSearchResults[row];
-
-    WorldItem *item = [[WorldItem alloc] initWithOnlineData:data];
-    self.pendingDownloadItem = item;
-
-    AssetVersionViewController *vc = [[AssetVersionViewController alloc] init];
-    vc.assetType = AssetVersionTypeWorld;
-    vc.projectID = item.onlineID;
-    vc.projectDisplayName = item.displayName;
-    vc.delegate = self;
-    [self.navigationController pushViewController:vc animated:YES];
-}
-
-#pragma mark - AssetVersionViewControllerDelegate
-
-- (void)assetVersionViewController:(AssetVersionViewController *)viewController didSelectVersion:(ModVersion *)version {
-    WorldItem *item = self.pendingDownloadItem;
-    if (!item) return;
-
-    NSDictionary *primaryFile = version.primaryFile;
-    if (!primaryFile || ![primaryFile[@"url"] isKindOfClass:[NSString class]]) {
-        [self showSimpleAlertWithTitle:@"错误" message:@"未找到有效的下载链接。"];
-        return;
-    }
-    item.selectedVersionDownloadURL = primaryFile[@"url"];
-
-    [self startDownloadForItem:item];
-}
-
-- (void)startDownloadForItem:(WorldItem *)item {
-    // redesign-download-ui Task 6.3：下载进度统一由 WorldService 注册的
-    // DownloadTaskManager 任务 + 下载中心卡片展示，不再弹"正在下载并解压"
-    // alert（无进度的转圈弹窗会与下载进度体系割裂）。
-    [[WorldService sharedService] downloadWorld:item
-                                        toProfile:self.profileName
-                                         progress:nil
-                                       completion:^(BOOL success, NSError * _Nullable error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (!success || error) {
-                [self showSimpleAlertWithTitle:@"下载失败" message:error.localizedDescription ?: @"未知错误"];
-            } else {
-                UIAlertController *successAlert = [UIAlertController alertControllerWithTitle:@"下载成功"
-                                                                                      message:[NSString stringWithFormat:@"%@ 已成功导入。", item.displayName]
-                                                                               preferredStyle:UIAlertControllerStyleAlert];
-                [successAlert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-                    self.pendingDownloadItem = nil;
-                    [self.modeSwitcher setSelectedSegmentIndex:0];
-                    [self modeChanged:self.modeSwitcher];
-                    [self refreshLocalList];
-                }]];
-                [self presentViewController:successAlert animated:YES completion:nil];
-            }
-        });
-    }];
-}
-
 #pragma mark - 工具方法
 
 - (void)showSimpleAlertWithTitle:(NSString *)title message:(NSString *)message {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.ok", nil) style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 

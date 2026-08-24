@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  ModpackImportService.m
 //  Amethyst
@@ -15,10 +16,13 @@
 //
 
 #import "ModpackImportService.h"
+#import <UIKit/UIKit.h>
 #import "installer/FabricUtils.h"
 #import "installer/modpack/ModpackUtils.h"
 #import "installer/ForgeDirectInstaller.h"
 #import "installer/NeoForgeDirectInstaller.h"
+#import "installer/ForgeProcessorExecutor.h"
+#import "PLCrashView.h"
 #import "PLProfiles.h"
 #import "PLPreferences.h"
 #import "UnzipKit.h"
@@ -126,7 +130,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
             if (error) {
                 *error = [NSError errorWithDomain:@"ModpackImportError"
                                              code:9999
-                                         userInfo:@{NSLocalizedDescriptionKey: @"导入已取消"}];
+                                         userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_525", nil)}];
             }
             return YES;
         }
@@ -251,7 +255,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:1001
-                                     userInfo:@{NSLocalizedDescriptionKey: @"文件不存在"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_526", nil)}];
         }
         return nil;
     }
@@ -262,7 +266,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:1002
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法打开压缩文件"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_527", nil)}];
         }
         return nil;
     }
@@ -316,7 +320,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     if (error) {
         *error = [NSError errorWithDomain:@"ModpackImportError"
                                      code:1003
-                                 userInfo:@{NSLocalizedDescriptionKey: @"无效的整合包格式。缺少 modrinth.index.json、mmc-pack.json、manifest.json 或 .minecraft 目录结构"}];
+                                 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_528", nil)}];
     }
     return nil;
 }
@@ -347,7 +351,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:1008
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法解析 MCBBS packmeta/manifest"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_529", nil)}];
         }
         return nil;
     }
@@ -465,7 +469,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:1006
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法解析 mmc-pack.json"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_530", nil)}];
         }
         return nil;
     }
@@ -475,7 +479,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:1007
-                                     userInfo:@{NSLocalizedDescriptionKey: @"mmc-pack.json 缺少 components 数组"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_531", nil)}];
         }
         return nil;
     }
@@ -685,7 +689,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:1004
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法解析 modrinth.index.json"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_532", nil)}];
         }
         return nil;
     }
@@ -727,7 +731,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:1005
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法解析 manifest.json"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_533", nil)}];
         }
         return nil;
     }
@@ -803,7 +807,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:2001
-                                     userInfo:@{NSLocalizedDescriptionKey: @"整合包文件不存在"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_534", nil)}];
         }
         return NO;
     }
@@ -812,7 +816,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     NSString *modpackId = modpackInfo[@"id"];
     NSString *displayName = modpackInfo[@"name"];
     if (![displayName isKindOfClass:[NSString class]] || displayName.length == 0) {
-        displayName = modpackId ?: @"整合包";
+        displayName = modpackId ?: localize(@"i18n_str_118", nil);
     }
     NSString *iconURL = [self resolveIconURLFromModpackInfo:modpackInfo];
     NSString *downloadSource = getPrefObject(@"general.download_source") ?: @"official";
@@ -838,7 +842,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         return NO;
     }
 
-    if (progress) progress(0.05, @"准备整合包目录");
+    if (progress) progress(0.05, localize(@"i18n_str_1290", nil));
 
     NSString *gameDirAbsolute = [self absoluteGameDirForModpackId:modpackId];
     NSString *gameDirRelative = [self relativeGameDirForModpackId:modpackId];
@@ -877,7 +881,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     [manager updateTaskWithId:taskId stageAtIndex:1 status:PLTaskStageStatusRunning];
 
     // 第 1 步: 解压 overrides/client-overrides (Modrinth) 或 overrides (CurseForge/MMC) 到 gameDir
-    if (progress) progress(0.10, @"正在解压 overrides");
+    if (progress) progress(0.10, localize(@"i18n_str_1291", nil));
     NSError *extractError = nil;
     BOOL extractSuccess = [self extractOverrides:filePath format:format toDirectory:gameDirAbsolute error:&extractError];
     if (!extractSuccess) {
@@ -902,7 +906,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     // 第 2 步: 下载 mod 文件列表
     NSArray *modFiles = modpackInfo[@"files"];
     if (modFiles.count > 0) {
-        if (progress) progress(0.15, [NSString stringWithFormat:@"正在下载 %lu 个 mod 文件", (unsigned long)modFiles.count]);
+        if (progress) progress(0.15, [NSString stringWithFormat:localize(@"i18n_str_537", nil), (unsigned long)modFiles.count]);
         NSError *downloadError = nil;
         BOOL downloadSuccess = [self downloadModFiles:modpackInfo toModsDirectory:modsDir progress:progress error:&downloadError];
         if (!downloadSuccess) {
@@ -931,7 +935,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     [manager updateTaskWithId:taskId stageAtIndex:3 status:PLTaskStageStatusRunning];
 
     // 第 3 步: 安装模组加载器
-    if (progress) progress(0.85, @"正在安装模组加载器");
+    if (progress) progress(0.85, localize(@"i18n_str_1292", nil));
     NSString *loader = modpackInfo[@"loader"];
     NSString *loaderVersion = modpackInfo[@"loaderVersion"];
     NSString *minecraftVersion = modpackInfo[@"minecraftVersion"];
@@ -962,7 +966,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     // version.json、libraries、assets 都还没下载。之前用户启动整合包时会报
     // "找不到 net.minecraft.client.main.Main" 或 libraries 缺失，正是因为这一步缺失。
     // 这里触发完整版本下载，确保启动时所有依赖文件都就位。
-    if (progress) progress(0.86, @"正在下载游戏文件（库 + 资源）");
+    if (progress) progress(0.86, localize(@"i18n_str_1293", nil));
     NSError *versionDLError = nil;
     BOOL versionDLOK = [self ensureCompleteVersionInstalled:versionId
                                           minecraftVersion:minecraftVersion
@@ -974,9 +978,9 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         // 但要把失败信息记入 failedFiles 让用户知晓
         @synchronized(self) {
             [self.failedFilesInternal addObject:@{
-                @"fileName": [NSString stringWithFormat:@"%@ (游戏文件)", versionId],
+                @"fileName": [NSString stringWithFormat:localize(@"i18n_str_540", nil), versionId],
                 @"url": @"",
-                @"reason": versionDLError.localizedDescription ?: @"游戏文件下载失败",
+                @"reason": versionDLError.localizedDescription ?: localize(@"i18n_str_541", nil),
                 @"format": @"version"
             }];
         }
@@ -997,7 +1001,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     [manager updateTaskWithId:taskId stageAtIndex:5 status:PLTaskStageStatusRunning];
 
     // 第 4 步: 写 profile
-    if (progress) progress(0.95, @"正在写入配置文件");
+    if (progress) progress(0.95, localize(@"i18n_str_1294", nil));
     NSString *profileName = [self createProfileForModpack:modpackInfo
                                           gameDirRelative:gameDirRelative
                                                 versionId:versionId
@@ -1023,7 +1027,36 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     [manager setTaskWithId:taskId state:DownloadTaskStateCompleted];
     self.currentImportTaskId = nil;
 
-    if (progress) progress(1.0, @"导入完成");
+    if (progress) progress(1.0, localize(@"i18n_str_1295", nil));
+
+    // Forge/NeoForge 直装在本进程执行过 processors（headless JVM），进程内 JVM
+    // 只能创建一次，直接启动游戏会崩溃，提示用户重启 app 释放后再玩。
+    if ([ForgeProcessorExecutor jvmUsedThisProcess]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIWindow *keyWindow = nil;
+            if (@available(iOS 13.0, *)) {
+                for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                    if (scene.activationState == UISceneActivationStateForegroundActive) {
+                        keyWindow = scene.windows.firstObject;
+                        break;
+                    }
+                }
+            }
+            if (!keyWindow) {
+                keyWindow = [[UIApplication sharedApplication] windows].firstObject;
+            }
+            UIViewController *rootVC = keyWindow.rootViewController;
+            if (!rootVC) return;
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_214", nil)
+                                                                           message:localize(@"i18n_str_544", nil)
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_216", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                [PLCrashView restartLauncher];
+            }]];
+            [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_217", nil) style:UIAlertActionStyleCancel handler:nil]];
+            [rootVC presentViewController:alert animated:YES completion:nil];
+        });
+    }
     return YES;
 }
 
@@ -1110,7 +1143,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:3001
-                                     userInfo:@{NSLocalizedDescriptionKey: @"无法打开整合包压缩文件"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_545", nil)}];
         }
         return NO;
     }
@@ -1193,7 +1226,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                 if (error) {
                     *error = [NSError errorWithDomain:@"ModpackImportError"
                                                  code:9999
-                                             userInfo:@{NSLocalizedDescriptionKey: @"导入已取消"}];
+                                             userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_525", nil)}];
                 }
                 return NO;
             }
@@ -1326,7 +1359,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     // rawTask=nil / supportsResume=NO：整体进度由各文件驱动，不提供暂停/恢复语义。
     NSString *aggregateDisplayName = modpackInfo[@"name"];
     if (![aggregateDisplayName isKindOfClass:[NSString class]] || aggregateDisplayName.length == 0) {
-        aggregateDisplayName = @"整合包依赖文件";
+        aggregateDisplayName = localize(@"i18n_str_546", nil);
     }
     NSString *aggregateResourceId = modpackInfo[@"id"];
     if (![aggregateResourceId isKindOfClass:[NSString class]] || aggregateResourceId.length == 0) {
@@ -1538,7 +1571,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                     [self.failedFilesInternal addObject:@{
                         @"fileName": fileName ?: @"(unknown)",
                         @"url": recordURL,
-                        @"reason": @"无效的下载链接",
+                        @"reason": localize(@"i18n_str_254", nil),
                         @"format": isCurseForge ? @"curseforge" : @"modrinth"
                     }];
                 }
@@ -1550,7 +1583,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                 }
                 if (progress && total > 0) {
                     progress(0.15 + 0.70 * ((double)completedNow / (double)total),
-                             [NSString stringWithFormat:@"下载 mod %lu/%lu: %@",
+                             [NSString stringWithFormat:localize(@"i18n_str_547", nil),
                               (unsigned long)completedNow, (unsigned long)total, fileName]);
                 }
                 // Task 6.1：同步推进整合包聚合卡片（无有效链接同样计入完成数）
@@ -1652,7 +1685,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                 }
                 if (progress && total > 0) {
                     progress(0.15 + 0.70 * ((double)completedNow / (double)total),
-                             [NSString stringWithFormat:@"下载 mod %lu/%lu: %@",
+                             [NSString stringWithFormat:localize(@"i18n_str_547", nil),
                               (unsigned long)completedNow, (unsigned long)total, fileName]);
                 }
 
@@ -1714,16 +1747,16 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         }
     }
     // 错误消息：成功率 + 失败计数 + 前 5 个失败文件名（避免 error 描述过长）
-    NSMutableString *msg = [NSMutableString stringWithFormat:@"整合包模组下载不完整：%lu/%lu 成功，%lu 个失败",
+    NSMutableString *msg = [NSMutableString stringWithFormat:localize(@"i18n_str_548", nil),
                             (unsigned long)successCount, (unsigned long)total, (unsigned long)failedCount];
     if (failedNames.count > 0) {
         NSUInteger showCount = MIN(failedNames.count, (NSUInteger)5);
-        [msg appendString:@"\n失败模组："];
+        [msg appendString:localize(@"i18n_str_549", nil)];
         for (NSUInteger k = 0; k < showCount; k++) {
             [msg appendFormat:@"%@\n", failedNames[k]];
         }
         if (failedNames.count > showCount) {
-            [msg appendFormat:@"...等共 %lu 个", (unsigned long)failedNames.count];
+            [msg appendFormat:localize(@"i18n_str_550", nil), (unsigned long)failedNames.count];
         }
     }
     NSLog(@"[ModpackImport] Warning: %@", msg);
@@ -1778,7 +1811,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         // 必须显式判断，避免底层 API 抛 NSInvalidArgumentException 崩溃。
         NSError *invalidURLError = [NSError errorWithDomain:@"ModpackImportError"
                                                        code:5001
-                                                   userInfo:@{NSLocalizedDescriptionKey: @"无效的下载链接"}];
+                                                   userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_254", nil)}];
         if (outError) *outError = invalidURLError;
         if (taskId) [[DownloadTaskManager sharedManager] setTaskWithId:taskId completedWithError:invalidURLError];
         return NO;
@@ -2001,7 +2034,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:4001
-                                     userInfo:@{NSLocalizedDescriptionKey: @"缺少加载器版本或游戏版本"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_551", nil)}];
         }
         return NO;
     }
@@ -2025,7 +2058,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
             if (error) {
                 *error = [NSError errorWithDomain:@"ModpackImportError"
                                              code:4002
-                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ endpoints 未找到", loader]}];
+                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_552", nil), loader]}];
             }
             return NO;
         }
@@ -2037,7 +2070,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
             if (error) {
                 *error = [NSError errorWithDomain:@"ModpackImportError"
                                              code:4002
-                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ profile JSON URL 非法: %@", loader, jsonURL]}];
+                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_553", nil), loader, jsonURL]}];
             }
             return NO;
         }
@@ -2073,7 +2106,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:4003
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"无法构造 %@ installer URL", loader]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_554", nil), loader]}];
         }
         return NO;
     }
@@ -2103,7 +2136,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         NSLog(@"[ModpackImport] %@ installer.jar download failed, falling back to placeholder JSON: %@", loader, installerURL);
         NSInteger javaMajor = [self javaMajorVersionForMC:minecraftVersion];
         NSDictionary *placeholderJSON = @{
-            @"_comment_": [NSString stringWithFormat:@"此整合包需要 %@ %@ 加载器，自动安装失败。请通过下载界面手动安装。", loader, loaderVersion],
+            @"_comment_": [NSString stringWithFormat:localize(@"i18n_str_555", nil), loader, loaderVersion],
             @"id": versionId,
             @"inheritsFrom": minecraftVersion,
             @"type": @"release",
@@ -2114,7 +2147,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         [jsonData writeToFile:versionJsonPath options:NSDataWritingAtomic error:nil];
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportService" code:1001
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ installer.jar 下载失败，已写入占位 JSON。请手动安装加载器。", loader]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_556", nil), loader]}];
         }
         return NO;  // 让调用方感知失败并打印警告
     }
@@ -2154,7 +2187,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         // 避免误装作 vanilla MC 让用户以为 mods 生效）
         NSInteger javaMajor = [self javaMajorVersionForMC:minecraftVersion];
         NSDictionary *placeholderJSON = @{
-            @"_comment_": [NSString stringWithFormat:@"此整合包需要 %@ %@ 加载器，自动安装失败：%@。请通过下载界面手动安装。", loader, loaderVersion, installError.localizedDescription ?: @"未知错误"],
+            @"_comment_": [NSString stringWithFormat:localize(@"i18n_str_557", nil), loader, loaderVersion, installError.localizedDescription ?: localize(@"i18n_str_97", nil)],
             @"id": versionId,
             @"inheritsFrom": minecraftVersion,
             @"type": @"release",
@@ -2165,7 +2198,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         [jsonData writeToFile:versionJsonPath options:NSDataWritingAtomic error:nil];
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportService" code:1002
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ 直装失败：%@。已写入占位 JSON。请手动安装加载器。", loader, installError.localizedDescription ?: @"未知错误"]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_558", nil), loader, installError.localizedDescription ?: localize(@"i18n_str_97", nil)]}];
         }
         return NO;  // 让调用方感知失败并打印警告
     }
@@ -2194,7 +2227,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:4005
-                                     userInfo:@{NSLocalizedDescriptionKey: @"versionId 为空，无法安装完整版本"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_559", nil)}];
         }
         return NO;
     }
@@ -2214,7 +2247,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         }
     }
 
-    if (progress) progress(0.88, [NSString stringWithFormat:@"正在下载 %@ 的游戏文件", versionId]);
+    if (progress) progress(0.88, [NSString stringWithFormat:localize(@"i18n_str_560", nil), versionId]);
 
     // 第 2 步：创建 MinecraftResourceDownloadTask 触发完整下载
     // 不注册到 DownloadTaskManager（整合包导入已有自己的进度卡片，避免重复显示）
@@ -2231,7 +2264,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     downloader.handleError = ^{
         @synchronized(self) {
             errorOccurred = YES;
-            failReason = @"下载流程出错（见日志）";
+            failReason = localize(@"i18n_str_561", nil);
         }
     };
 
@@ -2273,7 +2306,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:4006
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"下载 %@ 游戏文件超时（30 分钟）", versionId]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_562", nil), versionId]}];
         }
         return NO;
     }
@@ -2283,7 +2316,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
             if (error) {
                 *error = [NSError errorWithDomain:@"ModpackImportError"
                                              code:4007
-                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"下载 %@ 游戏文件失败: %@", versionId, failReason ?: @"未知错误"]}];
+                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_563", nil), versionId, failReason ?: localize(@"i18n_str_97", nil)]}];
             }
             return NO;
         }
@@ -2293,7 +2326,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
                                          code:4007
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"下载 %@ 游戏文件失败", versionId]}];
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_564", nil), versionId]}];
         }
         return NO;
     }
@@ -2311,7 +2344,7 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
                 [self.failedFilesInternal addObject:@{
                     @"fileName": [NSString stringWithFormat:@"%@: %@", versionId, f[@"name"] ?: @"(unknown)"],
                     @"url": @"",
-                    @"reason": f[@"error"] ?: @"下载失败",
+                    @"reason": f[@"error"] ?: localize(@"i18n_str_448", nil),
                     @"format": @"version"
                 }];
             }

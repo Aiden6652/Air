@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  AnnouncementListViewController.m
 //  Amethyst
@@ -130,7 +131,7 @@ static const CGFloat kAnnHighPriorityBarWidth = 4.0;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"公告";
+    self.title = localize(@"i18n_str_20", nil);
     self.view.backgroundColor = [UIColor systemBackgroundColor];
 
     // 适配自定义启动器背景
@@ -207,7 +208,7 @@ static const CGFloat kAnnHighPriorityBarWidth = 4.0;
 
     self.retryButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.retryButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.retryButton setTitle:@"重试" forState:UIControlStateNormal];
+    [self.retryButton setTitle:localize(@"i18n_str_21", nil) forState:UIControlStateNormal];
     self.retryButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     [self.retryButton addTarget:self action:@selector(loadAnnouncements) forControlEvents:UIControlEventTouchUpInside];
     self.retryButton.hidden = YES;
@@ -275,7 +276,7 @@ static const CGFloat kAnnHighPriorityBarWidth = 4.0;
         [strongSelf.refreshControl endRefreshing];
 
         if (error && (!items || items.count == 0)) {
-            strongSelf.errorLabel.text = [NSString stringWithFormat:@"加载失败\n%@", error.localizedDescription ?: @""];
+            strongSelf.errorLabel.text = [NSString stringWithFormat:localize(@"i18n_str_22", nil), error.localizedDescription ?: @""];
             strongSelf.errorLabel.hidden = NO;
             strongSelf.retryButton.hidden = NO;
             return;
@@ -302,7 +303,7 @@ static const CGFloat kAnnHighPriorityBarWidth = 4.0;
         [strongSelf.refreshControl endRefreshing];
 
         if (error && (!items || items.count == 0)) {
-            strongSelf.errorLabel.text = [NSString stringWithFormat:@"加载失败\n%@", error.localizedDescription ?: @""];
+            strongSelf.errorLabel.text = [NSString stringWithFormat:localize(@"i18n_str_22", nil), error.localizedDescription ?: @""];
             strongSelf.errorLabel.hidden = NO;
             strongSelf.retryButton.hidden = NO;
             return;

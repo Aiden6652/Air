@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  ShaderVersionViewController.m
 //  Amethyst
@@ -35,10 +36,10 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         items = @[
-            @{ @"key": kSortRelevance, @"title": @"相关性" },
-            @{ @"key": kSortDownloads, @"title": @"下载量" },
-            @{ @"key": kSortUpdated,   @"title": @"最新更新" },
-            @{ @"key": kSortCreated,   @"title": @"创建时间" },
+            @{ @"key": kSortRelevance, @"title": localize(@"i18n_str_162", nil) },
+            @{ @"key": kSortDownloads, @"title": localize(@"i18n_str_32", nil) },
+            @{ @"key": kSortUpdated,   @"title": localize(@"i18n_str_33", nil) },
+            @{ @"key": kSortCreated,   @"title": localize(@"i18n_str_34", nil) },
         ];
     });
     return items;
@@ -220,7 +221,7 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
         UIScrollView *scrollOut = nil;
         UIStackView *chipOut = nil;
         UIStackView *sourceRow = [self createFilterRowWithIconName:@"globe"
-                                                             label:@"来源"
+                                                             label:localize(@"i18n_str_462", nil)
                                                         scrollStackOut:&scrollOut
                                                           chipStackOut:&chipOut];
         self.sourceScrollView = scrollOut;
@@ -234,35 +235,35 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
         UIScrollView *scrollOut = nil;
         UIStackView *chipOut = nil;
         UIStackView *versionRow = [self createFilterRowWithIconName:@"gamecontroller.fill"
-                                                              label:@"版本"
+                                                              label:localize(@"i18n_str_39", nil)
                                                          scrollStackOut:&scrollOut
                                                            chipStackOut:&chipOut];
         self.versionScrollView = scrollOut;
         self.versionChipStack = chipOut;
         [self.filterMainStack addArrangedSubview:versionRow];
     }
-    [self addChipToStack:self.versionChipStack title:@"加载中..." selected:NO action:NULL];
+    [self addChipToStack:self.versionChipStack title:localize(@"i18n_str_40", nil) selected:NO action:NULL];
 
     // ----- 第 3 行：加载器筛选（动态填充，初始显示"加载中"）-----
     {
         UIScrollView *scrollOut = nil;
         UIStackView *chipOut = nil;
         UIStackView *loaderRow = [self createFilterRowWithIconName:@"puzzlepiece.extension.fill"
-                                                             label:@"加载器"
+                                                             label:localize(@"i18n_str_114", nil)
                                                         scrollStackOut:&scrollOut
                                                           chipStackOut:&chipOut];
         self.loaderScrollView = scrollOut;
         self.loaderChipStack = chipOut;
         [self.filterMainStack addArrangedSubview:loaderRow];
     }
-    [self addChipToStack:self.loaderChipStack title:@"加载中..." selected:NO action:NULL];
+    [self addChipToStack:self.loaderChipStack title:localize(@"i18n_str_40", nil) selected:NO action:NULL];
 
     // ----- 第 4 行：排序方式筛选（相关性 / 下载量 / 最新更新 / 创建时间）-----
     {
         UIScrollView *scrollOut = nil;
         UIStackView *chipOut = nil;
         UIStackView *sortRow = [self createFilterRowWithIconName:@"arrow.up.arrow.down"
-                                                           label:@"排序"
+                                                           label:localize(@"i18n_str_41", nil)
                                                       scrollStackOut:&scrollOut
                                                         chipStackOut:&chipOut];
         self.sortScrollView = scrollOut;
@@ -433,7 +434,7 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
 - (void)rebuildVersionChips {
     [self clearChipStack:self.versionChipStack];
     if (!self.availableGameVersions || self.availableGameVersions.count == 0) {
-        [self addChipToStack:self.versionChipStack title:@"无版本" selected:NO action:NULL];
+        [self addChipToStack:self.versionChipStack title:localize(@"i18n_str_463", nil) selected:NO action:NULL];
         return;
     }
     for (NSString *version in self.availableGameVersions) {
@@ -450,7 +451,7 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
 - (void)rebuildLoaderChips {
     [self clearChipStack:self.loaderChipStack];
     if (!self.availableLoaders || self.availableLoaders.count == 0) {
-        [self addChipToStack:self.loaderChipStack title:@"无加载器" selected:NO action:NULL];
+        [self addChipToStack:self.loaderChipStack title:localize(@"i18n_str_464", nil) selected:NO action:NULL];
         return;
     }
     for (NSString *loader in self.availableLoaders) {
@@ -506,8 +507,8 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
 
     // CurseForge 源：检查 API Key 是否已配置
     if (newSource == kSourceCurseForge && ![CurseForgeAPI isAPIKeyConfigured]) {
-        [self showSourceAlertWithTitle:@"CurseForge 不可用"
-                                message:@"未配置 CurseForge API Key。请在设置中配置后重试，或继续使用 Modrinth 源。"];
+        [self showSourceAlertWithTitle:localize(@"i18n_str_465", nil)
+                                message:localize(@"i18n_str_466", nil)];
         return;
     }
 
@@ -568,7 +569,7 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
                                                                     message:message
                                                              preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -646,10 +647,10 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
     [self.activityIndicator stopAnimating];
     if (error) {
         NSLog(@"[ShaderVersionVC] Error fetching versions (source=%ld): %@", (long)self.selectedSource, error);
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"错误"
-                                                                        message:@"无法获取版本信息"
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_42", nil)
+                                                                        message:localize(@"i18n_str_43", nil)
                                                                  preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:YES completion:nil];
         return;
     }
@@ -660,8 +661,8 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
 
 - (void)processFilters {
     // 从版本数据中提取所有可选的游戏版本和加载器
-    NSMutableSet<NSString *> *gameVersions = [NSMutableSet setWithObject:@"全部"];
-    NSMutableSet<NSString *> *loaders = [NSMutableSet setWithObject:@"全部"];
+    NSMutableSet<NSString *> *gameVersions = [NSMutableSet setWithObject:localize(@"resman.mods.filter.all", nil)];
+    NSMutableSet<NSString *> *loaders = [NSMutableSet setWithObject:localize(@"resman.mods.filter.all", nil)];
 
     for (ShaderVersion *version in self.allVersions) {
         for (NSString *gameVersion in version.gameVersions) {
@@ -685,8 +686,8 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
     // FCL 风格：默认选中"全部"，但如果 preferredGameVersion/preferredLoader
     // 在可选列表中，则自动选中匹配项（让用户无需手动筛选）
     // 补齐与 ModVersionViewController 不对称的 preferred 自动选中逻辑（阶段3统一）
-    self.selectedGameVersion = self.availableGameVersions.firstObject ?: @"全部";
-    self.selectedLoader = self.availableLoaders.firstObject ?: @"全部";
+    self.selectedGameVersion = self.availableGameVersions.firstObject ?: localize(@"resman.mods.filter.all", nil);
+    self.selectedLoader = self.availableLoaders.firstObject ?: localize(@"resman.mods.filter.all", nil);
 
     // 自动选中 preferred 版本（大小写不敏感比较）
     if (self.preferredGameVersion.length > 0) {

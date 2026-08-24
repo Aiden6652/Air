@@ -1,6 +1,7 @@
 #import "ModUpdateService.h"
 #import "installer/modpack/ModrinthAPI.h"
 #import "installer/modpack/CurseForgeAPI.h"
+#import "CurseForgeMurmurHash.h"
 
 #pragma mark - ModUpdateResult 实现
 
@@ -138,13 +139,18 @@
         }
     });
 
-    // CurseForge 反查：使用 mod.filePath（内部使用 MurmurHash2，同步方法）
+    // CurseForge 反查：先用文件路径本地计算 MurmurHash2 指纹，再传指纹数字反查（同步方法）
+    // 修复：原实现直接把 mod.filePath 字符串传给 projectForFileHash，内部
+    // [murmurHash longLongValue] 对非数字的路径恒为 0，指纹永不命中
     dispatch_async(self.lookupQueue, ^{
         @autoreleasepool {
             NSMutableDictionary *r = nil;
             if (mod.filePath.length > 0) {
                 @try {
-                    r = [[CurseForgeAPI sharedInstance] projectForFileHash:mod.filePath projectType:projectType];
+                    uint32_t fingerprint = [CurseForgeMurmurHash fingerprintForFileAtPath:mod.filePath];
+                    if (fingerprint != 0) {
+                        r = [[CurseForgeAPI sharedInstance] projectForFileHash:@(fingerprint) projectType:projectType];
+                    }
                 } @catch (NSException *exception) {
                     r = nil;
                 }

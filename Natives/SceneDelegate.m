@@ -74,6 +74,8 @@ extern UIWindow *mainWindow;
     // 中已 loadSavedBackground/loadUISettings，单例首次访问即完成初始化，无需延迟。
     [[BackgroundManager sharedManager] applyBackgroundToWindow:self.window];
 
+    [self showTranslationNoticeIfNeeded];
+
     // Terracotta 暂时移除（排查启动崩溃）
     // if ([TerracottaBridge isAvailable]) {
     //     TerracottaManager *mgr = [TerracottaManager shared];
@@ -88,6 +90,40 @@ extern UIWindow *mainWindow;
                                              selector:@selector(applyUITheme:)
                                                  name:@"UIThemeChanged"
                                                object:nil];
+}
+
+- (void)showTranslationNoticeIfNeeded {
+    // 仅当系统语言为英文时提示：部分内容为机翻，可能不够准确，欢迎提交翻译 PR。
+    // 用户选择"不再提醒"后通过偏好持久化，下次不再弹出。
+    if (![NSLocale.preferredLanguages.firstObject hasPrefix:@"en"]) {
+        return;
+    }
+    if (getPrefBool(@"general.translation_notice_dismissed")) {
+        return;
+    }
+
+    UIViewController *presenter = self.window.rootViewController;
+    if (presenter == nil) {
+        return;
+    }
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_2000", nil)
+                                                                   message:localize(@"i18n_str_2001", nil)
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+
+    UIAlertAction *gotItAction = [UIAlertAction actionWithTitle:localize(@"i18n_str_2002", nil)
+                                                          style:UIAlertActionStyleDefault
+                                                        handler:nil];
+    [alert addAction:gotItAction];
+
+    UIAlertAction *dontAskAction = [UIAlertAction actionWithTitle:localize(@"i18n_str_2003", nil)
+                                                            style:UIAlertActionStyleCancel
+                                                          handler:^(UIAlertAction *action) {
+        setPrefBool(@"general.translation_notice_dismissed", YES);
+    }];
+    [alert addAction:dontAskAction];
+
+    [presenter presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)applyUITheme:(NSNotification *)notification {

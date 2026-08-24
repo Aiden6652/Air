@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  WorldService.m
 //  Amethyst
@@ -150,7 +151,7 @@
 
     if (!savesPath) {
         if (error) {
-            *error = [NSError errorWithDomain:@"WorldService" code:1 userInfo:@{NSLocalizedDescriptionKey: @"无法确定游戏目录"}];
+            *error = [NSError errorWithDomain:@"WorldService" code:1 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_105", nil)}];
         }
         return nil;
     }
@@ -166,7 +167,7 @@
         NSLog(@"[WorldService] created saves directory: %@", savesPath);
     } else if (!isDir) {
         if (error) {
-            *error = [NSError errorWithDomain:@"WorldService" code:2 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ 不是目录", savesPath]}];
+            *error = [NSError errorWithDomain:@"WorldService" code:2 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_451", nil), savesPath]}];
         }
         return nil;
     }
@@ -226,7 +227,7 @@
 - (BOOL)deleteWorld:(WorldItem *)item error:(NSError **)error {
     if (!item.filePath) {
         if (error) {
-            *error = [NSError errorWithDomain:@"WorldServiceError" code:101 userInfo:@{NSLocalizedDescriptionKey: @"世界目录路径为空"}];
+            *error = [NSError errorWithDomain:@"WorldServiceError" code:101 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1094", nil)}];
         }
         return NO;
     }
@@ -352,7 +353,7 @@
         if (completion) {
             NSError *error = ensureError ?: [NSError errorWithDomain:@"WorldServiceError"
                                                                  code:1
-                                                             userInfo:@{NSLocalizedDescriptionKey: @"找不到游戏目录。"}];
+                                                             userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_106", nil)}];
             dispatch_async(dispatch_get_main_queue(), ^{ completion(NO, error); });
         }
         return;
@@ -364,7 +365,7 @@
         if (completion) {
             NSError *error = [NSError errorWithDomain:@"WorldServiceError"
                                                  code:2
-                                             userInfo:@{NSLocalizedDescriptionKey: @"无效的下载链接。"}];
+                                             userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_454", nil)}];
             dispatch_async(dispatch_get_main_queue(), ^{ completion(NO, error); });
         }
         return;
@@ -447,7 +448,7 @@
             if (completion) {
                 NSError *error = ensureError ?: [NSError errorWithDomain:@"WorldServiceError"
                                                                      code:1
-                                                                 userInfo:@{NSLocalizedDescriptionKey: @"找不到游戏目录。"}];
+                                                                 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_106", nil)}];
                 dispatch_async(dispatch_get_main_queue(), ^{ completion(NO, error); });
             }
             return;
@@ -465,7 +466,7 @@
                 if (completion) {
                     NSError *error = [NSError errorWithDomain:@"WorldServiceError"
                                                          code:3
-                                                     userInfo:@{NSLocalizedDescriptionKey: @"导入文件不存在。"}];
+                                                     userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1095", nil)}];
                     dispatch_async(dispatch_get_main_queue(), ^{ completion(NO, error); });
                 }
                 return;
@@ -479,7 +480,7 @@
                 if (completion) {
                     NSError *error = copyError ?: [NSError errorWithDomain:@"WorldServiceError"
                                                                        code:4
-                                                                   userInfo:@{NSLocalizedDescriptionKey: @"复制导入文件失败。"}];
+                                                                   userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1096", nil)}];
                     dispatch_async(dispatch_get_main_queue(), ^{ completion(NO, error); });
                 }
                 return;
@@ -515,7 +516,7 @@
                     } else {
                         completion(NO, extractError ?: [NSError errorWithDomain:@"WorldServiceError"
                                                                             code:5
-                                                                        userInfo:@{NSLocalizedDescriptionKey: @"解压世界失败。"}]);
+                                                                        userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1097", nil)}]);
                     }
                 });
             }
@@ -636,7 +637,7 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
         dispatch_async(dispatch_get_main_queue(), ^{
             handler(NO, [NSError errorWithDomain:@"WorldServiceError"
                                             code:6
-                                        userInfo:@{NSLocalizedDescriptionKey: @"缺少 saves 目录信息，无法解压。"}]);
+                                        userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1098", nil)}]);
         });
         return;
     }
@@ -658,7 +659,7 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
             } else {
                 handler(NO, extractError ?: [NSError errorWithDomain:@"WorldServiceError"
                                                                 code:5
-                                                            userInfo:@{NSLocalizedDescriptionKey: @"解压世界失败。"}]);
+                                                            userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_1097", nil)}]);
             }
         });
     });

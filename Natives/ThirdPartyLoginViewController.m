@@ -45,7 +45,7 @@
     // 适配自定义启动器背景：将当前视图控制器透明化，使全局背景壁纸能够透出
     [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
     self.view.backgroundColor = [UIColor clearColor];
-    self.title = (self.mode == ThirdPartyLoginModeLittleSkin) ? @"LittleSkin 登录" : @"第三方登录";
+    self.title = (self.mode == ThirdPartyLoginModeLittleSkin) ? localize(@"i18n_str_2050", nil) : localize(@"i18n_str_1035", nil);
 
     [self setupUI];
     [[BackgroundManager sharedManager] applyBackgroundToView:self.view];
@@ -167,12 +167,12 @@
                               ?: [UIImage systemImageNamed:@"person.crop.circle.fill"];
         self.headerIcon.tintColor = [UIColor systemPurpleColor];
         self.headerTitle.text = @"LittleSkin";
-        self.headerSubtitle.text = @"国内常用 authlib-injector 皮肤站，需先在 littleskin.cn 注册账户";
+        self.headerSubtitle.text = localize(@"i18n_str_1036", nil);
     } else {
         self.headerIcon.image = [UIImage systemImageNamed:@"globe"];
         self.headerIcon.tintColor = [UIColor systemOrangeColor];
-        self.headerTitle.text = @"自定义第三方登录";
-        self.headerSubtitle.text = @"支持任意 Yggdrasil 兼容的 authlib-injector 服务器（如 LittleSkin、Blessing Skin 等），需填写 API 根地址";
+        self.headerTitle.text = localize(@"i18n_str_1037", nil);
+        self.headerSubtitle.text = localize(@"i18n_str_1038", nil);
     }
 
     [self.headerCard addSubview:self.headerIcon];
@@ -251,7 +251,7 @@
     UITextField *field = nil;
     self.usernameCard = [self buildInputCardWithIcon:@"person"
                                          accentColor:[UIColor systemBlueColor]
-                                          placeholder:@"用户名 / 邮箱"
+                                          placeholder:localize(@"i18n_str_1039", nil)
                                             isSecure:NO
                                         keyboardType:UIKeyboardTypeDefault
                                          returnField:&field];
@@ -262,7 +262,7 @@
     UITextField *field = nil;
     self.passwordCard = [self buildInputCardWithIcon:@"lock"
                                          accentColor:[UIColor systemBlueColor]
-                                          placeholder:@"密码"
+                                          placeholder:localize(@"i18n_str_1040", nil)
                                             isSecure:YES
                                         keyboardType:UIKeyboardTypeDefault
                                          returnField:&field];
@@ -274,7 +274,7 @@
     UITextField *field = nil;
     self.serverCard = [self buildInputCardWithIcon:@"link"
                                        accentColor:[UIColor systemBlueColor]
-                                        placeholder:@"API 地址（如 https://littleskin.cn/api/yggdrasil）"
+                                        placeholder:localize(@"i18n_str_1041", nil)
                                           isSecure:NO
                                       keyboardType:UIKeyboardTypeURL
                                        returnField:&field];
@@ -286,7 +286,7 @@
 - (void)buildLoginButton {
     self.loginButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.loginButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.loginButton setTitle:@"登录" forState:UIControlStateNormal];
+    [self.loginButton setTitle:localize(@"i18n_str_1042", nil) forState:UIControlStateNormal];
     [self.loginButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     self.loginButton.titleLabel.font = [UIFont boldSystemFontOfSize:17];
     UIColor *accent = (self.mode == ThirdPartyLoginModeLittleSkin)
@@ -329,17 +329,17 @@
 
     // 输入校验
     if (username.length == 0 || password.length == 0) {
-        [self showError:@"用户名和密码不能为空"];
+        [self showError:localize(@"i18n_str_1043", nil)];
         return;
     }
     if (self.mode == ThirdPartyLoginModeCustom) {
         if (serverURL.length == 0) {
-            [self showError:@"请填写服务器地址"];
+            [self showError:localize(@"i18n_str_1044", nil)];
             return;
         }
         NSURL *url = [NSURL URLWithString:serverURL];
         if (!url || !url.scheme || !url.host) {
-            [self showError:@"服务器地址格式不正确"];
+            [self showError:localize(@"i18n_str_1045", nil)];
             return;
         }
     }
@@ -348,7 +348,7 @@
 
     // 参照 authlib-injector 启动器技术规范：登录前先解析 ALI，将简写地址解析为完整 API Root
     // 同时预取服务器元数据，用于启动时传 -Dauthlibinjector.yggdrasil.prefetched
-    [self showError:@"正在解析服务器地址..."];
+    [self showError:localize(@"i18n_str_1046", nil)];
     self.errorLabel.textColor = [UIColor secondaryLabelColor];
 
     __weak typeof(self) weakSelf = self;
@@ -404,7 +404,7 @@
                 } else if ([status isKindOfClass:[NSString class]]) {
                     errMsg = status;
                 } else {
-                    errMsg = @"登录失败，请重试";
+                    errMsg = localize(@"i18n_str_1047", nil);
                 }
                 [sSelf showError:errMsg];
                 if (sSelf.onLoginComplete) {
@@ -429,7 +429,7 @@
         self.loginButton.alpha = 0.85;
     } else {
         [self.loginIndicator stopAnimating];
-        [self.loginButton setTitle:@"登录" forState:UIControlStateNormal];
+        [self.loginButton setTitle:localize(@"i18n_str_1042", nil) forState:UIControlStateNormal];
         self.loginButton.alpha = 1.0;
     }
 }

@@ -1,3 +1,4 @@
+#import "utils.h"
 //
 //  ModService.m
 //  AmethystMods
@@ -278,7 +279,7 @@
 
     if (!modsPath) {
         if (error) {
-            *error = [NSError errorWithDomain:@"ModService" code:1 userInfo:@{NSLocalizedDescriptionKey: @"无法确定游戏目录"}];
+            *error = [NSError errorWithDomain:@"ModService" code:1 userInfo:@{NSLocalizedDescriptionKey: localize(@"i18n_str_105", nil)}];
         }
         return nil;
     }
@@ -295,7 +296,7 @@
         NSLog(@"[ModService] Created mods directory: %@", modsPath);
     } else if (!isDir) {
         if (error) {
-            *error = [NSError errorWithDomain:@"ModService" code:2 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ 不是目录", modsPath]}];
+            *error = [NSError errorWithDomain:@"ModService" code:2 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_451", nil), modsPath]}];
         }
         return nil;
     }
@@ -492,7 +493,7 @@
         if ([currentPath.lowercaseString hasSuffix:@".jar.disabled"]) {
             newPath = [currentPath substringToIndex:currentPath.length - 9];
         } else {
-            if (error) *error = [NSError errorWithDomain:@"ModServiceError" code:101 userInfo:@{NSLocalizedDescriptionKey:@"文件状态不一致，无法启用。"}];
+            if (error) *error = [NSError errorWithDomain:@"ModServiceError" code:101 userInfo:@{NSLocalizedDescriptionKey:localize(@"i18n_str_452", nil)}];
             return NO;
         }
     } else {
@@ -534,7 +535,7 @@
     NSString *modsFolder = [self existingModsFolderForProfile:profileName];
     if (!modsFolder) {
         if (completion) {
-            NSError *error = [NSError errorWithDomain:@"ModServiceError" code:1 userInfo:@{NSLocalizedDescriptionKey:@"无法找到 Mods 文件夹。"}];
+            NSError *error = [NSError errorWithDomain:@"ModServiceError" code:1 userInfo:@{NSLocalizedDescriptionKey:localize(@"i18n_str_453", nil)}];
             dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
         }
         return;
@@ -543,7 +544,7 @@
     NSURL *url = [NSURL URLWithString:mod.selectedVersionDownloadURL];
     if (!url) {
         if (completion) {
-            NSError *error = [NSError errorWithDomain:@"ModServiceError" code:2 userInfo:@{NSLocalizedDescriptionKey:@"无效的下载链接。"}];
+            NSError *error = [NSError errorWithDomain:@"ModServiceError" code:2 userInfo:@{NSLocalizedDescriptionKey:localize(@"i18n_str_454", nil)}];
             dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
         }
         return;

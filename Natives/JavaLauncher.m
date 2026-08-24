@@ -350,8 +350,28 @@ void init_loadCustomJvmFlags(int* argc, const char** argv) {
     }
 }
 
+// 进程内 JVM 只能创建一次（第二次 JLI_Launch 会崩溃）。
+// launchJVM 与 launchHeadlessJVM 在调用 JLI_Launch 前都会置位；
+// launchJVM 检测到该标记时拒绝再次创建 JVM 并引导用户重启 app。
+static BOOL gJvmUsedInProcess = NO;
+
+BOOL JVMUsedInProcess(void) {
+    return gJvmUsedInProcess;
+}
+
 int launchJVM(NSString *accountId, id launchTarget, int width, int height, int minVersion) {
     NSLog(@"[JavaLauncher] Beginning JVM launch");
+
+    // 防御检查：headless JVM（Forge/NeoForge 直装 processors 阶段）已在当前进程
+    // 创建过 JVM。进程内 JVM 只能创建一次，再次 JLI_Launch 必然崩溃。
+    // 提示用户重启 app 后再启动游戏。
+    if (gJvmUsedInProcess) {
+        UIKit_returnToSplitView();
+        showDialog(localize(@"Error", nil),
+            @"A Java runtime was used by the mod installer in this session. "
+            @"Please restart the launcher, then launch the game again.");
+        return 1;
+    }
 
     init_loadDefaultEnv();
     init_loadCustomEnv();
@@ -1097,6 +1117,9 @@ int launchJVM(NSString *accountId, id launchTarget, int width, int height, int m
     // Free split VC
     tmpRootVC = nil;
 
+    // 标记进程内 JVM 已创建（此后任何 JLI_Launch 都会崩溃，需重启 app）
+    gJvmUsedInProcess = YES;
+
     return pJLI_Launch(++margc, margv,
                    0, NULL, // sizeof(const_jargs) / sizeof(char *), const_jargs,
                    0, NULL, // sizeof(const_appclasspath) / sizeof(char *), const_appclasspath,
@@ -1107,4 +1130,223 @@ int launchJVM(NSString *accountId, id launchTarget, int width, int height, int m
                    "java", "openjdk",
                    /* (const_jargs != NULL) ? JNI_TRUE : */ JNI_FALSE,
                    JNI_TRUE, JNI_FALSE, JNI_TRUE);
+}
+
+// ============================================================================
+// Headless JVM（Forge/NeoForge 直装 processors 执行）
+// ============================================================================
+// 参照 launchJVM 的环境初始化与 JIT 前置，但 JVM 参数最小化：
+// - 无 caciocavallo / LWJGL / 渲染相关参数
+// - -Djava.awt.headless=true（processor 不需要图形环境）
+// - -cp 仅含 bundle libs（launcher.jar 内含 ForgeProcessorRunner，gson 等依赖也在其中）
+//
+// iOS 禁止 fork/exec，无法像 ZL2 那样为每个 processor spawn 子 JVM，
+// 但官方 Forge/NeoForge installer 本身就是在单个 JVM 内以 IsolatedClassLoader
+// 逐个执行 processor 的（ForgeProcessorRunner 复刻该行为）。
+//
+// 注意：调用后进程内 JVM 已创建，游戏启动必须重启 app（见 gJvmUsedInProcess）。
+int launchHeadlessJVM(NSString *mainClass, NSArray<NSString *> *args, int minJavaVersion) {
+    NSLog(@"[JavaLauncher] Beginning headless JVM launch: %@ (minJava=%d)", mainClass, minJavaVersion);
+
+    if (!mainClass.length) {
+        NSLog(@"[JavaLauncher] launchHeadlessJVM: mainClass is empty");
+        return -6;
+    }
+
+    // 进程内 JVM 只能创建一次
+    if (gJvmUsedInProcess) {
+        NSLog(@"[JavaLauncher] launchHeadlessJVM: JVM already created in this process, restart required");
+        return -5;
+    }
+
+    // JIT 前置检查：processor 执行与游戏一样依赖 JIT（HotSpot 始终 JIT 编译，
+    // 无 JIT 时必然 SIGILL 崩溃）。提前给出明确错误而不是让 JVM 莫名崩溃。
+    if (!isJITEnabled(NO)) {
+        NSLog(@"[JavaLauncher] launchHeadlessJVM: JIT is not enabled, cannot run processors");
+        showDialog(localize(@"Error", nil),
+            @"Java JIT is not enabled. Forge/NeoForge installation requires JIT.\n"
+            @"Please enable JIT (e.g. via StikDebug) and try again.");
+        return -1;
+    }
+
+    init_loadDefaultEnv();
+    init_loadCustomEnv();
+
+    // 与 launchJVM 相同的 JIT26 处理（iOS 26+ 无 TXM 设备需要 Debug JIT Mapping）
+    DeviceGetJITFlags(YES);
+    BOOL requiresDebugJITMapping = DeviceNeedsDebugJITMapping();
+    BOOL jit26AlwaysAttached = getPrefBool(@"debug.debug_always_attached_jit");
+    if (requiresDebugJITMapping) {
+        static void *result;
+        if (!result) result = JIT26CreateRegionLegacy(getpagesize());
+        if ((uint32_t)result != 0x690000E0) {
+            munmap(result, getpagesize());
+            NSString *inBundleScriptPath = [NSBundle.mainBundle pathForResource:@"UniversalJIT26" ofType:@"js"];
+            NSString *lcAppInfoPath = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"LCAppInfo.plist"];
+            NSMutableDictionary *lcAppInfo = [NSMutableDictionary dictionaryWithContentsOfFile:lcAppInfoPath];
+            if (lcAppInfo) {
+                lcAppInfo[@"jitLaunchScriptJs"] = [[NSData dataWithContentsOfFile:inBundleScriptPath] base64EncodedStringWithOptions:0];
+                if ([lcAppInfo writeToFile:lcAppInfoPath atomically:YES]) {
+                    showDialog(localize(@"Error", nil), @"Amethyst was launched with a legacy script. We have updated the script to Universal, please restart LiveContainer to continue.");
+                    return -1;
+                }
+            }
+            [NSFileManager.defaultManager copyItemAtPath:inBundleScriptPath toPath:[NSString stringWithFormat:@"%s/UniversalJIT26.js", getenv("POJAV_HOME")] error:nil];
+            showDialog(localize(@"Error", nil), @"Support for legacy script has been removed. Please switch to Universal JIT script. To import it, long-press on Amethyst when enabling JIT in StikDebug and tap \"Assign Script\", then go to Amethyst's Documents directory and pick it. (on sideloaded StikDebug, the builtin script is named Amethyst-MeloNX.js)");
+            return -1;
+        }
+        JIT26SendJITScript([NSString stringWithContentsOfFile:[NSBundle.mainBundle pathForResource:@"UniversalJIT26Extension" ofType:@"js"]]);
+        JIT26SetDetachAfterFirstBr(!jit26AlwaysAttached);
+        task_set_exception_ports(mach_task_self(), EXC_MASK_BAD_ACCESS, 0, EXCEPTION_DEFAULT, MACHINE_THREAD_STATE);
+    }
+
+    if (!requiresDebugJITMapping || jit26AlwaysAttached) {
+        if (jit26AlwaysAttached) {
+            task_set_exception_ports(mach_task_self(), EXC_MASK_ALL & ~EXC_MASK_BREAKPOINT, 0,
+                EXCEPTION_DEFAULT, THREAD_STATE_NONE);
+        }
+        init_bypassDyldLibValidation();
+    } else {
+        NSLog(@"[DyldLVBypass] Hook disabled! Loading unsigned dylib will cause code signature error.");
+    }
+
+    // JRE 选择：按 minJavaVersion 推断 runtime tag（≥17 用 1_17_newer，否则 1_16_5_older），
+    // 失败回退 execute_jar。getSelectedJavaHome 内部会在 tag 槽位不满足 minVersion 时
+    // 搜索任意满足版本要求的 runtime。
+    NSString *defaultJRETag = (minJavaVersion >= 17) ? @"1_17_newer" : @"1_16_5_older";
+    NSString *javaHome = getSelectedJavaHome(defaultJRETag, minJavaVersion);
+    if (javaHome == nil) {
+        javaHome = getSelectedJavaHome(@"execute_jar", minJavaVersion);
+    }
+    if (javaHome == nil) {
+        NSLog(@"[JavaLauncher] launchHeadlessJVM: no Java runtime >= %d available", minJavaVersion);
+        showDialog(localize(@"Error", nil), [NSString stringWithFormat:localize(@"java.error.missing_runtime", nil),
+            @"Forge/NeoForge installer", minJavaVersion]);
+        return -3;
+    }
+    setenv("JAVA_HOME", javaHome.UTF8String, 1);
+    NSLog(@"[JavaLauncher] Headless JAVA_HOME set to %@", javaHome);
+
+    // user.home 指向独立临时目录，避免 processor 向主目录写入缓存
+    NSString *gameDir = @(getenv("POJAV_GAME_DIR"));
+    NSString *procHome = [gameDir stringByAppendingPathComponent:@".temp/forge_processor_home"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:procHome
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+
+    // dlopen libjli（Java 8 与 Java 11+ 双路径，对齐 launchJVM）
+    NSString *libjlipath8 = [NSString stringWithFormat:@"%@/lib/jli/libjli.dylib", javaHome];
+    NSString *libjlipath11 = [NSString stringWithFormat:@"%@/lib/libjli.dylib", javaHome];
+    BOOL isJava8 = [fm fileExistsAtPath:libjlipath8];
+    setenv("INTERNAL_JLI_PATH", (isJava8 ? libjlipath8 : libjlipath11).UTF8String, 1);
+    void *libjli = dlopen(getenv("INTERNAL_JLI_PATH"), RTLD_GLOBAL);
+    if (!libjli) {
+        const char *error = dlerror();
+        NSLog(@"[JavaLauncher] launchHeadlessJVM: JLI lib = NULL: %s", error ?: "unknown");
+        return -4;
+    }
+    pJLI_Launch = (JLI_Launch_func *)dlsym(libjli, "JLI_Launch");
+    if (pJLI_Launch == NULL) {
+        NSLog(@"[JavaLauncher] launchHeadlessJVM: JLI_Launch = NULL");
+        return -2;
+    }
+
+    // 构造最小化 JVM 参数
+    int margc = -1;
+    const char *margv[256];
+    NSMutableArray<NSString *> *retainedStrings = [NSMutableArray array];
+
+    #define PUSH_HARGV_LITERAL(literal) do { \
+        if (margc + 1 < 256) { \
+            margv[++margc] = (literal); \
+        } else { \
+            NSLog(@"[JavaLauncher] launchHeadlessJVM: margv limit reached, discarding %s", (literal)); \
+        } \
+    } while (0)
+
+    #define PUSH_HARGV_FORMAT(ns_fmt, ...) do { \
+        if (margc + 1 < 256) { \
+            NSString *_tmpStr = [NSString stringWithFormat:(ns_fmt), ##__VA_ARGS__]; \
+            [retainedStrings addObject:_tmpStr]; \
+            margv[++margc] = _tmpStr.UTF8String; \
+        } else { \
+            NSLog(@"[JavaLauncher] launchHeadlessJVM: margv limit reached, discarding formatted argument"); \
+        } \
+    } while (0)
+
+    PUSH_HARGV_FORMAT(@"%@/bin/java", javaHome);
+    PUSH_HARGV_LITERAL("-XstartOnFirstThread");
+    // headless：无 AWT/Swing 图形环境
+    PUSH_HARGV_LITERAL("-Djava.awt.headless=true");
+    PUSH_HARGV_LITERAL("-Xms64M");
+    PUSH_HARGV_LITERAL("-Xmx1G");
+    PUSH_HARGV_FORMAT(@"-Djava.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath);
+    PUSH_HARGV_FORMAT(@"-Duser.dir=%@", gameDir);
+    PUSH_HARGV_FORMAT(@"-Duser.home=%@", procHome);
+    PUSH_HARGV_FORMAT(@"-Duser.timezone=%@", NSTimeZone.localTimeZone.name);
+    PUSH_HARGV_LITERAL("-Dlog4j2.formatMsgNoLookups=true");
+    // Workaround random stack guard allocation crashes（对齐 launchJVM）
+    PUSH_HARGV_LITERAL("-XX:+UnlockExperimentalVMOptions");
+    PUSH_HARGV_LITERAL("-XX:+DisablePrimordialThreadGuardPages");
+    // CodeCache 参数（对齐 launchJVM：避免 CodeCache 满导致 SIGILL；
+    // iOS 26+ mirror mapped JIT 需要 64m 以内避免 SIGBUS）
+    PUSH_HARGV_LITERAL("-XX:ReservedCodeCacheSize=64m");
+    PUSH_HARGV_LITERAL("-XX:InitialCodeCacheSize=16m");
+    PUSH_HARGV_LITERAL("-XX:CodeCacheExpansionSize=4m");
+    if (@available(iOS 26.0, *)) {
+        PUSH_HARGV_LITERAL("-XX:+MirrorMappedCodeCache");
+    }
+    if (!getEntitlementValue(@"com.apple.developer.kernel.extended-virtual-addressing")) {
+        PUSH_HARGV_LITERAL("-XX:-UseCompressedClassPointers");
+    }
+
+    // classpath：bundle libs 下全部 jar（launcher.jar 含 ForgeProcessorRunner，gson 等也在其中）
+    NSString *librariesPath = [NSString stringWithFormat:@"%@/libs", NSBundle.mainBundle.bundlePath];
+    NSMutableString *classpathBuilder = [NSMutableString string];
+    NSArray *libFiles = [fm contentsOfDirectoryAtPath:librariesPath error:nil];
+    for (NSString *libFile in libFiles) {
+        if ([libFile hasSuffix:@".jar"]) {
+            [classpathBuilder appendFormat:@"%@/%@:", librariesPath, libFile];
+        }
+    }
+    if (classpathBuilder.length > 0 && [classpathBuilder hasSuffix:@":"]) {
+        [classpathBuilder deleteCharactersInRange:NSMakeRange(classpathBuilder.length - 1, 1)];
+    }
+    PUSH_HARGV_LITERAL("-cp");
+    PUSH_HARGV_FORMAT(@"%@", classpathBuilder);
+
+    // main class 与其参数
+    PUSH_HARGV_FORMAT(@"%@", mainClass);
+    for (NSString *arg in args) {
+        if (margc + 1 < 256) {
+            [retainedStrings addObject:arg];
+            margv[++margc] = arg.UTF8String;
+        } else {
+            NSLog(@"[JavaLauncher] launchHeadlessJVM: margv limit reached, discarding extra argument");
+        }
+    }
+
+    // Cr4shed known issue（对齐 launchJVM）：重置信号处理器让 JVM 能捕获崩溃信号
+    signal(SIGSEGV, SIG_DFL);
+    signal(SIGPIPE, SIG_DFL);
+    signal(SIGBUS, SIG_DFL);
+    signal(SIGILL, SIG_DFL);
+    signal(SIGFPE, SIG_DFL);
+
+    NSLog(@"[JavaLauncher] Calling JLI_Launch (headless, %d args)", margc + 1);
+
+    // 标记进程内 JVM 已创建（此后任何 JLI_Launch 都会崩溃，需重启 app）
+    gJvmUsedInProcess = YES;
+
+    int ret = pJLI_Launch(++margc, margv,
+                   0, NULL,
+                   0, NULL,
+                   "1.8.0-internal",
+                   "1.8",
+                   "java", "openjdk",
+                   JNI_FALSE,
+                   JNI_TRUE, JNI_FALSE, JNI_TRUE);
+    NSLog(@"[JavaLauncher] Headless JLI_Launch returned %d", ret);
+    return ret;
 }
