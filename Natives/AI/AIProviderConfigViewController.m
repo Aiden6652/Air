@@ -11,6 +11,7 @@
 #import "AiAPIClient.h"
 #import "BackgroundManager.h"
 #import "LauncherPreferences.h"
+#import <objc/runtime.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -642,5 +643,3 @@ NS_ASSUME_NONNULL_END
 }
 
 @end
-
-NS_ASSUME_NONNULL_END

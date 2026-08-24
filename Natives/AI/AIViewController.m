@@ -357,7 +357,7 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
     }
 
     [self.inputBar clearText];
-    [self.inputBar setSending:YES];
+    [self.inputBar setIsSending:YES];
     [self reloadAndScrollToBottom];
 
     // 发送流程：AiAgent 会追加用户消息 + 助手占位消息并处理持久化
@@ -373,7 +373,7 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
     } completionHandler:^(NSError *error) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
-        [strongSelf.inputBar setSending:NO];
+        [strongSelf.inputBar setIsSending:NO];
         [strongSelf.activityIndicator stopAnimating];
         strongSelf.lastStreamUpdateTime = 0;
         if (error) {
@@ -397,7 +397,7 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
 
 - (void)handleStop {
     [[AiAgent sharedAgent] stopCurrent];
-    [self.inputBar setSending:NO];
+    [self.inputBar setIsSending:NO];
     [self.activityIndicator stopAnimating];
     [self reloadAndScrollToBottom];
 }
