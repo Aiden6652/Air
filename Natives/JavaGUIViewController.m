@@ -2,6 +2,7 @@
 #import "customcontrols/CustomControlsUtils.h"
 #import "JavaGUIViewController.h"
 #import "JavaLauncher.h"
+#import "PLCrashView.h"
 #import "LauncherPreferences.h"
 #import "PLLogOutputView.h"
 #import "TrackedTextField.h"
@@ -231,6 +232,27 @@ void AWTInputBridge_sendKey(int keycode) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+
+    // 关键修复（二次执行 jar 卡死）：iOS 进程内 JVM 只能创建一次
+    // （gJVMUsedInProcess，第二次 JLI_Launch 会崩溃）。若入口未拦截（如未来新增
+    // 直接 alloc 本 VC 的调用方），此处兜底：已创建过 JVM 时立即退出界面并提示，
+    // 避免黑屏卡死。必须放在任何界面副作用（displayLink 线程等）之前。
+    if (JVMUsedInProcess()) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_214", nil)
+                                                                           message:localize(@"i18n_str_1143", nil)
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_216", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                [PLCrashView restartLauncher];
+            }]];
+            [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_217", nil) style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+                [self dismissViewControllerAnimated:YES completion:nil];
+            }]];
+            [self presentViewController:alert animated:YES completion:nil];
+        });
+        return;
+    }
+
     // 适配自定义启动器背景：将当前视图控制器透明化，使全局背景壁纸能够透出
     [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
     self.view.backgroundColor = UIColor.blackColor;

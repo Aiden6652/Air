@@ -8,6 +8,8 @@
 #import "DownloadTaskItem.h"
 #import "PLTaskProgressViewController.h"
 #import "JavaGUIViewController.h"
+#import "JavaLauncher.h"
+#import "PLCrashView.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -432,6 +434,22 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
 
 - (void)enterModInstallerWithPath:(NSString *)path hitEnterAfterWindowShown:(BOOL)hitEnter {
+    // 关键修复（二次执行 jar 卡死）：iOS 进程内 JVM 只能创建一次
+    // （gJVMUsedInProcess，第二次 JLI_Launch 会崩溃）。首次执行 jar 已在本进程
+    // 创建过 JVM，再次进入 JavaGUIViewController 会黑屏卡死。因此在此处提前拦截，
+    // 提示用户重启启动器，而不是进入注定失败的界面。
+    if (JVMUsedInProcess()) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_214", nil)
+                                                                       message:localize(@"i18n_str_1143", nil)
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_216", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            [PLCrashView restartLauncher];
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_217", nil) style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
     JavaGUIViewController *vc = [[JavaGUIViewController alloc] init];
     vc.filepath = path;
     vc.hitEnterAfterWindowShown = hitEnter;
