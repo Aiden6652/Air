@@ -391,7 +391,7 @@ static NSString * const kAiToolDomain = @"AiTool";
         completion(nil, [self errorWithCode:403 message:@"出于安全考虑仅允许删除文件，不允许删除目录"]); return;
     }
     NSString *ext = [[resolved pathExtension] lowercaseString];
-    if (![[self class] deletableExtensions] containsObject:ext]) {
+    if (![[[self class] deletableExtensions] containsObject:ext]) {
         completion(nil, [self errorWithCode:403 message:[NSString stringWithFormat:@"出于安全考虑仅允许删除文本类文件（不支持 .%@）", ext]]);
         return;
     }
