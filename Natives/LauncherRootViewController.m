@@ -22,8 +22,8 @@
 // #import "TerracottaManager.h"
 // #import "TerracottaBridge.h"
 #import "AccountListViewController.h"
-#import "AIViewController.h"
-#import "AiSessionStore.h"
+#import "AI/AIViewController.h"
+#import "AI/AiSessionStore.h"
 
 // 布局常量（iPad 基准值；iPhone 上通过 LauncherRootLayoutWidth 适配后会变窄）
 static const CGFloat kSidebarWidthPad = 70.0;      // iPad 左侧边栏宽度
