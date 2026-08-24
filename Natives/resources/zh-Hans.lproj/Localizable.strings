@@ -164,6 +164,7 @@
 "Settings" = "设置";
 
 "preference.section.general" = "启动器设置";
+"preference.section.ai" = "AI 助手";
 "preference.section.video" = "视频设置";
 "preference.section.footer.video" = "自动渲染器允许 Amethyst 选择基于 Minecraft 版本的最佳选项。减少分辨率降低 GPU 工作量以提高性能。";
 "preference.section.mobileglues" = "MobileGlues 渲染器";

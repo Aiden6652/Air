@@ -164,6 +164,7 @@
 "Settings" = "Settings";
 
 "preference.section.general" = "General Settings";
+"preference.section.ai" = "AI Assistant";
 "preference.section.video" = "Video and Audio Settings";
 "preference.section.footer.video" = "Auto renderer allows Amethyst to choose the best option based on Minecraft version. Decreasing resolution reduces GPU workload for better performance.";
 "preference.section.mobileglues" = "MobileGlues Renderer";
