@@ -90,7 +90,7 @@
 
     NSMutableString *result = [NSMutableString string];
     NSMutableString *currentWord = [NSMutableString string];
-    BOOL isFirstWord = YES;
+    __block BOOL isFirstWord = YES;
 
     void (^flush)(void) = ^{
         if (currentWord.length == 0) return;
