@@ -22,6 +22,11 @@
 #import "CurseForgeAPIKeyViewController.h"
 #import "CustomControlsViewController.h"
 
+#import "AI/AIProviderConfigViewController.h"
+#import "AI/AISessionListViewController.h"
+#import "AI/AISystemPromptEditorViewController.h"
+#import "AI/AiSettings.h"
+
 @interface LauncherPreferencesViewController()
 @property(nonatomic) NSArray<NSString*> *rendererKeys, *rendererList;
 @property(nonatomic) BOOL pickingMousePointer;
@@ -259,10 +264,44 @@
     self.searchEnabled = YES;
 
     self.getPreference = ^id(NSString *section, NSString *key){
+        // AI 助手分区：直接与 AiSettings 打通（AiSettings 读写 NSUserDefaults，不走通用偏好存储）
+        if ([section isEqualToString:@"ai"]) {
+            if ([key isEqualToString:@"safety_mode"]) {
+                switch ([[AiSettings sharedSettings] safetyMode]) {
+                    case AiSafetyModeSafe:  return @"只读自动执行（Safe）";
+                    case AiSafetyModeAsk:   return @"写操作逐次确认（Ask）";
+                    case AiSafetyModeYOLO:  return @"自动批准（YOLO）";
+                }
+            }
+            if ([key isEqualToString:@"markdown_enabled"]) {
+                return @([[AiSettings sharedSettings] markdownEnabled]);
+            }
+            return nil;
+        }
         NSString *keyFull = [NSString stringWithFormat:@"%@.%@", section, key];
         return getPrefObject(keyFull);
     };
     self.setPreference = ^(NSString *section, NSString *key, id value){
+        // AI 助手分区：回写到 AiSettings
+        if ([section isEqualToString:@"ai"]) {
+            if ([key isEqualToString:@"safety_mode"]) {
+                AiSafetyMode mode = AiSafetyModeSafe;
+                if ([value isKindOfClass:[NSNumber class]]) {
+                    mode = (AiSafetyMode)[value integerValue];
+                } else if ([value isKindOfClass:[NSString class]]) {
+                    NSString *s = value;
+                    if ([s containsString:@"逐次确认"]) {
+                        mode = AiSafetyModeAsk;
+                    } else if ([s containsString:@"自动批准"]) {
+                        mode = AiSafetyModeYOLO;
+                    }
+                }
+                [[AiSettings sharedSettings] setSafetyMode:mode];
+            } else if ([key isEqualToString:@"markdown_enabled"]) {
+                [[AiSettings sharedSettings] setMarkdownEnabled:[value boolValue]];
+            }
+            return;
+        }
         NSString *keyFull = [NSString stringWithFormat:@"%@.%@", section, key];
         setPrefObject(keyFull, value);
     };
@@ -270,7 +309,7 @@
     self.hasDetail = YES;
     self.prefDetailVisible = self.navigationController == nil;
     
-    self.prefSections = @[@"general", @"download", @"video", @"mobileglues", @"control", @"java", @"debug"];
+    self.prefSections = @[@"general", @"download", @"video", @"mobileglues", @"control", @"java", @"debug", @"ai"];
 
     self.rendererKeys = getRendererKeys(NO);
     self.rendererList = getRendererNames(NO);
@@ -1116,6 +1155,62 @@
                 @"hasDetail": @YES,
                 @"icon": @"textformat.abc.dottedunderline",
                 @"type": self.typeSwitch
+            }
+        ], @[
+            // AI 助手 settings（Air AI Agent Phase 2）
+            @{@"icon": @"sparkles"},
+            @{@"key": @"provider_config",
+              @"title": @"提供商配置",
+              @"icon": @"globe.asia.australia.fill",
+              @"type": self.typeButton,
+              @"action": ^void(){
+                  AIProviderConfigViewController *vc = [[AIProviderConfigViewController alloc] init];
+                  UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+                  nav.modalPresentationStyle = UIModalPresentationFormSheet;
+                  [self presentViewController:nav animated:YES completion:nil];
+              }
+            },
+            @{@"key": @"session_list",
+              @"title": @"会话列表",
+              @"icon": @"rectangle.stack.badge.person.crop",
+              @"type": self.typeButton,
+              @"action": ^void(){
+                  AISessionListViewController *vc = [[AISessionListViewController alloc] init];
+                  UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+                  nav.modalPresentationStyle = UIModalPresentationFormSheet;
+                  [self presentViewController:nav animated:YES completion:nil];
+              }
+            },
+            @{@"key": @"safety_mode",
+              @"title": @"默认安全模式",
+              @"icon": @"hand.raised.fill",
+              @"type": self.typePickField,
+              @"pickKeys": @[
+                  @"只读自动执行（Safe）",
+                  @"写操作逐次确认（Ask）",
+                  @"自动批准（YOLO）"
+              ],
+              @"pickList": @[
+                  @"只读自动执行（Safe）",
+                  @"写操作逐次确认（Ask）",
+                  @"自动批准（YOLO）"
+              ]
+            },
+            @{@"key": @"markdown_enabled",
+              @"title": @"Markdown 渲染",
+              @"icon": @"textformat",
+              @"type": self.typeSwitch
+            },
+            @{@"key": @"system_prompt",
+              @"title": @"系统提示词",
+              @"icon": @"text.book.closed.fill",
+              @"type": self.typeButton,
+              @"action": ^void(){
+                  AISystemPromptEditorViewController *vc = [[AISystemPromptEditorViewController alloc] init];
+                  UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+                  nav.modalPresentationStyle = UIModalPresentationFormSheet;
+                  [self presentViewController:nav animated:YES completion:nil];
+              }
             }
         ]
     ];

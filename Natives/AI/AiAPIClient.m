@@ -134,6 +134,36 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     [self.currentTask cancel];
 }
 
+#pragma mark - 连通性测试
+
+- (void)testConnectionWithProvider:(AiProvider *)provider
+                        completion:(void (^)(NSString * _Nullable successMessage, NSError * _Nullable error))completion {
+    if (!provider || provider.baseURL.length == 0 || provider.model.length == 0) {
+        NSError *err = [NSError errorWithDomain:@"AiAPIClient" code:100
+                                        userInfo:@{NSLocalizedDescriptionKey: @"AI 提供商配置不完整（缺少 baseURL 或 model）"}];
+        if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, err); });
+        }
+        return;
+    }
+
+    AiMessage *ping = [AiMessage messageWithRole:@"user" content:@"ping"];
+    // 复用流式通道发起极其简短的对话请求，忽略增量，仅在结束时回传结果
+    [self streamChatWithProvider:provider
+                        messages:@[ping]
+                           tools:nil
+                         onChunk:nil
+                      onComplete:^(NSDictionary * _Nullable fullResponse, NSError * _Nullable error) {
+        if (completion) {
+            if (error) {
+                completion(nil, error);
+            } else {
+                completion(@"连接成功", nil);
+            }
+        }
+    }];
+}
+
 #pragma mark - 流式解析
 
 /// 追加接收到的文本并切行处理

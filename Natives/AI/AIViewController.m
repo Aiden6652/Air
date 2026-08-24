@@ -12,6 +12,8 @@
 #import "AiSettings.h"
 #import "BackgroundManager.h"
 #import "LauncherPreferences.h"
+#import "AISessionListViewController.h"
+#import "AIProviderConfigViewController.h"
 
 /// 流式 UI 刷新节流阈值，避免 Markdown 反复重算
 static const NSTimeInterval kUIThrottleInterval = 0.2;
@@ -87,11 +89,50 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
 }
 
 - (void)sessionsAction {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"会话列表"
-                                                                    message:@"会话列表将在后续版本提供。"
-                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+    AISessionListViewController *listVC = [[AISessionListViewController alloc] init];
+    __weak typeof(self) weakSelf = self;
+    listVC.onSelectSession = ^(AiSession *session) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [strongSelf switchToSession:session];
+        [strongSelf.navigationController popViewControllerAnimated:YES];
+    };
+    listVC.onNewSession = ^(AiSession *session) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [strongSelf switchToSession:session];
+        [strongSelf.navigationController popToRootViewControllerAnimated:YES];
+    };
+
+    if (self.navigationController) {
+        [self.navigationController pushViewController:listVC animated:YES];
+    } else {
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:listVC];
+        nav.modalPresentationStyle = UIModalPresentationFormSheet;
+        [self presentViewController:nav animated:YES completion:nil];
+    }
+}
+
+/// 切换到指定会话并刷新界面
+- (void)switchToSession:(AiSession *)session {
+    if (!session) return;
+    self.session = session;
+    NSString *title = session.title.length > 0 ? session.title : @"AI 助手";
+    self.navigationItem.title = title;
+    [self reloadAndScrollToBottom];
+    [self updateEmptyState];
+}
+
+/// 进入提供商配置页
+- (void)presentProviderConfig {
+    AIProviderConfigViewController *vc = [[AIProviderConfigViewController alloc] init];
+    if (self.navigationController) {
+        [self.navigationController pushViewController:vc animated:YES];
+    } else {
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+        nav.modalPresentationStyle = UIModalPresentationFormSheet;
+        [self presentViewController:nav animated:YES completion:nil];
+    }
 }
 
 #pragma mark - 布局
@@ -287,11 +328,8 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
 }
 
 - (void)handleModelTap {
-    if (![self currentProvider]) {
-        [self showConfigureHint];
-        return;
-    }
-    // Phase 1：仅展示当前模型，不做选择器
+    // Phase 2：点击模型标签直接进入提供商配置页（切换/配置服务）
+    [self presentProviderConfig];
 }
 
 - (void)showConfigureHint {
@@ -303,7 +341,7 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
 }
 
 - (void)configureAction {
-    [self showConfigureHint];
+    [self presentProviderConfig];
 }
 
 #pragma mark - 发送 / 停止

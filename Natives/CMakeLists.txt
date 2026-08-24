@@ -499,6 +499,9 @@ add_executable(AngelAuraAmethyst
   AI/AIMessageCell.m
   AI/AIInputBarView.m
   AI/AIViewController.m
+  AI/AISessionListViewController.m
+  AI/AIProviderConfigViewController.m
+  AI/AISystemPromptEditorViewController.m
 )
 
 # Add ModLoaderIcons PNG files into the app bundle Resources/ModLoaderIcons so they are available at runtime.

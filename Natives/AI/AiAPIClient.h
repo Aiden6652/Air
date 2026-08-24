@@ -28,6 +28,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 取消当前请求（供停止按钮）
 - (void)stop;
 
+/// 连通性测试：向提供商发一条极短的 user "ping" 消息（内部复用流式通道），
+/// 成功回调 successMessage（如"连接成功"），失败回调 error。
+/// 不改动既有 streamChatWithProvider:... 方法签名。
+- (void)testConnectionWithProvider:(AiProvider *)provider
+                        completion:(void (^)(NSString * _Nullable successMessage, NSError * _Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END
