@@ -3,7 +3,7 @@
   StringLocalization
 */
 
-"game.menu.force_close" = "强制关闭";
+"game.menu.force_close" = "Force Close";
 "game.menu.confirm.force_close" = "确认强制关闭？";
 "game.menu.log_output" = "日志输出";
 "game.menu.custom_controls" = "按键布局";
