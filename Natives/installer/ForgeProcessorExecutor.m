@@ -238,7 +238,7 @@ static const double kInnerProcessorsStart = 0.45;
                                          code:ForgeProcessorExecutorErrorLaunchFailed
                                      userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:localize(@"i18n_str_1159", nil),
                                          reason,
-                                         (ret == -5 || ret == -1) ? @"请重启启动器后重试。" : localize(@"i18n_str_1161", nil)]}];
+                                         (ret == -5 || ret == -1) ? localize(@"i18n_str_2049", nil) : localize(@"i18n_str_1161", nil)]}];
         }
         return NO;
     }

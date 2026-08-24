@@ -27,7 +27,7 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         items = @[
-            @{ @"key": kSortRelevance, @"title": @"相关性" },
+            @{ @"key": kSortRelevance, @"title": localize(@"i18n_str_162", nil) },
             @{ @"key": kSortDownloads, @"title": localize(@"i18n_str_32", nil) },
             @{ @"key": kSortUpdated,   @"title": localize(@"i18n_str_33", nil) },
             @{ @"key": kSortCreated,   @"title": localize(@"i18n_str_34", nil) },
@@ -657,8 +657,8 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
 
 - (void)processFilters {
     // 从版本数据中提取所有可选的游戏版本和加载器
-    NSMutableSet<NSString *> *gameVersions = [NSMutableSet setWithObject:@"全部"];
-    NSMutableSet<NSString *> *loaders = [NSMutableSet setWithObject:@"全部"];
+    NSMutableSet<NSString *> *gameVersions = [NSMutableSet setWithObject:localize(@"resman.mods.filter.all", nil)];
+    NSMutableSet<NSString *> *loaders = [NSMutableSet setWithObject:localize(@"resman.mods.filter.all", nil)];
 
     for (ModVersion *version in self.allVersions) {
         for (NSString *gameVersion in version.gameVersions) {
@@ -681,8 +681,8 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
 
     // FCL 风格：默认选中"全部"，但如果 preferredGameVersion/preferredLoader
     // 在可选列表中，则自动选中匹配项（让用户无需手动筛选）
-    self.selectedGameVersion = self.availableGameVersions.firstObject ?: @"全部";
-    self.selectedLoader = self.availableLoaders.firstObject ?: @"全部";
+    self.selectedGameVersion = self.availableGameVersions.firstObject ?: localize(@"resman.mods.filter.all", nil);
+    self.selectedLoader = self.availableLoaders.firstObject ?: localize(@"resman.mods.filter.all", nil);
 
     // 自动选中 preferred 版本（大小写不敏感比较）
     if (self.preferredGameVersion.length > 0) {

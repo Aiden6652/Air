@@ -238,7 +238,7 @@ static NSInteger const kSectionVersions    = 1;
     self.isolatedBadge.layer.cornerRadius = 8;
     self.isolatedBadge.layer.cornerCurve = kCACornerCurveContinuous;
     self.isolatedBadge.layer.masksToBounds = YES;
-    self.isolatedBadge.text = @" 隔离 ";
+    self.isolatedBadge.text = [[@" " stringByAppendingString:localize(@"i18n_str_2026", nil)] stringByAppendingString:@" "];
     self.isolatedBadge.hidden = YES;
     [self.contentContainer addSubview:self.isolatedBadge];
 
@@ -781,7 +781,7 @@ static NSInteger const kSectionVersions    = 1;
     // 注意：不能用 masksToBounds=YES，否则会裁掉阴影
     fab.layer.masksToBounds = NO;
     fab.translatesAutoresizingMaskIntoConstraints = NO;
-    fab.accessibilityLabel = @"新建版本";
+    fab.accessibilityLabel = localize(@"i18n_str_2027", nil);
     [fab addTarget:self action:@selector(fabTouchDown) forControlEvents:UIControlEventTouchDown];
     [fab addTarget:self action:@selector(fabTouchUp) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     [fab addTarget:self action:@selector(createNewVersion) forControlEvents:UIControlEventTouchUpInside];
@@ -901,7 +901,7 @@ static NSInteger const kSectionVersions    = 1;
     UIImageSymbolConfiguration *btnIconConfig = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIFontWeightBold];
     UIImage *btnIcon = [UIImage systemImageNamed:@"arrow.down.circle.fill" withConfiguration:btnIconConfig];
     [ctaButton setImage:btnIcon forState:UIControlStateNormal];
-    [ctaButton setTitle:@"  去下载版本" forState:UIControlStateNormal];
+    [ctaButton setTitle:[@"  " stringByAppendingString:localize(@"i18n_str_2028", nil)] forState:UIControlStateNormal];
     ctaButton.titleLabel.font = [UIFont systemFontOfSize:[ScreenUtils sp:15] weight:UIFontWeightSemibold];
     [ctaButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     ctaButton.tintColor = [UIColor whiteColor];
@@ -1472,7 +1472,7 @@ static NSInteger const kSectionVersions    = 1;
         textField.clearButtonMode = UITextFieldViewModeWhileEditing;
         textField.delegate = self;
     }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_1078", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         NSString *name = alert.textFields.firstObject.text;
         if (name.length == 0) return;
@@ -1502,7 +1502,7 @@ static NSInteger const kSectionVersions    = 1;
     BOOL isDefault = [dirName isEqualToString:@"default"];
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:dirName
-                                                                   message:isSelected ? @"当前正在使用此目录" : localize(@"i18n_str_1081", nil)
+                                                                   message:isSelected ? localize(@"i18n_str_2029", nil) : localize(@"i18n_str_1081", nil)
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
 
     if (!isSelected) {
@@ -1513,7 +1513,7 @@ static NSInteger const kSectionVersions    = 1;
 
     // 删除目录（默认目录禁止删除，正在使用的目录需要先切换才能删除）
     if (!isDefault) {
-        NSString *deleteTitle = isSelected ? @"删除（需先切换到其他目录）" : localize(@"i18n_str_1083", nil);
+        NSString *deleteTitle = isSelected ? localize(@"i18n_str_2030", nil) : localize(@"i18n_str_1083", nil);
         [alert addAction:[UIAlertAction actionWithTitle:deleteTitle style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
             if (isSelected) {
                 [self showAlert:localize(@"i18n_str_1084", nil)];
@@ -1523,7 +1523,7 @@ static NSInteger const kSectionVersions    = 1;
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         alert.popoverPresentationController.sourceView = self.view;
@@ -1538,7 +1538,7 @@ static NSInteger const kSectionVersions    = 1;
     UIAlertController *confirm = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_1085", nil)
                                                                      message:[NSString stringWithFormat:localize(@"i18n_str_1086", nil), dirName]
                                                               preferredStyle:UIAlertControllerStyleAlert];
-    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [confirm addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [confirm addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_457", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
         [self deleteGameDir:dirName];
     }]];
@@ -1720,7 +1720,7 @@ static NSInteger const kSectionVersions    = 1;
         [self deleteProfile:profileName];
     }]];
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         alert.popoverPresentationController.sourceView = self.view;
@@ -1747,7 +1747,7 @@ static NSInteger const kSectionVersions    = 1;
                                                                      message:[NSString stringWithFormat:localize(@"i18n_str_1093", nil), profileName]
                                                               preferredStyle:UIAlertControllerStyleAlert];
 
-    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [confirm addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [confirm addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_306", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
         [PLProfiles.current.profiles removeObjectForKey:profileName];
         if ([PLProfiles.current.selectedProfileName isEqualToString:profileName]) {

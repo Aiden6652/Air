@@ -138,7 +138,7 @@
     self.addressCopyButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.addressCopyButton.translatesAutoresizingMaskIntoConstraints = NO;
     [self.addressCopyButton setImage:[UIImage systemImageNamed:@"doc.on.doc"] forState:UIControlStateNormal];
-    [self.addressCopyButton setTitle:@" 复制" forState:UIControlStateNormal];
+    [self.addressCopyButton setTitle:[@" " stringByAppendingString:localize(@"i18n_str_2060", nil)] forState:UIControlStateNormal];
     self.addressCopyButton.titleLabel.font = [UIFont systemFontOfSize:14];
     [self.addressCopyButton addTarget:self action:@selector(copyAddress) forControlEvents:UIControlEventTouchUpInside];
     [content addSubview:self.addressCopyButton];

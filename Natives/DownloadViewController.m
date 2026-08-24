@@ -764,7 +764,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 - (void)setupVersionFilterSegment {
-    self.versionFilterSegment = [[UISegmentedControl alloc] initWithItems:@[@"全部", @"正式版", @"测试版", localize(@"i18n_str_154", nil)]];
+    self.versionFilterSegment = [[UISegmentedControl alloc] initWithItems:@[localize(@"resman.mods.filter.all", nil), localize(@"i18n_str_2058", nil), localize(@"i18n_str_2059", nil), localize(@"i18n_str_154", nil)]];
     self.versionFilterSegment.translatesAutoresizingMaskIntoConstraints = NO;
     self.versionFilterSegment.selectedSegmentIndex = 0;
     [self.versionFilterSegment addTarget:self action:@selector(versionFilterChanged:) forControlEvents:UIControlEventValueChanged];
@@ -1278,7 +1278,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     ]];
 
     // ===== 2. 游戏版本选择按钮 =====
-    self.sidebarVersionButton = [self createSidebarSelectButtonWithTitle:@"游戏版本"
+    self.sidebarVersionButton = [self createSidebarSelectButtonWithTitle:localize(@"i18n_str_2031", nil)
                                                                     value:@"全部版本"
                                                                   selector:@selector(sidebarVersionButtonClicked:)];
     [self.filterSidebarContainer addSubview:self.sidebarVersionButton];
@@ -1744,7 +1744,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     if (self.currentGameVersion.length > 0) {
         self.sidebarVersionValueLabel.text = self.currentGameVersion;
     } else {
-        self.sidebarVersionValueLabel.text = @"全部版本";
+        self.sidebarVersionValueLabel.text = localize(@"i18n_str_2032", nil);
     }
 
     // 模组加载器
@@ -1754,7 +1754,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         NSString *capitalized = [[loader substringToIndex:1].uppercaseString stringByAppendingString:[loader substringFromIndex:1]];
         self.sidebarLoaderValueLabel.text = capitalized;
     } else {
-        self.sidebarLoaderValueLabel.text = @"全部";
+        self.sidebarLoaderValueLabel.text = localize(@"resman.mods.filter.all", nil);
     }
 
     // 排序方式
@@ -1765,7 +1765,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
             @"downloads": localize(@"i18n_str_32", nil),
             @"follows": localize(@"i18n_str_173", nil),
             @"newest": localize(@"i18n_str_174", nil),
-            @"updated": @"最近更新"
+            @"updated": localize(@"i18n_str_2033", nil)
         };
         NSString *display = sortDisplayMap[self.currentSortField];
         self.sidebarSortValueLabel.text = display ?: self.currentSortField;
@@ -1881,7 +1881,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     
     self.emptyLabel.hidden = (self.filteredVersions.count > 0);
     if (self.filteredVersions.count == 0) {
-        self.emptyLabel.text = hasQuery ? @"未匹配到版本" : localize(@"i18n_str_179", nil);
+        self.emptyLabel.text = hasQuery ? localize(@"i18n_str_2034", nil) : localize(@"i18n_str_179", nil);
         self.emptyLabel.hidden = NO;
     } else {
         self.emptyLabel.hidden = YES;
@@ -2391,7 +2391,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         }]];
     }
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
     
@@ -2411,7 +2411,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     // 动态构建版本列表：优先使用已加载的 Mojang version_manifest 中的 release 版本，
     // 这样能自动跟随 MC 版本更新（不再使用硬编码列表）。
     // 同时把当前 profile 的 MC 版本置顶（如果有）方便快速选择。
-    NSMutableArray<NSString *> *versions = [NSMutableArray arrayWithObject:@"全部版本"];
+    NSMutableArray<NSString *> *versions = [NSMutableArray arrayWithObject:localize(@"i18n_str_2032", nil)];
 
     // 当前 profile 的 MC 版本（若有）放第二位，便于快速选择
     NSString *profileMcVersion = [self currentProfileMinecraftVersion];
@@ -2461,7 +2461,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
 
@@ -2530,11 +2530,11 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
 
     NSDictionary *sortOptions = @{
-        @"关注度": @"follows",
-        @"下载数": @"downloads",
-        @"最近更新": @"updated",
-        @"最新发布": @"newest",
-        @"相关性": @"relevance"
+        localize(@"i18n_str_2035", nil): @"follows",
+        localize(@"i18n_str_2061", nil): @"downloads",
+        localize(@"i18n_str_2033", nil): @"updated",
+        localize(@"i18n_str_2064", nil): @"newest",
+        localize(@"i18n_str_162", nil): @"relevance"
     };
 
     for (NSString *title in sortOptions) {
@@ -2547,7 +2547,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
 
@@ -2565,7 +2565,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
                                                                    message:nil
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
 
-    NSArray *loaderNames = @[@"全部", @"Fabric", @"Forge", @"Quilt", @"NeoForge"];
+    NSArray *loaderNames = @[localize(@"resman.mods.filter.all", nil), @"Fabric", @"Forge", @"Quilt", @"NeoForge"];
     NSArray *loaderValues = @[[NSNull null], @"fabric", @"forge", @"quilt", @"neoforge"];
 
     for (NSInteger i = 0; i < loaderNames.count; i++) {
@@ -2583,7 +2583,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
 

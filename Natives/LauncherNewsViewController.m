@@ -183,7 +183,7 @@ static UIColor *colorFromHex(NSString *hex) {
     shaders.tileType = HomeTileTypeShortcut;
     shaders.tileSize = HomeTileSizeCompact;
     shaders.visible = YES;
-    shaders.customTitle = @"光影管理";
+    shaders.customTitle = localize(@"i18n_str_2016", nil);
     shaders.iconName = @"sun.max.fill";
     shaders.shortcutAction = kShortcutActionShaders;
     shaders.accentColorHex = @"#F97316";
@@ -851,7 +851,7 @@ static NSString *festivalGreeting(void) {
     self.customizeButton.translatesAutoresizingMaskIntoConstraints = NO;
     UIImage *gearIcon = [UIImage systemImageNamed:@"slider.horizontal.3"];
     [self.customizeButton setImage:gearIcon forState:UIControlStateNormal];
-    [self.customizeButton setTitle:@" 自定义" forState:UIControlStateNormal];
+    [self.customizeButton setTitle:[@" " stringByAppendingString:localize(@"preference.title.appicon-custom", nil)] forState:UIControlStateNormal];
     self.customizeButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
     self.customizeButton.tintColor = [UIColor secondaryLabelColor];
     [self.customizeButton addTarget:self action:@selector(openCustomize) forControlEvents:UIControlEventTouchUpInside];

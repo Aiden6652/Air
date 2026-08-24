@@ -602,7 +602,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
             [self updateAccountInfo];
         }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     // iPad 适配：用 popover 锚定到头像
     if (sheet.popoverPresentationController) {
@@ -777,7 +777,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         [title appendString:profileName];
         [title appendFormat:@"  (%@)", versionId];
         if (isolated) {
-            [title appendString:@"  · 隔离"];
+            [title appendString:[@"  · " stringByAppendingString:localize(@"i18n_str_2026", nil)]];
         }
         [alert addAction:[UIAlertAction actionWithTitle:title
                                                   style:UIAlertActionStyleDefault
@@ -791,7 +791,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         [[NSNotificationCenter defaultCenter] postNotificationName:@"ShowVersionManager" object:nil];
     }]];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     
     // iPad 上 ActionSheet 必须指定 popoverPresentationController
     alert.popoverPresentationController.sourceView = self.manageVersionBtn;
@@ -1050,7 +1050,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     } else {
         self.progressView.hidden = !showProgressUI;
         self.progressLabel.hidden = !showProgressUI;
-        self.progressLabel.text = showProgressUI ? @"正在准备..." : @"";
+        self.progressLabel.text = showProgressUI ? localize(@"i18n_str_2052", nil) : @"";
     }
 
     UIApplication.sharedApplication.idleTimerDisabled = !enabled;
@@ -1208,7 +1208,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     self.progressLabel.text = localize(@"i18n_str_436", nil);
     
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_437", nil)
-                                                                   message:hasTrollStoreJIT ? @"正在通过 TrollStore 启用 JIT..." : localize(@"i18n_str_439", nil)
+                                                                   message:hasTrollStoreJIT ? localize(@"i18n_str_2054", nil) : localize(@"i18n_str_439", nil)
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [self presentViewController:alert animated:YES completion:nil];
     

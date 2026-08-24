@@ -254,16 +254,16 @@
     // old_beta  → clock.fill + systemPurple（远古 beta）
     NSString *iconName = @"cube.fill";
     UIColor *typeColor = [UIColor systemGreenColor];
-    NSString *typeText = @"正式版";
+    NSString *typeText = localize(@"i18n_str_2058", nil);
 
     if ([type isEqualToString:@"正式版"] || [type isEqualToString:@"release"]) {
         iconName = @"cube.fill";
         typeColor = [UIColor systemGreenColor];
-        typeText = @"正式版";
+        typeText = localize(@"i18n_str_2058", nil);
     } else if ([type isEqualToString:@"测试版"] || [type isEqualToString:@"snapshot"]) {
         iconName = @"hammer.fill";
         typeColor = [UIColor systemOrangeColor];
-        typeText = @"测试版";
+        typeText = localize(@"i18n_str_2059", nil);
     } else if ([type isEqualToString:@"old_alpha"]) {
         iconName = @"clock.fill";
         typeColor = [UIColor systemPurpleColor];

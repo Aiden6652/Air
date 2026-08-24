@@ -55,6 +55,35 @@
 
 @end
 
+// 已汉化/英化的行标题显示映射：模块标题在 self.sections 中仍保留中文作为逻辑键（isEqualToString 比较），
+// 仅在渲染 cell 时翻译为界面语言。若命中的键不存在会回退为标题本身。
+static NSString * localizeProfileTitle(NSString *title) {
+    static NSDictionary *map = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        map = @{
+            @"渲染器": @"preference.title.renderer",
+            @"图形 API": @"i18n_str_2057",
+            @"Java版本": @"i18n_str_2036",
+            @"内存分配": @"i18n_str_2037",
+            @"JVM 启动参数": @"preference.title.java_args",
+            @"清除JVM参数": @"i18n_str_2038",
+            @"名称": @"preference.profile.title.name",
+            @"游戏版本": @"i18n_str_2031",
+            @"游戏目录": @"preference.title.game_directory",
+            @"模组管理": @"i18n_str_2039",
+            @"光影管理": @"i18n_str_2016",
+            @"资源包管理": @"i18n_str_2040",
+            @"数据包管理": @"i18n_str_2041",
+            @"世界管理": @"i18n_str_2042",
+            @"Fabric API": @"Fabric API",
+            @"OptiFine": @"OptiFine",
+        };
+    });
+    NSString *key = map[title] ?: title;
+    return localize(key, nil);
+}
+
 @implementation ProfileSettingsViewController
 
 #pragma mark - Lifecycle
@@ -675,7 +704,7 @@
     if (globalSection < 0 || globalSection >= (NSInteger)self.sections.count) return cell;
 
     NSString *title = self.sections[globalSection][indexPath.row];
-    cell.textLabel.text = title;
+    cell.textLabel.text = localizeProfileTitle(title);
 
     switch (globalSection) {
         case 0: // 版本信息
@@ -719,12 +748,12 @@
                 cell.imageView.image = [UIImage systemImageNamed:@"bolt.fill"];
                 cell.imageView.tintColor = [UIColor systemOrangeColor];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-                cell.detailTextLabel.text = [self isFabricProfile] ? @"点击安装" : localize(@"i18n_str_885", nil);
+                cell.detailTextLabel.text = [self isFabricProfile] ? localize(@"i18n_str_2043", nil) : localize(@"i18n_str_885", nil);
             } else if ([title isEqualToString:@"OptiFine"]) {
                 cell.imageView.image = [UIImage systemImageNamed:@"speedometer"];
                 cell.imageView.tintColor = [UIColor systemRedColor];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-                cell.detailTextLabel.text = [self isOptiFineCompatibleProfile] ? @"点击安装" : localize(@"i18n_str_886", nil);
+                cell.detailTextLabel.text = [self isOptiFineCompatibleProfile] ? localize(@"i18n_str_2043", nil) : localize(@"i18n_str_886", nil);
             }
             break;
 
@@ -740,7 +769,7 @@
             } else if ([title isEqualToString:@"Java版本"]) {
                 cell.imageView.image = [UIImage systemImageNamed:@"j.square"];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-                cell.detailTextLabel.text = [self.selectedJavaVersion isEqualToString:@"0"] ? @"自动" : [NSString stringWithFormat:@"Java %@", self.selectedJavaVersion];
+                cell.detailTextLabel.text = [self.selectedJavaVersion isEqualToString:@"0"] ? localize(@"preference.auto", nil) : [NSString stringWithFormat:@"Java %@", self.selectedJavaVersion];
             } else if ([title isEqualToString:@"内存分配"]) {
                 cell.imageView.image = [UIImage systemImageNamed:@"memorychip"];
                 cell.accessoryType = UITableViewCellAccessoryNone;
@@ -753,7 +782,7 @@
                 cell.imageView.image = [UIImage systemImageNamed:@"trash"];
                 cell.imageView.tintColor = [UIColor systemRedColor];
                 cell.textLabel.textColor = [UIColor systemRedColor];
-                cell.detailTextLabel.text = self.javaArgs.length > 0 ? @"点击清除" : localize(@"i18n_str_889", nil);
+                cell.detailTextLabel.text = self.javaArgs.length > 0 ? localize(@"i18n_str_2044", nil) : localize(@"i18n_str_889", nil);
             }
             break;
 
@@ -816,7 +845,7 @@
 
     self.versionPickerToolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, self.view.frame.size.width, 44)];
     self.versionTypeControl = [[UISegmentedControl alloc] initWithItems:@[
-        localize(@"i18n_str_891", nil), @"正式版", localize(@"i18n_str_1288", nil), @"Old-beta", @"Old-alpha"
+        localize(@"i18n_str_891", nil), localize(@"i18n_str_2058", nil), localize(@"i18n_str_1288", nil), @"Old-beta", @"Old-alpha"
     ]];
     [self.versionTypeControl addTarget:self action:@selector(changeVersionType:) forControlEvents:UIControlEventValueChanged];
     self.versionPickerToolbar.items = @[
@@ -1039,7 +1068,7 @@
         [self saveSettings];
         [self reloadAllTableViews];
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     if (alert.popoverPresentationController) {
         alert.popoverPresentationController.sourceView = self.view;
         alert.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2.0, self.view.bounds.size.height / 2.0, 1, 1);
@@ -1201,7 +1230,7 @@
         [self updateHeroCard];
     }]];
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         NSString *newGameDir = alert.textFields.firstObject.text;
@@ -1360,7 +1389,7 @@
     UIAlertController *confirm = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_902", nil)
                                                                      message:[NSString stringWithFormat:localize(@"i18n_str_903", nil), gameVersion, gameVersion]
                                                               preferredStyle:UIAlertControllerStyleAlert];
-    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [confirm addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [confirm addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_904", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         [self startInstallFabricAPIWithGameVersion:gameVersion];
     }]];
@@ -1404,7 +1433,7 @@
     UIAlertController *confirm = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_914", nil)
                                                                      message:message
                                                               preferredStyle:UIAlertControllerStyleAlert];
-    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [confirm addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [confirm addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_904", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         if (isVanilla) {
             [self startInstallOptiFineAsPatch:gameVersion];
@@ -1974,7 +2003,7 @@
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         UITableViewCell *cell = [self cellForGlobalSection:3 row:0];
@@ -2036,7 +2065,7 @@
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         UITableViewCell *cell = [self cellForGlobalSection:3 row:1];
@@ -2065,7 +2094,7 @@
     [versions insertObject:@"0" atIndex:0];
 
     for (NSString *ver in versions) {
-        NSString *name = [ver isEqualToString:@"0"] ? @"自动选择" : [NSString stringWithFormat:@"Java %@", ver];
+        NSString *name = [ver isEqualToString:@"0"] ? localize(@"preference.auto_select", nil) : [NSString stringWithFormat:@"Java %@", ver];
         [alert addAction:[UIAlertAction actionWithTitle:name
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(UIAlertAction * _Nonnull action) {
@@ -2075,7 +2104,7 @@
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         UITableViewCell *cell = [self cellForGlobalSection:3 row:1];
@@ -2110,7 +2139,7 @@
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         UITableViewCell *cell = [self cellForGlobalSection:3 row:2];

@@ -372,7 +372,7 @@ static const CGFloat kSectionInset = 16.0;
             self.primaryActionButton.backgroundColor = primaryColor;
             self.primaryActionButton.hidden = NO;
 
-            [self.secondaryActionButton setTitle:@"取消" forState:UIControlStateNormal];
+            [self.secondaryActionButton setTitle:localize(@"resman.common.cancel", nil) forState:UIControlStateNormal];
             [self.secondaryActionButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
             self.secondaryActionButton.backgroundColor = secondaryColor;
             self.secondaryActionButton.hidden = NO;
@@ -393,7 +393,7 @@ static const CGFloat kSectionInset = 16.0;
             }
             self.primaryActionButton.hidden = NO;
 
-            [self.secondaryActionButton setTitle:@"取消" forState:UIControlStateNormal];
+            [self.secondaryActionButton setTitle:localize(@"resman.common.cancel", nil) forState:UIControlStateNormal];
             [self.secondaryActionButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
             self.secondaryActionButton.backgroundColor = secondaryColor;
             self.secondaryActionButton.hidden = NO;
@@ -761,7 +761,7 @@ static const CGFloat kSectionInset = 16.0;
 }
 
 - (void)setupStateFilter {
-    self.stateSegmentedControl = [[UISegmentedControl alloc] initWithItems:@[@"全部", localize(@"i18n_str_138", nil), localize(@"i18n_str_126", nil)]];
+    self.stateSegmentedControl = [[UISegmentedControl alloc] initWithItems:@[localize(@"resman.mods.filter.all", nil), localize(@"i18n_str_138", nil), localize(@"i18n_str_126", nil)]];
     self.stateSegmentedControl.translatesAutoresizingMaskIntoConstraints = NO;
     self.stateSegmentedControl.selectedSegmentIndex = 0;
     [self.stateSegmentedControl addTarget:self action:@selector(stateFilterChanged:) forControlEvents:UIControlEventValueChanged];
@@ -943,7 +943,7 @@ static const CGFloat kSectionInset = 16.0;
         [view removeFromSuperview];
     }
 
-    UIButton *allButton = [self createTypeFilterButtonWithTitle:@"全部"
+    UIButton *allButton = [self createTypeFilterButtonWithTitle:localize(@"resman.mods.filter.all", nil)
                                                           count:@(self.filteredTasks.count)
                                                         selected:(self.filterType == nil)];
     [allButton addTarget:self action:@selector(typeButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
@@ -1085,7 +1085,7 @@ static const CGFloat kSectionInset = 16.0;
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
 
@@ -1116,7 +1116,7 @@ static const CGFloat kSectionInset = 16.0;
                 UIAlertController *confirm = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_140", nil)
                                                                                  message:localize(@"i18n_str_144", nil)
                                                                           preferredStyle:UIAlertControllerStyleAlert];
-                [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+                [confirm addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
                 [confirm addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_145", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
                     [[DownloadTaskManager sharedManager] cancelTaskWithId:task.taskId];
                     // 业务方在取消后需要重新创建下载任务；这里仅更新源并移除旧记录。

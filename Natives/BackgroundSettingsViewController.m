@@ -182,7 +182,7 @@
             
             cell.textLabel.text = localize(@"i18n_str_57", nil);
             
-            NSString *effectName = manager.uiEffect == BackgroundUIEffectBlur ? @"毛玻璃" : localize(@"i18n_str_65", nil);
+            NSString *effectName = manager.uiEffect == BackgroundUIEffectBlur ? localize(@"i18n_str_2017", nil) : localize(@"i18n_str_65", nil);
             cell.detailTextLabel.text = effectName;
             cell.imageView.image = [UIImage systemImageNamed:@"rectangle.split.3x3"];
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -412,7 +412,7 @@
         [[NSNotificationCenter defaultCenter] postNotificationName:@"BackgroundUIEffectChanged" object:nil];
     }]];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
     
@@ -444,7 +444,7 @@
         [self openDocumentPickerForImage];
     }]];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
     
@@ -474,7 +474,7 @@
         [self openDocumentPickerForVideo];
     }]];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
     
@@ -492,7 +492,7 @@
                                                                    message:localize(@"i18n_str_74", nil)
                                                             preferredStyle:UIAlertControllerStyleAlert];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
     
@@ -526,7 +526,7 @@
                                                                    message:localize(@"i18n_str_76", nil)
                                                             preferredStyle:UIAlertControllerStyleAlert];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil)
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
     

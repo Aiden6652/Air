@@ -1228,7 +1228,7 @@
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section == 0) return localize(@"i18n_str_160", nil);
-    return [self currentOptions].count > 0 ? @"附加选项" : nil;
+    return [self currentOptions].count > 0 ? localize(@"i18n_str_2048", nil) : nil;
 }
 
 - (NSMutableArray *)currentOptions {

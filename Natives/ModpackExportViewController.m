@@ -441,7 +441,7 @@
             }
         }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         sheet.popoverPresentationController.sourceView = self.profileButton;
@@ -652,7 +652,7 @@
     self.progressSpinner = spinner;
     self.progressCancelButton = cancelBtn;
 
-    [self setProgress:-1 stageMessage:@"正在准备..."];
+    [self setProgress:-1 stageMessage:localize(@"i18n_str_2052", nil)];
 }
 
 - (void)setProgress:(double)progress stageMessage:(NSString *)stageMessage {

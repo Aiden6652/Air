@@ -9,7 +9,7 @@
 static NSDictionary *availableShortcuts(void) {
     return @{
         kShortcutActionMods:       @{@"title": localize(@"i18n_str_275", nil),    @"icon": @"puzzlepiece.extension.fill", @"color": @"#14B8A6"},
-        kShortcutActionShaders:    @{@"title": @"光影管理",    @"icon": @"sun.max.fill",              @"color": @"#F97316"},
+        kShortcutActionShaders:    @{@"title": localize(@"i18n_str_2016", nil),    @"icon": @"sun.max.fill",              @"color": @"#F97316"},
         kShortcutActionModpack:    @{@"title": localize(@"i18n_str_277", nil),  @"icon": @"shippingbox.fill",           @"color": @"#8B5CF6"},
         kShortcutActionBackground: @{@"title": localize(@"i18n_str_278", nil),    @"icon": @"photo.fill.on.rectangle.fill",@"color": @"#EC4899"},
         kShortcutActionVersions:   @{@"title": localize(@"i18n_str_279", nil),    @"icon": @"square.stack.3d.up.fill",    @"color": @"#6366F1"},
@@ -131,7 +131,7 @@ static UIColor *hexColor(NSString *hex) {
     self.tileIconView.tintColor = [tile accentColor];
     self.accentStrip.backgroundColor = [tile accentColor];
     self.visibilitySwitch.on = tile.visible;
-    self.sizeLabel.text = tile.tileSize == HomeTileSizeCompact ? @"半宽" : localize(@"i18n_str_281", nil);
+    self.sizeLabel.text = tile.tileSize == HomeTileSizeCompact ? localize(@"i18n_str_2018", nil) : localize(@"i18n_str_281", nil);
     
     CGFloat alpha = tile.visible ? 1.0 : 0.45;
     self.tileTitleLabel.alpha = alpha;
@@ -163,7 +163,7 @@ static UIColor *hexColor(NSString *hex) {
         case HomeTileTypeShortcut:       type = localize(@"i18n_str_286", nil); break;
         default:                         type = localize(@"i18n_str_121", nil); break;
     }
-    NSString *size = tile.tileSize == HomeTileSizeCompact ? @"紧凑" : localize(@"i18n_str_281", nil);
+    NSString *size = tile.tileSize == HomeTileSizeCompact ? localize(@"i18n_str_2019", nil) : localize(@"i18n_str_281", nil);
     return [NSString stringWithFormat:@"%@ · %@", type, size];
 }
 
@@ -187,7 +187,7 @@ static UIColor *hexColor(NSString *hex) {
     self.editingConfigs = [self.tileConfigs mutableCopy];
     
     // 导航栏按钮
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消"
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:localize(@"resman.common.cancel", nil)
                                                                             style:UIBarButtonItemStylePlain
                                                                            target:self
                                                                            action:@selector(cancelTapped)];
@@ -285,7 +285,7 @@ static UIColor *hexColor(NSString *hex) {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_295", nil)
                                                                    message:localize(@"i18n_str_296", nil)
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_297", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         self.editingConfigs = [[HomeTileConfig defaultTileConfigs] mutableCopy];
         [self.tableView reloadData];
@@ -329,7 +329,7 @@ static UIColor *hexColor(NSString *hex) {
         }]];
     }
     
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     
     // iPad popover support
     sheet.popoverPresentationController.barButtonItem = self.toolbarItems.firstObject;
@@ -401,7 +401,7 @@ static UIColor *hexColor(NSString *hex) {
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     
     // 切换大小
-    NSString *sizeTitle = tile.tileSize == HomeTileSizeCompact ? @"切换为全宽" : localize(@"i18n_str_301", nil);
+    NSString *sizeTitle = tile.tileSize == HomeTileSizeCompact ? localize(@"i18n_str_2020", nil) : localize(@"i18n_str_301", nil);
     [sheet addAction:[UIAlertAction actionWithTitle:sizeTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         tile.tileSize = (tile.tileSize == HomeTileSizeCompact) ? HomeTileSizeFull : HomeTileSizeCompact;
         [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:index inSection:0]]
@@ -421,7 +421,7 @@ static UIColor *hexColor(NSString *hex) {
     }]];
     
     // 切换可见性
-    NSString *visTitle = tile.visible ? @"隐藏此磁贴" : localize(@"i18n_str_305", nil);
+    NSString *visTitle = tile.visible ? localize(@"i18n_str_2021", nil) : localize(@"i18n_str_305", nil);
     [sheet addAction:[UIAlertAction actionWithTitle:visTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         tile.visible = !tile.visible;
         [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:index inSection:0]]
@@ -437,7 +437,7 @@ static UIColor *hexColor(NSString *hex) {
         }]];
     }
     
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     
     // iPad popover
     sheet.popoverPresentationController.sourceView = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:index inSection:0]];
@@ -456,7 +456,7 @@ static UIColor *hexColor(NSString *hex) {
         tf.clearButtonMode = UITextFieldViewModeWhileEditing;
     }];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_44", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         NSString *newTitle = alert.textFields.firstObject.text;
         if (newTitle.length > 0) {
@@ -475,18 +475,18 @@ static UIColor *hexColor(NSString *hex) {
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     
     NSDictionary *colors = @{
-        @"紫色":   @"#8B5CF6",
-        @"蓝色":   @"#3B82F6",
-        @"青色":   @"#14B8A6",
-        @"绿色":   @"#10B981",
-        @"黄色":   @"#F59E0B",
-        @"橙色":   @"#F97316",
-        @"红色":   @"#EF4444",
-        @"粉色":   @"#EC4899",
-        @"靛蓝":   @"#6366F1",
+        localize(@"i18n_str_2022", nil):   @"#8B5CF6",
+        localize(@"i18n_str_2062", nil):   @"#3B82F6",
+        localize(@"i18n_str_2063", nil):   @"#14B8A6",
+        localize(@"i18n_str_2065", nil):   @"#10B981",
+        localize(@"i18n_str_2066", nil):   @"#F59E0B",
+        localize(@"i18n_str_2067", nil):   @"#F97316",
+        localize(@"i18n_str_2023", nil):   @"#EF4444",
+        localize(@"i18n_str_2024", nil):   @"#EC4899",
+        localize(@"i18n_str_2025", nil):   @"#6366F1",
     };
     
-    for (NSString *name in @[@"紫色", @"蓝色", @"青色", @"绿色", @"黄色", @"橙色", @"红色", @"粉色", @"靛蓝"]) {
+    for (NSString *name in @[localize(@"i18n_str_2022", nil), localize(@"i18n_str_2062", nil), localize(@"i18n_str_2063", nil), localize(@"i18n_str_2065", nil), localize(@"i18n_str_2066", nil), localize(@"i18n_str_2067", nil), localize(@"i18n_str_2023", nil), localize(@"i18n_str_2024", nil), localize(@"i18n_str_2025", nil)]) {
         NSString *hex = colors[name];
         [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
             tile.accentColorHex = hex;
@@ -495,7 +495,7 @@ static UIColor *hexColor(NSString *hex) {
         }]];
     }
     
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     
     sheet.popoverPresentationController.sourceView = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:index inSection:0]];
     sheet.popoverPresentationController.sourceRect = sheet.popoverPresentationController.sourceView.bounds;

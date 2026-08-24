@@ -906,7 +906,7 @@
                       title = localize(@"i18n_str_394", nil);
                   }
                   
-                  NSString *statusMsg = isOn ? @"[✓] 当前状态: 已开启 (ON)" : localize(@"i18n_str_396", nil);
+                  NSString *statusMsg = isOn ? localize(@"i18n_str_2053", nil) : localize(@"i18n_str_396", nil);
                   NSString *msg = [NSString stringWithFormat:localize(@"i18n_str_397", nil), statusMsg];
                   
                   UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:msg preferredStyle:UIAlertControllerStyleAlert];
@@ -930,7 +930,7 @@
                       }]];
                   }
                   
-                  [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+                  [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
                   
                   [weakSelf presentViewController:alert animated:YES completion:nil];
               }

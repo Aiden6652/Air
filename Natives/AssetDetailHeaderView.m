@@ -507,7 +507,7 @@
 - (void)toggleDescriptionExpanded {
     self.descriptionExpanded = !self.descriptionExpanded;
     self.descriptionLabel.numberOfLines = self.descriptionExpanded ? 0 : 3;
-    [self.expandToggleButton setTitle:self.descriptionExpanded ? @"收起" : localize(@"i18n_str_26", nil) forState:UIControlStateNormal];
+    [self.expandToggleButton setTitle:self.descriptionExpanded ? localize(@"i18n_str_2051", nil) : localize(@"i18n_str_26", nil) forState:UIControlStateNormal];
 
     // 通知控制器重新计算 tableHeaderView 高度
     if (self.onSizeChanged) {

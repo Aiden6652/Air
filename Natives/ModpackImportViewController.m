@@ -119,7 +119,7 @@
 
     self.importButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.importButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.importButton setTitle:@"  选择整合包文件" forState:UIControlStateNormal];
+    [self.importButton setTitle:[@"  " stringByAppendingString:localize(@"i18n_str_2055", nil)] forState:UIControlStateNormal];
     [self.importButton setImage:[UIImage systemImageNamed:@"doc.badge.plus"] forState:UIControlStateNormal];
     self.importButton.backgroundColor = [UIColor systemBlueColor];
     [self.importButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
@@ -333,7 +333,7 @@
     [message appendFormat:localize(@"i18n_str_578", nil), name];
     [message appendFormat:localize(@"i18n_str_579", nil), version];
     if (author.length > 0) {
-        [message appendFormat:@"   作者: %@", author];
+        [message appendFormat:localize(@"i18n_str_2056", nil), author];
     }
     [message appendString:@"\n"];
     [message appendFormat:@"Minecraft: %@\n", mcVersion];
@@ -358,7 +358,7 @@
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_585", nil)
                                                                    message:message
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
         self.currentImportingModpack = nil;
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_156", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
@@ -401,7 +401,7 @@
             // 检测是否被取消
             BOOL wasCancelled = [error.domain isEqualToString:@"ModpackImportError"] && error.code == 9999;
             NSString *localizedDesc = error.localizedDescription ?: @"";
-            if (!wasCancelled && [localizedDesc containsString:@"取消"]) {
+            if (!wasCancelled && [localizedDesc containsString:localize(@"resman.common.cancel", nil)]) {
                 wasCancelled = YES;
             }
 
@@ -563,7 +563,7 @@
     [actionSheet addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_306", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
         [self deleteModpack:modpack];
     }]];
-    [actionSheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [actionSheet addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
 
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         actionSheet.popoverPresentationController.sourceView = self.view;
@@ -584,7 +584,7 @@
 
 - (void)deleteModpack:(NSDictionary *)modpack {
     UIAlertController *confirm = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_457", nil) message:[NSString stringWithFormat:localize(@"i18n_str_597", nil), modpack[@"name"]] preferredStyle:UIAlertControllerStyleAlert];
-    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [confirm addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [confirm addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_306", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
         [self showLoadingHUD:localize(@"i18n_str_598", nil)];
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{

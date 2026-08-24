@@ -200,7 +200,7 @@
     if (!ip) return;
     ModItem *m = self.filteredMods[ip.row];
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_457", nil) message:m.displayName preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [ac addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_306", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
         NSError *err = nil;
         if ([[ModService sharedService] deleteMod:m error:&err]) {

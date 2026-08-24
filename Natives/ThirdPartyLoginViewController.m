@@ -45,7 +45,7 @@
     // 适配自定义启动器背景：将当前视图控制器透明化，使全局背景壁纸能够透出
     [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
     self.view.backgroundColor = [UIColor clearColor];
-    self.title = (self.mode == ThirdPartyLoginModeLittleSkin) ? @"LittleSkin 登录" : localize(@"i18n_str_1035", nil);
+    self.title = (self.mode == ThirdPartyLoginModeLittleSkin) ? localize(@"i18n_str_2050", nil) : localize(@"i18n_str_1035", nil);
 
     [self setupUI];
     [[BackgroundManager sharedManager] applyBackgroundToView:self.view];

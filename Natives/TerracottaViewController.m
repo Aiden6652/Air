@@ -609,7 +609,7 @@
             alertControllerWithTitle:localize(@"i18n_str_1020", nil)
                               message:localize(@"i18n_str_1021", nil)
                        preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"resman.common.cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
         [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_1022", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
             [[TerracottaManager shared] stopSession];
             [self presentZeroTierVC];
@@ -715,7 +715,7 @@
     if (players.count == 0) {
         UILabel *empty = [self makeLabelWithFont:[UIFont systemFontOfSize:13]
                                        textColor:[UIColor tertiaryLabelColor]];
-        empty.text = (role == TerracottaRoleHost) ? @"等待玩家加入…" : localize(@"i18n_str_1026", nil);
+        empty.text = (role == TerracottaRoleHost) ? localize(@"i18n_str_2045", nil) : localize(@"i18n_str_1026", nil);
         [self.playersList addArrangedSubview:empty];
         return;
     }
@@ -783,9 +783,9 @@
     switch (status) {
         case TerracottaStatusDisconnected: return localize(@"i18n_str_1029", nil);
         case TerracottaStatusConnecting:
-            return (role == TerracottaRoleHost) ? @"创建房间中…" : localize(@"i18n_str_1031", nil);
+            return (role == TerracottaRoleHost) ? localize(@"i18n_str_2046", nil) : localize(@"i18n_str_1031", nil);
         case TerracottaStatusConnected:
-            return (role == TerracottaRoleHost) ? @"房主已就绪" : localize(@"i18n_str_1006", nil);
+            return (role == TerracottaRoleHost) ? localize(@"i18n_str_2047", nil) : localize(@"i18n_str_1006", nil);
         case TerracottaStatusError: return localize(@"i18n_str_1033", nil);
     }
     return @"";

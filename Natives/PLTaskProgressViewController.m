@@ -701,7 +701,7 @@ static __weak PLTaskProgressViewController *PLTaskProgressActiveInstance = nil;
 
     self.cancelButton = [self makeFooterButton];
     self.cancelButton.backgroundColor = [UIColor systemRedColor];
-    [self.cancelButton setTitle:PLTaskProgressText(@"taskProgress.button.cancel", @"取消") forState:UIControlStateNormal];
+    [self.cancelButton setTitle:PLTaskProgressText(@"taskProgress.button.cancel", localize(@"resman.common.cancel", nil)) forState:UIControlStateNormal];
     [self.cancelButton addTarget:self action:@selector(cancelTapped) forControlEvents:UIControlEventTouchUpInside];
 
     [self.buttonStack addArrangedSubview:self.minimizeButton];
