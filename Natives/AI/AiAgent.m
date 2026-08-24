@@ -8,9 +8,21 @@
 #import "AiSessionStore.h"
 #import "AiSettings.h"
 #import "AiAPIClient.h"
+#import "AiToolRegistry.h"
+#import "AiSafetyManager.h"
+
+/// 工具循环最多轮数
+static const NSInteger kMaxToolRounds = 10;
+/// 同一工具调用最多尝试次数（含失败）
+static const NSInteger kMaxToolAttempts = 3;
 
 @interface AiAgent ()
 @property (nonatomic, strong) AiAPIClient *client;
+
+// 工具循环运行时状态（一次 sendUserMessage 生命周期内有效）
+@property (nonatomic, assign) BOOL running;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *attempts; // toolCallID -> 已尝试次数
+@property (nonatomic, assign) NSInteger toolRound;                                   // 当前工具轮数
 @end
 
 @implementation AiAgent
@@ -28,10 +40,63 @@
     self = [super init];
     if (self) {
         _client = [[AiAPIClient alloc] init];
+        _attempts = [NSMutableDictionary dictionary];
     }
     return self;
 }
 
+/// 会话持久化（每轮工具往返后调用，保证打断/杀进程后 history 完整）
+- (void)saveSession:(AiSession *)session {
+    if (!session) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[AiSessionStore sharedStore] updateSession:session];
+    });
+}
+
+/// 累积流式 tool_calls 片段：按 index 合并 name 与 args（arguments 为逐片增量拼接）
+- (void)accumulateToolCalls:(NSArray *)rawToolCalls
+                       into:(NSMutableDictionary *)accumulator {
+    for (id item in rawToolCalls) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        NSDictionary *tc = item;
+        NSNumber *idxNum = tc[@"index"];
+        NSInteger idx = (idxNum && [idxNum isKindOfClass:[NSNumber class]]) ? idxNum.integerValue : (NSInteger)accumulator.count;
+        NSMutableDictionary *entry = accumulator[@(idx)];
+        if (!entry) {
+            entry = [NSMutableDictionary dictionary];
+            entry[@"index"] = @(idx);
+            accumulator[@(idx)] = entry;
+        }
+        // id 通常只在首片段出现
+        if ([tc[@"id"] isKindOfClass:[NSString class]] && [tc[@"id"] length] > 0) {
+            entry[@"id"] = tc[@"id"];
+        }
+        NSDictionary *func = tc[@"function"];
+        if ([func isKindOfClass:[NSDictionary class]]) {
+            if ([func[@"name"] isKindOfClass:[NSString class]] && [func[@"name"] length] > 0) {
+                entry[@"name"] = func[@"name"];
+            }
+            if ([func[@"arguments"] isKindOfClass:[NSString class]]) {
+                NSString *prev = entry[@"arguments"] ?: @"";
+                entry[@"arguments"] = [prev stringByAppendingString:func[@"arguments"]];
+            }
+        }
+    }
+}
+
+/// 解析工具参数 JSON 字符串为字典（失败返回空字典）
+- (NSDictionary *)parseArgumentsJSON:(NSString *)jsonString {
+    if (jsonString.length == 0) return @{};
+    NSData *data = [jsonString dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data) return @{};
+    id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if ([obj isKindOfClass:[NSDictionary class]]) {
+        return obj;
+    }
+    return @{};
+}
+
+/// 发送用户消息，驱动工具循环
 - (void)sendUserMessage:(NSString *)text
                 session:(AiSession *)session
                provider:(AiProvider *)provider
@@ -47,11 +112,40 @@
         return;
     }
 
-    // 1. 追加用户消息
+    // 初始化循环状态
+    self.running = YES;
+    self.toolRound = 0;
+    [self.attempts removeAllObjects];
+
+    // 追加用户消息
     AiMessage *userMessage = [AiMessage messageWithRole:@"user" content:text ?: @""];
     [session.messages addObject:userMessage];
 
-    // 2. 组装发送 payload：system + 历史（跳过流式占位）+ 本用户消息
+    [self startRoundInSession:session
+                     provider:provider
+                 chunkHandler:chunkHandler
+           completionHandler:completionHandler];
+}
+
+#pragma mark - 工具循环：单轮请求
+
+- (void)startRoundInSession:(AiSession *)session
+                   provider:(AiProvider *)provider
+               chunkHandler:(void (^)(NSString *partial))chunkHandler
+         completionHandler:(void (^)(NSError *error))completionHandler {
+    if (!self.running) return;
+
+    // 轮数护栏
+    if (self.toolRound >= kMaxToolRounds) {
+        AiMessage *capMsg = [AiMessage messageWithRole:@"assistant" content:@"本轮工具调用已达上限，请让用户进一步说明。"];
+        [session.messages addObject:capMsg];
+        [self saveSession:session];
+        self.running = NO;
+        if (completionHandler) completionHandler(nil);
+        return;
+    }
+
+    // 1. 拼装 payload：system + 历史（剔除流式占位、含 tool 消息）
     NSMutableArray *payloadMessages = [NSMutableArray array];
     NSString *systemPrompt = [[AiSettings sharedSettings] systemPrompt];
     if (systemPrompt.length > 0) {
@@ -62,48 +156,212 @@
         [payloadMessages addObject:m];
     }
 
+    // 2. 工具定义
+    NSArray *tools = [[AiToolRegistry sharedRegistry] openAIToolSchemas];
+
     // 3. 创建助手占位消息（streaming 标记）
     AiMessage *assistantMessage = [AiMessage messageWithRole:@"assistant" content:@""];
     assistantMessage.streaming = YES;
     [session.messages addObject:assistantMessage];
 
-    // 4. 发起流式请求
     __weak typeof(self) weakSelf = self;
-    __weak AiMessage *weakAssistant = assistantMessage;
+    __block NSMutableDictionary *accToolCalls = [NSMutableDictionary dictionary];
+
     [self.client streamChatWithProvider:provider
                                messages:payloadMessages
-                                  tools:nil
+                                  tools:tools
                                 onChunk:^(NSString * _Nullable delta, NSDictionary * _Nullable toolCalls) {
-        __strong AiMessage *strongAssistant = weakAssistant;
-        if (strongAssistant && delta.length > 0) {
-            // 就地累积到助手消息 content（调用方负责 UI 刷新与最终保存）
-            strongAssistant.content = [strongAssistant.content stringByAppendingString:delta];
-            if (chunkHandler) {
-                chunkHandler(delta);
-            }
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf.running) return;
+        if (delta.length > 0) {
+            assistantMessage.content = [assistantMessage.content stringByAppendingString:delta];
+            if (chunkHandler) chunkHandler(delta);
+        }
+        NSArray *raw = toolCalls[@"tool_calls"];
+        if ([raw isKindOfClass:[NSArray class]] && raw.count > 0) {
+            [strongSelf accumulateToolCalls:raw into:accToolCalls];
         }
     } onComplete:^(NSDictionary * _Nullable fullResponse, NSError * _Nullable error) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
-        __strong AiMessage *fAssistant = weakAssistant;
-        if (fAssistant) {
-            fAssistant.streaming = NO;
-            if (fullResponse[@"content"]) {
-                fAssistant.content = fullResponse[@"content"];
-            }
-            // 出错且无任何产出时，移除空的占位助手消息
-            if (error && fAssistant.content.length == 0) {
-                [session.messages removeObject:fAssistant];
-            }
+        if (!strongSelf) return;
+
+        assistantMessage.streaming = NO;
+
+        // 停止请求：直接收尾，不触发 completionHandler（UI 已由停止按钮复位）
+        if (!strongSelf.running) {
+            [strongSelf saveSession:session];
+            return;
         }
-        [[AiSessionStore sharedStore] updateSession:session];
-        if (completionHandler) {
-            completionHandler(error);
+
+        if (error) {
+            // 出错：不追加错误消息到 history，仅 completionHandler 通知 UI 弹错
+            if (assistantMessage.content.length == 0) {
+                [session.messages removeObject:assistantMessage];
+            }
+            [strongSelf saveSession:session];
+            strongSelf.running = NO;
+            if (completionHandler) completionHandler(error);
+            return;
+        }
+
+        if (accToolCalls.count > 0) {
+            // 进入工具执行阶段
+            [strongSelf saveSession:session];
+            [strongSelf runToolCalls:accToolCalls
+                    assistantMessage:assistantMessage
+                             session:session
+                            provider:provider
+                        chunkHandler:chunkHandler
+                  completionHandler:completionHandler];
+        } else {
+            // 无工具调用，正常结束
+            [strongSelf saveSession:session];
+            strongSelf.running = NO;
+            if (completionHandler) completionHandler(nil);
         }
     }];
 }
 
+#pragma mark - 工具执行阶段
+
+/// 按副本 index 升序逐个执行工具；全部完成后决定是继续下一轮还是收尾
+- (void)runToolCalls:(NSDictionary *)accToolCalls
+    assistantMessage:(AiMessage *)assistantMessage
+             session:(AiSession *)session
+            provider:(AiProvider *)provider
+        chunkHandler:(void (^)(NSString *partial))chunkHandler
+  completionHandler:(void (^)(NSError *error))completionHandler {
+    NSArray *allValues = accToolCalls.allValues;
+    NSArray *orderedCalls = [allValues sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
+        NSInteger ia = [a[@"index"] integerValue];
+        NSInteger ib = [b[@"index"] integerValue];
+        return (ia > ib) ? NSOrderedDescending : ((ia < ib) ? NSOrderedAscending : NSOrderedSame);
+    }];
+
+    // 把首个调用挂到助手消息上（isToolCall），其余调用以 toolCallMessage 追加，
+    // 序列化时这些连续的 isToolCall 助手消息被合并为同一条 assistant tool_calls 数组（见 AiAPIClient）。
+    for (NSUInteger i = 0; i < orderedCalls.count; i++) {
+        NSDictionary *call = orderedCalls[i];
+        NSString *callID = call[@"id"];
+        if (callID.length == 0) callID = [NSString stringWithFormat:@"call_%ld", (long)[call[@"index"] integerValue]];
+        NSString *name = call[@"name"];
+        NSString *args = call[@"arguments"] ?: @"";
+        if (i == 0) {
+            assistantMessage.isToolCall = YES;
+            assistantMessage.toolCallID = callID;
+            assistantMessage.toolName = name ?: @"";
+            assistantMessage.toolArguments = args;
+        } else {
+            AiMessage *tc = [AiMessage toolCallMessageWithName:name ?: @"" arguments:args];
+            tc.toolCallID = callID;
+            [session.messages addObject:tc];
+        }
+    }
+    [self saveSession:session];
+
+    __block NSError *terminalError = nil;
+    __weak typeof(self) weakSelf = self;
+
+    // 逐个异步执行工具。用 __block 自引用保持递归块在异步回调期间存活，
+    // 终止分支（完成 / 错误 / 停止）时置 nil 断开自引用，避免循环持有。
+    __block void (^executeBlock)(NSUInteger);
+    executeBlock = ^(NSUInteger offset) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf.running) { executeBlock = nil; return; }
+
+        if (offset >= orderedCalls.count) {
+            // 该轮全部工具执行完毕
+            if (strongSelf.running == NO) { executeBlock = nil; return; }
+            if (terminalError) {
+                // 达到重试上限，以最终错误结束本轮
+                strongSelf.running = NO;
+                if (completionHandler) completionHandler(terminalError);
+                executeBlock = nil;
+                return;
+            }
+            strongSelf.toolRound++;
+            [strongSelf startRoundInSession:session
+                                   provider:provider
+                               chunkHandler:chunkHandler
+                         completionHandler:completionHandler];
+            executeBlock = nil; // 本轮结束
+            return;
+        }
+
+        NSDictionary *call = orderedCalls[offset];
+        NSString *callID = call[@"id"];
+        NSString *name = call[@"name"];
+        NSString *arguments = call[@"arguments"] ?: @"";
+        if (callID.length == 0) callID = [NSString stringWithFormat:@"call_%ld", (long)[call[@"index"] integerValue]];
+
+        // 重试护栏：同一 callID 已执行 ≥3 次则不再回喂
+        NSInteger attempts = [strongSelf.attempts[callID] integerValue];
+        if (attempts >= kMaxToolAttempts) {
+            [session.messages addObject:[AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"多次尝试仍失败：%@", name ?: @""] toolCallID:callID]];
+            [strongSelf saveSession:session];
+            terminalError = [NSError errorWithDomain:@"AiAgent" code:2
+                                            userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"工具 %@ 多次尝试仍失败", name ?: callID]}];
+            executeBlock(offset + 1);
+            return;
+        }
+        attempts++;
+        strongSelf.attempts[callID] = @(attempts);
+
+        // 校验工具是否存在
+        id<AiTool> tool = [[AiToolRegistry sharedRegistry] toolForName:name ?: @""];
+        if (!tool) {
+            [session.messages addObject:[AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"未知工具：%@", name ?: @""] toolCallID:callID]];
+            [strongSelf saveSession:session];
+            executeBlock(offset + 1);
+            return;
+        }
+
+        NSDictionary *normalizedParams = [[AiToolRegistry sharedRegistry] normalizedParams:[strongSelf parseArgumentsJSON:arguments]];
+
+        // 安全确认（DangerousWrite 等需确认时阻塞等待用户选择）
+        void (^proceed)(void) = ^{
+            __strong typeof(weakSelf) ss2 = weakSelf;
+            if (!ss2 || !ss2.running) { executeBlock = nil; return; }
+            [[AiToolRegistry sharedRegistry] executeToolNamed:name ?: @""
+                                                       params:normalizedParams
+                                                   completion:^(NSString * _Nullable result, NSError * _Nullable error) {
+                __strong typeof(weakSelf) ss3 = weakSelf;
+                if (!ss3) { executeBlock = nil; return; }
+                NSString *content = result;
+                if (content.length == 0 && error) content = error.localizedDescription;
+                if (content.length == 0) content = @"（无返回）";
+                [session.messages addObject:[AiMessage toolResultMessageWithContent:content toolCallID:callID]];
+                [ss3 saveSession:session];
+                executeBlock(offset + 1);
+            }];
+        };
+
+        if ([[AiSafetyManager sharedManager] needsUserConfirmationForPermission:tool.permission]) {
+            [[AiSafetyManager sharedManager] requestConfirmationWithTitle:[NSString stringWithFormat:@"AI 请求执行「%@」", name ?: @""]
+                                                                  message:[NSString stringWithFormat:@"该工具需要你确认后才执行。\n参数：%@", arguments]
+                                                              completion:^(BOOL approved) {
+                __strong typeof(weakSelf) ss4 = weakSelf;
+                if (!ss4 || !ss4.running) { executeBlock = nil; return; }
+                if (!approved) {
+                    [session.messages addObject:[AiMessage toolResultMessageWithContent:@"用户已取消该操作" toolCallID:callID]];
+                    [ss4 saveSession:session];
+                    executeBlock(offset + 1);
+                    return;
+                }
+                proceed();
+            }];
+        } else {
+            proceed();
+        }
+    };
+    executeBlock(0);
+}
+
+#pragma mark - 停止
+
 - (void)stopCurrent {
-    [self.client stop];
+    if (self.client) [self.client stop];
+    self.running = NO;
 }
 
 @end

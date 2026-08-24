@@ -7,15 +7,9 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "AiTool.h" // 提供 AiSafetyMode 枚举（唯一定义处）
 
 NS_ASSUME_NONNULL_BEGIN
-
-/// 安全模式
-typedef NS_ENUM(NSInteger, AiSafetyMode) {
-    AiSafetyModeSafe = 0, // 安全：仅执行只读操作
-    AiSafetyModeAsk = 1,  // 询问：执行前询问用户
-    AiSafetyModeYOLO = 2, // 完全：执行前不询问（谨慎使用）
-};
 
 @interface AiSettings : NSObject
 

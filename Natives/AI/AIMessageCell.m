@@ -27,6 +27,8 @@ static const CGFloat kMsgCornerRadius = 12.0;
 @interface AIMessageCell ()
 @property (nonatomic, strong) UIView *bubbleView;
 @property (nonatomic, strong) UITextView *contentTextView;
+@property (nonatomic, strong) UIView *toolCardView;
+@property (nonatomic, strong) UILabel *toolCardLabel;
 @end
 
 @implementation AIMessageCell
@@ -70,6 +72,39 @@ static const CGFloat kMsgCornerRadius = 12.0;
             [self.bubbleView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:kMsgVerticalPadding],
             [self.bubbleView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-kMsgVerticalPadding],
         ]];
+
+        // 工具卡片：居中紧凑系统样式（隐藏时不影响气泡布局）
+        self.toolCardView = [[UIView alloc] init];
+        self.toolCardView.translatesAutoresizingMaskIntoConstraints = NO;
+        self.toolCardView.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.06];
+        self.toolCardView.layer.cornerRadius = 8.0;
+        self.toolCardView.layer.cornerCurve = kCACornerCurveContinuous;
+        self.toolCardView.clipsToBounds = YES;
+        self.toolCardView.hidden = YES;
+        [self.contentView addSubview:self.toolCardView];
+
+        self.toolCardLabel = [[UILabel alloc] init];
+        self.toolCardLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        self.toolCardLabel.font = [UIFont systemFontOfSize:11.0];
+        self.toolCardLabel.textColor = [UIColor tertiaryLabelColor];
+        self.toolCardLabel.numberOfLines = 0;
+        self.toolCardLabel.backgroundColor = [UIColor clearColor];
+        [self.toolCardView addSubview:self.toolCardLabel];
+
+        [NSLayoutConstraint activateConstraints:@[
+            // 卡片水平居中，两侧保留边距
+            [self.toolCardView.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
+            [self.toolCardView.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.contentView.leadingAnchor constant:kMsgHMargin],
+            [self.toolCardView.trailingAnchor constraintLessThanOrEqualToAnchor:self.contentView.trailingAnchor constant:-kMsgHMargin],
+            [self.toolCardView.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:kMsgMaxBubbleWidthRatio],
+            // 卡片垂直居中，cell 上下留白包裹（内边距 6）
+            [self.toolCardView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:6],
+            [self.toolCardView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-6],
+            [self.toolCardLabel.topAnchor constraintEqualToAnchor:self.toolCardView.topAnchor constant:5],
+            [self.toolCardLabel.bottomAnchor constraintEqualToAnchor:self.toolCardView.bottomAnchor constant:-5],
+            [self.toolCardLabel.leadingAnchor constraintEqualToAnchor:self.toolCardView.leadingAnchor constant:10],
+            [self.toolCardLabel.trailingAnchor constraintEqualToAnchor:self.toolCardView.trailingAnchor constant:-10],
+        ]];
     }
     return self;
 }
@@ -82,6 +117,17 @@ static const CGFloat kMsgCornerRadius = 12.0;
 
 - (void)configureWithMessage:(AiMessage *)message markdownEnabled:(BOOL)enabled {
     if (!message) return;
+
+    // 工具调用 / 工具结果：渲染为居中系统卡片，不进入左右气泡
+    if (message.isToolCall || message.isToolResult) {
+        self.bubbleView.hidden = YES;
+        self.toolCardView.hidden = NO;
+        self.toolCardLabel.text = [[self class] toolCardTextForMessage:message];
+        return;
+    }
+
+    self.toolCardView.hidden = YES;
+    self.bubbleView.hidden = NO;
     BOOL isUser = [message.role isEqualToString:@"user"];
     NSString *content = message.content ?: @"";
     UIColor *contentColor = [UIColor labelColor];
@@ -143,10 +189,40 @@ static const CGFloat kMsgCornerRadius = 12.0;
     }
 }
 
+#pragma mark - 工具卡片文本
+
++ (NSString *)toolCardTextForMessage:(AiMessage *)message {
+    if (!message) return @"";
+    NSString *name = message.toolName.length > 0 ? message.toolName : (message.toolCallID ?: @"工具");
+    if (message.isToolResult) {
+        NSString *content = [message.content stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+        return [NSString stringWithFormat:@"✅ %@ 完成：%@", name, content];
+    }
+    return [NSString stringWithFormat:@"⚙️ 工具：%@", name];
+}
+
 #pragma mark - 高度估算
 
 + (CGFloat)cellHeightForMessage:(AiMessage *)message width:(CGFloat)width markdownEnabled:(BOOL)enabled {
     if (!message || !width) return 60.0;
+
+    // 工具消息：根据卡片文本行高估算（紧凑小卡片）
+    if (message.isToolCall || message.isToolResult) {
+        NSString *cardText = [self toolCardTextForMessage:message];
+        CGFloat maxCardWidth = width * kMsgMaxBubbleWidthRatio - 20; // 扣左右内边距
+        if (maxCardWidth < 20) maxCardWidth = 20;
+        UIFont *font = [UIFont systemFontOfSize:11.0];
+        CGRect r = [cardText boundingRectWithSize:CGSizeMake(maxCardWidth, CGFLOAT_MAX)
+                                          options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+                                       attributes:@{NSFontAttributeName: font}
+                                          context:nil];
+        CGFloat textHeight = ceil(r.size.height);
+        if (textHeight < 16) textHeight = 16;
+        // 文字上下内边距 5*2 + 卡片上下留白 6*2
+        CGFloat total = textHeight + 5 * 2 + 6 * 2;
+        return MAX(total, 40.0);
+    }
+
     NSString *content = message.content ?: @"";
     CGFloat maxBubbleWidth = width * kMsgMaxBubbleWidthRatio;
     CGFloat textWidth = maxBubbleWidth - 2 * kMsgBubblePadding;

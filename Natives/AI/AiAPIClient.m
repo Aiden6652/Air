@@ -81,14 +81,54 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
 
     // Body
     NSMutableArray *payloadMessages = [NSMutableArray array];
+    // 待刷出的「assistant 携带多个 tool_calls」消息缓冲（OpenAI 要求同一助手消息携带 tool_calls 数组）
+    __block NSString *pendingAssistantContent = @"";
+    NSMutableArray *pendingToolCalls = nil;
+    dispatch_block_t flushPendingToolCalls = ^{
+        if (pendingToolCalls.count == 0) { pendingToolCalls = nil; return; }
+        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+        entry[@"role"] = @"assistant";
+        entry[@"content"] = pendingAssistantContent ?: @"";
+        entry[@"tool_calls"] = pendingToolCalls;
+        [payloadMessages addObject:entry];
+        pendingToolCalls = nil;
+        pendingAssistantContent = @"";
+    };
     for (AiMessage *m in messages) {
         // 跳过流式占位消息
         if (m.streaming) continue;
-        [payloadMessages addObject:@{
-            @"role": m.role ?: @"",
-            @"content": m.content ?: @"",
-        }];
+
+        // assistant 的工具调用记录：把连续的 isToolCall 助手消息合并进同一条 tool_calls 数组
+        if (m.isToolCall && [m.role isEqualToString:@"assistant"]) {
+            if (!pendingToolCalls) {
+                pendingToolCalls = [NSMutableArray array];
+                pendingAssistantContent = m.content ?: @"";
+            } else if (m.content.length > 0 && pendingAssistantContent.length == 0) {
+                pendingAssistantContent = m.content;
+            }
+            NSMutableDictionary *func = [NSMutableDictionary dictionary];
+            if (m.toolName.length > 0) func[@"name"] = m.toolName;
+            if (m.toolArguments.length > 0) func[@"arguments"] = m.toolArguments;
+            NSMutableDictionary *call = [NSMutableDictionary dictionary];
+            if (m.toolCallID.length > 0) call[@"id"] = m.toolCallID;
+            call[@"type"] = @"function";
+            call[@"function"] = func;
+            [pendingToolCalls addObject:call];
+            continue;
+        }
+
+        // 其它角色消息：先把缓冲的 assistant tool_calls 刷出
+        flushPendingToolCalls();
+
+        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+        entry[@"role"] = m.role ?: @"";
+        entry[@"content"] = m.content ?: @"";
+        if ([m.role isEqualToString:@"tool"] && m.toolCallID.length > 0) {
+            entry[@"tool_call_id"] = m.toolCallID;
+        }
+        [payloadMessages addObject:entry];
     }
+    flushPendingToolCalls();
     NSMutableDictionary *body = [NSMutableDictionary dictionary];
     body[@"model"] = provider.model ?: @"";
     body[@"messages"] = payloadMessages;

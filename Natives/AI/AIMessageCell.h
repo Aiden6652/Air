@@ -13,11 +13,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface AIMessageCell : UITableViewCell
 
-/// 配置气泡内容与排版
+/// 配置气泡内容与排版（isToolCall/isToolResult 渲染为居中紧凑系统卡片）
 - (void)configureWithMessage:(AiMessage *)message markdownEnabled:(BOOL)enabled;
 
 /// 估算某条消息在该宽度下所需的行高
 + (CGFloat)cellHeightForMessage:(AiMessage *)message width:(CGFloat)width markdownEnabled:(BOOL)enabled;
+
+/// 工具卡片的文本内容（供 configure 与高度估算复用）
++ (NSString *)toolCardTextForMessage:(AiMessage *)message;
 
 @end
 
