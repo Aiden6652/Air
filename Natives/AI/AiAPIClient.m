@@ -83,7 +83,7 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     NSMutableArray *payloadMessages = [NSMutableArray array];
     // 待刷出的「assistant 携带多个 tool_calls」消息缓冲（OpenAI 要求同一助手消息携带 tool_calls 数组）
     __block NSString *pendingAssistantContent = @"";
-    NSMutableArray *pendingToolCalls = nil;
+    __block NSMutableArray *pendingToolCalls = nil;
     dispatch_block_t flushPendingToolCalls = ^{
         if (pendingToolCalls.count == 0) { pendingToolCalls = nil; return; }
         NSMutableDictionary *entry = [NSMutableDictionary dictionary];

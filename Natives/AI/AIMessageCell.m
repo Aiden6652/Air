@@ -109,12 +109,6 @@ static const CGFloat kMsgCornerRadius = 12.0;
     return self;
 }
 
-/// 布局后同步 preferredMaxLayoutWidth，保证 UITextView 换行后的固有高度准确
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    self.contentTextView.preferredMaxLayoutWidth = CGRectGetWidth(self.contentTextView.bounds);
-}
-
 - (void)configureWithMessage:(AiMessage *)message markdownEnabled:(BOOL)enabled {
     if (!message) return;
 
