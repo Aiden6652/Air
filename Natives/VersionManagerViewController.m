@@ -1731,6 +1731,19 @@ static NSInteger const kSectionVersions    = 1;
 }
 
 - (void)editProfile:(NSString *)profileName {
+    // 关键修复（实例渲染器不生效）：点击版本卡片进入其实例设置时，
+    // 必须把该 profile 同步为"当前选中实例"。否则用户在实例设置里切换的渲染器
+    // 保存在被点击的 profile 上，而启动游戏时 JavaLauncher 只读取
+    // PLProfiles.current.selectedProfileName（当前选中实例）的 renderer，
+    // 两者不一致时启动会回退到全局 video.renderer（表现为"实例设置改了渲染器，启动却用全局"）。
+    // setSelectedProfileName: 内部会保存并发送 SelectedProfileChanged 通知。
+    if (![PLProfiles.current.selectedProfileName isEqualToString:profileName]) {
+        PLProfiles.current.selectedProfileName = profileName;
+        [self loadProfiles];
+        [self.collectionView reloadData];
+        [self updateEmptyState];
+    }
+
     // 使用 ProfileSettingsViewController（合并后的统一 Edit Profile 页面，新 UI）
     ProfileSettingsViewController *vc = [[ProfileSettingsViewController alloc] init];
     vc.profileName = profileName;
