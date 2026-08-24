@@ -103,7 +103,9 @@ static NSArray<NSDictionary *> *SortOptionItems(void) {
     [[BackgroundManager sharedManager] makeViewControllerTransparent:self];
 
     // 初始化筛选状态（默认 Modrinth 源 + 相关性排序）
-    self.selectedSource = kSourceModrinth;
+    // 关键修复（CurseForge 搜索结果丢失来源）：版本页优先沿用搜索结果携带的 API 来源
+    // （apiSource=2 时默认 CurseForge），否则拿 CurseForge 数字 ID 请求 Modrinth 拉不到版本
+    self.selectedSource = (self.apiSource == kSourceCurseForge) ? kSourceCurseForge : kSourceModrinth;
     self.selectedSort = kSortRelevance;
 
     [self setupSideFilterPanel];

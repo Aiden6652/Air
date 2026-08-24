@@ -359,6 +359,12 @@ static NSString * const kShaderCardCellIdentifier = @"ShaderCardCell";
     [super setLoading:loading];
 }
 
+/// 基类刷新钩子：下载完成通知 / viewWillAppear 时重载光影列表。
+/// 关键修复（下载成功后资源管理页不刷新）：文件落盘后自动刷新页面。
+- (void)reloadResourceList {
+    [self refreshLocalShadersList];
+}
+
 - (void)refreshLocalShadersList {
     [self setLoading:YES];
     NSString *profile = self.profileName ?: @"default";
@@ -405,6 +411,8 @@ static NSString * const kShaderCardCellIdentifier = @"ShaderCardCell";
     // 跳转统一下载界面并定位到光影 tab（在线下载入口已统一收口到下载页）
     DownloadViewController *downloadVC = [[DownloadViewController alloc] init];
     downloadVC.initialTabIndex = 2; // 0版本 1模组 2光影
+    // 关键修复（目标实例不一致）：传入本管理页绑定的 profileName
+    downloadVC.targetProfileName = self.profileName;
     if (self.navigationController) {
         [self.navigationController pushViewController:downloadVC animated:YES];
     } else {

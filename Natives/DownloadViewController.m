@@ -47,6 +47,7 @@
 #import "UZKArchive.h"
 #import <QuartzCore/QuartzCore.h>
 #import "JavaGUIViewController.h"
+#import "JavaLauncher.h"
 #import "utils.h"
 #import "ios_uikit_bridge.h"
 #import "ALTServerConnection.h"
@@ -485,10 +486,15 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 
 @property (nonatomic, assign) NSInteger currentModOffset;
 @property (nonatomic, assign) NSInteger currentShaderOffset;
-@property (nonatomic, assign) BOOL isLoadingMore;
+// 关键修复（Mod 与 Shader 共用 loading/query 状态）：此前 Mod 与 Shader 分页共用一个
+// isLoadingMore、搜索共用一个 currentSearchQuery。Mod 分页未完成时切到 Shader 分页会被
+// return 拦截，或一个分类的旧响应把另一个分类的查询状态覆盖。参照 ZL2 按分类隔离状态。
+@property (nonatomic, assign) BOOL isLoadingMoreMods;
+@property (nonatomic, assign) BOOL isLoadingMoreShaders;
 @property (nonatomic, assign) BOOL hasMoreMods;
 @property (nonatomic, assign) BOOL hasMoreShaders;
-@property (nonatomic, strong) NSString *currentSearchQuery;
+@property (nonatomic, strong) NSString *modSearchQuery;
+@property (nonatomic, strong) NSString *shaderSearchQuery;
 @property (nonatomic, strong) NSString *currentGameVersion;
 @property (nonatomic, strong) NSString *currentModLoader;
 @property (nonatomic, strong) NSString *currentSortField;
@@ -674,6 +680,14 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.hasMoreWorlds = YES;
     self.currentSortField = @"follows";
     self.isObservingProgress = NO;
+
+    // 关键修复（目标实例不一致）：下载页目标实例在打开时快照当前选中 profile。
+    // 由资源管理页（Mods/Shaders/ResourcePacks/DataPacks/Worlds）进入时会由调用方传入
+    // 它们绑定的 profileName；未传入时锁定进入下载页瞬间的选中实例，避免用户在下载页
+    // 操作期间切换实例导致资源被写入另一个游戏目录。
+    if (!self.targetProfileName.length) {
+        self.targetProfileName = PLProfiles.current.selectedProfileName;
+    }
 
     [self setupUI];
     // 初始 tab：默认 0（版本）；资源管理界面"去下载"引导跳转时会指定对应资源类型 tab
@@ -1787,6 +1801,12 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     return [ModrinthAPI sharedInstance];
 }
 
+/// 当前 tab 类型的 API 来源数值：1 = Modrinth，2 = CurseForge。
+/// 供版本选择页等下游页面沿用搜索时的 API 来源（修复 CurseForge 结果丢失来源的问题）。
+- (NSInteger)apiSourceForType:(NSString *)type {
+    return ([self currentAPIForTabType:type] == (id)[CurseForgeAPI sharedInstance]) ? 2 : 1;
+}
+
 // 导航栏 API Key 入口：直接 push 配置页，不再走 alert 通知绕路
 - (void)openCurseForgeAPIKeySettings {
     CurseForgeAPIKeyViewController *vc = [[CurseForgeAPIKeyViewController alloc] init];
@@ -1898,8 +1918,12 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 - (void)loadModList {
-    if (self.isLoadingMore) return;
-    self.isLoadingMore = YES;
+    if (self.isLoadingMoreMods) return;
+    self.isLoadingMoreMods = YES;
+
+    // 快照发起时的搜索词：响应返回后若搜索词已变化（用户又搜了新词或切走），
+    // 丢弃该旧响应，避免"旧响应覆盖新结果"（问题4 反馈点之一）
+    NSString *requestedQuery = self.modSearchQuery ?: @"";
     
     if (self.currentModOffset == 0) {
         [self.loadingIndicator startAnimating];
@@ -1909,8 +1933,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     filters[@"limit"] = @30;
     filters[@"offset"] = @(self.currentModOffset);
     
-    if (self.currentSearchQuery.length > 0) {
-        filters[@"query"] = self.currentSearchQuery;
+    if (self.modSearchQuery.length > 0) {
+        filters[@"query"] = self.modSearchQuery;
     }
     if (self.currentGameVersion.length > 0) {
         filters[@"version"] = self.currentGameVersion;
@@ -1928,9 +1952,16 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
+
+            // 旧响应防护：发起后搜索词已变更的过期响应直接丢弃，不写列表/状态
+            if (![(strongSelf.modSearchQuery ?: @"") isEqualToString:requestedQuery]) {
+                strongSelf.isLoadingMoreMods = NO;
+                return;
+            }
+
             [strongSelf.loadingIndicator stopAnimating];
             [strongSelf.modTableView.refreshControl endRefreshing];
-            strongSelf.isLoadingMore = NO;
+            strongSelf.isLoadingMoreMods = NO;
             
             if (results) {
                 if (strongSelf.currentModOffset == 0) {
@@ -1954,7 +1985,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 - (void)searchMods:(NSString *)query {
-    self.currentSearchQuery = query;
+    self.modSearchQuery = query;
     self.currentModOffset = 0;
     self.hasMoreMods = YES;
     [self.modList removeAllObjects];
@@ -1972,8 +2003,11 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 - (void)loadShaderList {
-    if (self.isLoadingMore) return;
-    self.isLoadingMore = YES;
+    if (self.isLoadingMoreShaders) return;
+    self.isLoadingMoreShaders = YES;
+
+    // 快照发起时的搜索词：响应返回后若搜索词已变化，丢弃该旧响应（问题4 修复，同 loadModList）
+    NSString *requestedQuery = self.shaderSearchQuery ?: @"";
     
     if (self.currentShaderOffset == 0) {
         [self.loadingIndicator startAnimating];
@@ -1984,8 +2018,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     filters[@"offset"] = @(self.currentShaderOffset);
     filters[@"projectType"] = @"shader";
 
-    if (self.currentSearchQuery.length > 0) {
-        filters[@"query"] = self.currentSearchQuery;
+    if (self.shaderSearchQuery.length > 0) {
+        filters[@"query"] = self.shaderSearchQuery;
     }
     if (self.currentGameVersion.length > 0) {
         filters[@"version"] = self.currentGameVersion;
@@ -1997,9 +2031,16 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf) return;
+
+            // 旧响应防护：发起后搜索词已变更的过期响应直接丢弃，不写列表/状态
+            if (![(strongSelf.shaderSearchQuery ?: @"") isEqualToString:requestedQuery]) {
+                strongSelf.isLoadingMoreShaders = NO;
+                return;
+            }
+
             [strongSelf.loadingIndicator stopAnimating];
             [strongSelf.shaderTableView.refreshControl endRefreshing];
-            strongSelf.isLoadingMore = NO;
+            strongSelf.isLoadingMoreShaders = NO;
             
             if (results) {
                 if (strongSelf.currentShaderOffset == 0) {
@@ -2023,7 +2064,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 - (void)searchShaders:(NSString *)query {
-    self.currentSearchQuery = query;
+    self.shaderSearchQuery = query;
     self.currentShaderOffset = 0;
     self.hasMoreShaders = YES;
     [self.shaderList removeAllObjects];
@@ -2600,7 +2641,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.currentGameVersion = nil;
     self.currentModLoader = nil;
     self.currentSortField = @"follows";
-    self.currentSearchQuery = nil;
+    self.modSearchQuery = nil;
+    self.shaderSearchQuery = nil;
     self.resourcepackSearchQuery = nil;
     self.datapackSearchQuery = nil;
     self.searchBar.text = nil;
@@ -2689,7 +2731,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 
 - (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
     searchBar.text = nil;
-    self.currentSearchQuery = nil;
+    self.modSearchQuery = nil;
+    self.shaderSearchQuery = nil;
     self.modpackSearchQuery = nil;
     self.resourcepackSearchQuery = nil;
     self.datapackSearchQuery = nil;
@@ -3599,6 +3642,22 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 #pragma mark - Mod Installer (Fallback when LauncherNavigationController is not available)
 
 - (void)launchModInstallerWithPath:(NSString *)path hitEnterAfterWindowShown:(BOOL)hitEnter {
+    // 关键修复（二次执行 jar 卡死）：iOS 进程内 JVM 只能创建一次
+    // （gJVMUsedInProcess，第二次 JLI_Launch 会崩溃）。首次执行 jar 已在本进程
+    // 创建过 JVM，再次进入 JavaGUIViewController 会黑屏卡死。因此在此处提前拦截，
+    // 提示用户重启启动器，而不是进入注定失败的界面。
+    if (JVMUsedInProcess()) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"i18n_str_214", nil)
+                                                                       message:localize(@"i18n_str_1143", nil)
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_216", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            [PLCrashView restartLauncher];
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:localize(@"i18n_str_217", nil) style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
     JavaGUIViewController *vc = [[JavaGUIViewController alloc] init];
     vc.filepath = path;
     vc.hitEnterAfterWindowShown = hitEnter;
@@ -4412,6 +4471,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     versionVC.modItem = modItem;
     versionVC.delegate = self;
     versionVC.title = modItem.displayName;
+    // 修复（来源丢失）：沿用 modpack 搜索时的 API 来源，避免拿 CurseForge 数字 ID 请求 Modrinth
+    versionVC.apiSource = [self apiSourceForType:@"modpack"];
     // FCL 风格：传入当前 profile 的偏好版本和加载器，自动选中匹配 chip 并置顶
     versionVC.preferredGameVersion = [self currentProfileMinecraftVersion];
     versionVC.preferredLoader = [self currentProfileLoader];
@@ -4827,11 +4888,11 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (tableView == self.modTableView && indexPath.row == self.modList.count - 5 && self.hasMoreMods && !self.isLoadingMore) {
+    if (tableView == self.modTableView && indexPath.row == self.modList.count - 5 && self.hasMoreMods && !self.isLoadingMoreMods) {
         [self loadModList];
     }
 
-    if (tableView == self.shaderTableView && indexPath.row == self.shaderList.count - 5 && self.hasMoreShaders && !self.isLoadingMore) {
+    if (tableView == self.shaderTableView && indexPath.row == self.shaderList.count - 5 && self.hasMoreShaders && !self.isLoadingMoreShaders) {
         [self loadShaderList];
     }
 
@@ -4955,6 +5016,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     versionVC.modItem = modItem;
     versionVC.delegate = self;
     versionVC.title = modItem.displayName;
+    // 修复（来源丢失）：沿用 mod 搜索时的 API 来源，避免拿 CurseForge 数字 ID 请求 Modrinth
+    versionVC.apiSource = [self apiSourceForType:@"mod"];
     // FCL 风格：传入当前 profile 的偏好版本和加载器，自动选中匹配 chip 并置顶
     versionVC.preferredGameVersion = [self currentProfileMinecraftVersion];
     versionVC.preferredLoader = [self currentProfileLoader];
@@ -4978,6 +5041,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     versionVC.shaderItem = shaderItem;
     versionVC.delegate = self;
     versionVC.title = shaderItem.displayName;
+    // 修复（来源丢失）：沿用 shader 搜索时的 API 来源，避免拿 CurseForge 数字 ID 请求 Modrinth
+    versionVC.apiSource = [self apiSourceForType:@"shader"];
     // FCL 风格：传入当前 profile 的偏好版本和加载器，自动选中匹配 chip 并置顶匹配版本
     // 补齐与 ModVersionViewController 不对称的 preferred 传参（阶段3统一）
     versionVC.preferredGameVersion = [self currentProfileMinecraftVersion];
@@ -5003,6 +5068,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     AssetVersionViewController *versionVC = [[AssetVersionViewController alloc] init];
     versionVC.assetType = AssetVersionTypeResourcePack;
     versionVC.projectID = item.onlineID;
+    // 修复（来源丢失）：沿用 resourcepack 搜索时的 API 来源，避免拿 CurseForge 数字 ID 请求 Modrinth
+    versionVC.apiSource = [self apiSourceForType:@"resourcepack"];
     versionVC.projectDisplayName = item.displayName;
     versionVC.delegate = self;
     versionVC.title = item.displayName;
@@ -5037,6 +5104,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     AssetVersionViewController *versionVC = [[AssetVersionViewController alloc] init];
     versionVC.assetType = AssetVersionTypeDataPack;
     versionVC.projectID = item.onlineID;
+    // 修复（来源丢失）：沿用 datapack 搜索时的 API 来源，避免拿 CurseForge 数字 ID 请求 Modrinth
+    versionVC.apiSource = [self apiSourceForType:@"datapack"];
     versionVC.projectDisplayName = item.displayName;
     versionVC.delegate = self;
     versionVC.title = item.displayName;
@@ -5071,6 +5140,8 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     AssetVersionViewController *versionVC = [[AssetVersionViewController alloc] init];
     versionVC.assetType = AssetVersionTypeWorld;
     versionVC.projectID = item.onlineID;
+    // 世界强制 CurseForge（currentAPIForTabType 也是强制 CurseForge），此处显式传入来源
+    versionVC.apiSource = 2;
     versionVC.projectDisplayName = item.displayName;
     versionVC.delegate = self;
     versionVC.title = item.displayName;
@@ -5177,7 +5248,9 @@ static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
 // 下载 Mod（redesign-download-ui Phase 4：进度由 Service 内部注册的下载任务 +
 // PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。）
 - (void)startDownloadForModItem:(ModItem *)item {
-    NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
+    // 关键修复（目标实例不一致）：统一使用打开下载页时锁定的 targetProfileName，
+    // 而非实时读取 selectedProfileName，避免与资源管理页绑定的实例不一致导致写入另一游戏目录
+    NSString *profileName = self.targetProfileName ?: @"default";
     __weak typeof(self) weakSelf = self;
     [[ModService sharedService] downloadMod:item
                                   toProfile:profileName
@@ -5200,7 +5273,9 @@ static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
 // redesign-download-ui Phase 3：进度由 Service 内部注册的下载任务 +
 // PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。
 - (void)startDownloadForResourcePackItem:(ResourcePackItem *)item {
-    NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
+    // 关键修复（目标实例不一致）：统一使用打开下载页时锁定的 targetProfileName，
+    // 而非实时读取 selectedProfileName，避免与资源管理页绑定的实例不一致导致写入另一游戏目录
+    NSString *profileName = self.targetProfileName ?: @"default";
     __weak typeof(self) weakSelf = self;
     [[ResourcePackService sharedService] downloadResourcePack:item
                                                     toProfile:profileName
@@ -5223,7 +5298,9 @@ static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
 // redesign-download-ui Phase 3：进度由 Service 内部注册的下载任务 +
 // PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。
 - (void)startDownloadForDataPackItem:(DataPackItem *)item {
-    NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
+    // 关键修复（目标实例不一致）：统一使用打开下载页时锁定的 targetProfileName，
+    // 而非实时读取 selectedProfileName，避免与资源管理页绑定的实例不一致导致写入另一游戏目录
+    NSString *profileName = self.targetProfileName ?: @"default";
     __weak typeof(self) weakSelf = self;
     [[DataPackService sharedService] downloadDataPack:item
                                             toProfile:profileName
@@ -5247,7 +5324,9 @@ static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
 // redesign-download-ui Phase 3：进度由 Service 内部注册的下载任务 +
 // PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。
 - (void)startDownloadForWorldItem:(WorldItem *)item {
-    NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
+    // 关键修复（目标实例不一致）：统一使用打开下载页时锁定的 targetProfileName，
+    // 而非实时读取 selectedProfileName，避免与资源管理页绑定的实例不一致导致写入另一游戏目录
+    NSString *profileName = self.targetProfileName ?: @"default";
     __weak typeof(self) weakSelf = self;
     [[WorldService sharedService] downloadWorld:item
                                         toProfile:profileName
@@ -5289,7 +5368,9 @@ static NSString *PLSha1FromPrimaryFile(NSDictionary *primaryFile) {
 // 下载光影包（redesign-download-ui Phase 4：进度由 Service 内部注册的下载任务 +
 // PLTaskStagesSingleFile 单阶段上报驱动统一进度页，调用方无需管理进度 UI。）
 - (void)startDownloadForShaderItem:(ShaderItem *)item {
-    NSString *profileName = PLProfiles.current.selectedProfileName ?: @"default";
+    // 关键修复（目标实例不一致）：统一使用打开下载页时锁定的 targetProfileName，
+    // 而非实时读取 selectedProfileName，避免与资源管理页绑定的实例不一致导致写入另一游戏目录
+    NSString *profileName = self.targetProfileName ?: @"default";
     __weak typeof(self) weakSelf = self;
     [[ShaderService sharedService] downloadShader:item
                                          toProfile:profileName

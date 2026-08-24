@@ -386,6 +386,12 @@ static NSString *ModsManagerSHA1ForFile(NSString *path) {
 
 #pragma mark - Data Loading
 
+/// 基类刷新钩子：下载完成通知 / viewWillAppear 时重载 Mod 列表。
+/// 关键修复（下载成功后资源管理页不刷新）：文件落盘后自动刷新页面。
+- (void)reloadResourceList {
+    [self loadMods];
+}
+
 - (void)loadMods {
     [self setLoading:YES];
     NSString *profile = self.profileName ?: @"default";
@@ -489,6 +495,9 @@ static NSString *ModsManagerSHA1ForFile(NSString *path) {
 /// 空状态"去下载"：跳转统一下载页（无参数化资源类型入口，进入默认页）
 - (void)openDownloadPage {
     DownloadViewController *vc = [[DownloadViewController alloc] init];
+    // 关键修复（目标实例不一致）：传入本管理页绑定的 profileName，
+    // 保证下载写入的实例与当前打开的实例一致
+    vc.targetProfileName = self.profileName;
     if (self.navigationController) {
         [self.navigationController pushViewController:vc animated:YES];
     } else {

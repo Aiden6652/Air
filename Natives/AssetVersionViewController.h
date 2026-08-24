@@ -39,6 +39,12 @@ typedef NS_ENUM(NSInteger, AssetVersionType) {
 // 代理
 @property (nonatomic, weak, nullable) id<AssetVersionViewControllerDelegate> delegate;
 
+// API 来源：1 = Modrinth（默认），2 = CurseForge。
+// 关键修复（CurseForge 搜索结果丢失来源）：搜索列表页可能来自 CurseForge（数字 project ID），
+// 从搜索结果进入版本页时必须沿用搜索时的 API 来源，否则会拿 CurseForge 数字 ID 去请求
+// Modrinth API 导致版本列表拉不到。参照 ZL2 的 platform 枚举贯穿搜索→详情→版本全链路。
+@property (nonatomic, assign) NSInteger apiSource;
+
 // FCL 风格：传入当前 profile 的偏好版本
 // AssetVersionViewController 会优先选中匹配的 chip，并把匹配的版本置顶
 // 注：资产类型（资源包/数据包/世界）无加载器概念，故无 preferredLoader

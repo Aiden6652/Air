@@ -7,4 +7,9 @@
 /// 供资源管理界面"去下载"引导跳转时定位到对应资源类型
 @property (nonatomic, assign) NSInteger initialTabIndex;
 
+/// 下载目标实例（profile）。从资源管理页进入时传入该页绑定的 profileName，
+/// 保证"下载页的目标实例"与"资源管理页打开的实例"一致，避免资源写入另一个游戏目录。
+/// 未传入时回退到启动下载瞬间的当前选中 profile（viewDidLoad 时快照）。
+@property (nonatomic, copy, nullable) NSString *targetProfileName;
+
 @end

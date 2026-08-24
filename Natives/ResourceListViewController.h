@@ -86,6 +86,16 @@ FOUNDATION_EXPORT CGFloat const ResourceListCardSideInset;
 /// 透明间距 header 视图（配合 heightForHeaderInSection 返回 ResourceListCardSpacing 使用）
 + (UIView *)cardSpacingHeaderView;
 
+#pragma mark - 数据重新加载钩子
+
+/// 子类重写此方法实现自己的列表重载（如 loadMods / refreshLocalShadersList）。
+/// 基类在以下时机自动调用：
+///   1. viewWillAppear（从下载页等返回时）
+///   2. DownloadTaskManagerTaskCompletedNotification（资源下载完成，文件已落盘）
+/// 关键修复（下载成功后资源管理页不刷新）：此前子类仅在 viewDidLoad 加载一次，
+/// 下载完成后无法感知文件变化而页面不更新。
+- (void)reloadResourceList;
+
 @end
 
 NS_ASSUME_NONNULL_END

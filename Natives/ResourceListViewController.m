@@ -10,6 +10,8 @@
 #import "ResourceListViewController.h"
 #import "BackgroundManager.h"
 #import "LauncherPreferences.h"
+#import "DownloadTaskItem.h"
+#import "DownloadTaskManager.h"
 #import "utils.h"
 
 CGFloat const ResourceListCardSpacing = 4.0;    // space-sm：卡片垂直间距（Air-Design 4.1）
@@ -77,6 +79,46 @@ static CGFloat const kBatchToolbarBottomGap = 12.0; // 工具栏与安全区底�
                                              selector:@selector(reapplyBackgroundEffect)
                                                  name:@"BackgroundUIEffectChanged"
                                                object:nil];
+
+    // 监听资源下载完成通知：文件落盘后自动重载列表。
+    // 关键修复（下载成功后资源管理页不刷新）：DownloadTaskManager 在任务进入
+    // Completed 终态时统一发 DownloadTaskManagerTaskCompletedNotification，
+    // 子类实现 -reloadResourceList 完成各自的列表刷新。
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleDownloadTaskCompletedNotification:)
+                                                 name:DownloadTaskManagerTaskCompletedNotification
+                                               object:nil];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+/// 下载任务完成通知处理：该任务属于资源类型任务（mod/shader/resourcepack/datapack/world）时，
+/// 通知子类重载列表。下载中心通用任务（如 Minecraft 本体）不影响资源列表。
+- (void)handleDownloadTaskCompletedNotification:(NSNotification *)notification {
+    DownloadTaskItem *task = notification.userInfo[DownloadTaskManagerTaskKey];
+    NSString *type = task.resourceType;
+    if (![type isKindOfClass:[NSString class]] || type.length == 0) return;
+
+    static NSSet<NSString *> *resourceTypes = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        resourceTypes = [NSSet setWithObjects:
+            DownloadTaskResourceTypeMod,
+            DownloadTaskResourceTypeShader,
+            DownloadTaskResourceTypeResourcePack,
+            DownloadTaskResourceTypeDataPack,
+            DownloadTaskResourceTypeWorld,
+            nil];
+    });
+    if (![resourceTypes containsObject:type]) return;
+
+    // 主线程延迟一帧重载，确保文件系统状态已刷新（与 UI 刷新节奏一致）
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [weakSelf reloadResourceList];
+    });
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -84,10 +126,10 @@ static CGFloat const kBatchToolbarBottomGap = 12.0; // 工具栏与安全区底�
     // viewDidLoad 时 self.view.bounds 可能为 zero，applyEffectToView: 插入的 blurView
     // frame 为 zero；在 viewWillAppear 中重新应用（此时 bounds 已正确）
     [[BackgroundManager sharedManager] applyEffectToView:self.view];
-}
 
-- (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    // 关键修复（下载成功后资源管理页不刷新）：每次页面显示时重载列表，
+    // 覆盖从下载页/前台返回、切换实例等场景下"文件已落盘但页面不更新"的情况。
+    [self reloadResourceList];
 }
 
 - (void)reapplyBackgroundEffect {

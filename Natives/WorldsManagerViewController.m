@@ -194,6 +194,12 @@
     [self refreshLocalList];
 }
 
+/// 基类刷新钩子：下载完成通知 / viewWillAppear 时重载世界列表。
+/// 关键修复（下载成功后资源管理页不刷新）：文件落盘后自动刷新页面。
+- (void)reloadResourceList {
+    [self refreshLocalList];
+}
+
 - (void)refreshLocalList {
     [self setLoading:YES];
     NSString *profile = self.profileName ?: @"default";
@@ -275,6 +281,8 @@
 - (void)openDownloadPage {
     // 在线下载入口已收敛到统一下载界面（未区分资源类型 Tab，进入默认页）
     DownloadViewController *downloadVC = [[DownloadViewController alloc] init];
+    // 关键修复（目标实例不一致）：传入本管理页绑定的 profileName
+    downloadVC.targetProfileName = self.profileName;
     if (self.navigationController) {
         [self.navigationController pushViewController:downloadVC animated:YES];
     } else {

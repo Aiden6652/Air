@@ -875,6 +875,15 @@ static const NSTimeInterval kUIProgressNotifyThrottleInterval = 0.2;
     [self postUpdateForTask:item];
     [self checkAggregateStateChange];
     [self schedulePersistSnapshot];
+
+    // 关键修复（下载完成后资源管理页不刷新）：各资源 Service（Mod/Shader/ResourcePack/
+    // DataPack/World）在下载成功时仅调用 setTaskWithId:state:Completed，而完成通知
+    // DownloadTaskManagerTaskCompletedNotification 只在 setTaskWithId:completedWithError:
+    // 路径发出，导致资源管理页无法感知"文件已落盘"而不刷新。
+    // 此处统一在进入 Completed 终态时补发完成通知，供资源管理页监听后重载列表。
+    if (state == DownloadTaskStateCompleted && oldState != DownloadTaskStateCompleted) {
+        [self postCompletionForTask:item];
+    }
 }
 
 - (void)setTaskWithId:(NSString *)taskId completedWithError:(nullable NSError *)error {
