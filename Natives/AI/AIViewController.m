@@ -373,14 +373,17 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
     } completionHandler:^(NSError *error) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
-        [strongSelf.inputBar setIsSending:NO];
-        [strongSelf.activityIndicator stopAnimating];
-        strongSelf.lastStreamUpdateTime = 0;
-        if (error) {
-            [strongSelf showErrorAlert:error];
-        }
-        [strongSelf reloadAndScrollToBottom];
-        [strongSelf updateEmptyState];
+        // 关键修复（发送消息崩溃）：completionHandler 同样来自后台队列，UI 更新须回主线程
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [strongSelf.inputBar setIsSending:NO];
+            [strongSelf.activityIndicator stopAnimating];
+            strongSelf.lastStreamUpdateTime = 0;
+            if (error) {
+                [strongSelf showErrorAlert:error];
+            }
+            [strongSelf reloadAndScrollToBottom];
+            [strongSelf updateEmptyState];
+        });
     }];
 }
 
@@ -389,10 +392,27 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
     if ((now - self.lastStreamUpdateTime) < kUIThrottleInterval) return;
     self.lastStreamUpdateTime = now;
-    if (self.session.messages.count == 0) return;
-    NSIndexPath *idx = [NSIndexPath indexPathForRow:(self.session.messages.count - 1) inSection:0];
-    [self.tableView reloadRowsAtIndexPaths:@[idx] withRowAnimation:UITableViewRowAnimationNone];
-    [self scrollToBottomAnimated:NO];
+
+    // 关键修复（发送消息崩溃）：chunkHandler 由 AiAPIClient 的后台 dispatch 队列回调，
+    // 但 UITableView 只能在主线程更新。原实现直接在回调线程 reloadRows 导致 UIKit 断言崩溃。
+    // 这里统一派发到主线程，且行数与数据源不一致时用 reloadData 同步（避免 reloadRows
+    // 触发 "invalid update: invalid number of rows"）。
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong typeof(self) strongSelf = self;
+        if (!strongSelf) return;
+
+        NSInteger modelCount = strongSelf.session.messages.count;
+        if (modelCount == 0) return;
+        NSInteger tableCount = [strongSelf.tableView numberOfRowsInSection:0];
+        if (modelCount != tableCount) {
+            // 数据源已新增行但表尚未同步：整表刷新让行数一致
+            [strongSelf.tableView reloadData];
+        } else {
+            NSIndexPath *idx = [NSIndexPath indexPathForRow:(modelCount - 1) inSection:0];
+            [strongSelf.tableView reloadRowsAtIndexPaths:@[idx] withRowAnimation:UITableViewRowAnimationNone];
+        }
+        [strongSelf scrollToBottomAnimated:NO];
+    });
 }
 
 - (void)handleStop {
