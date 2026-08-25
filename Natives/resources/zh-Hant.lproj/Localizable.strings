@@ -3,82 +3,82 @@
   StringLocalization
 */
 
-"game.menu.force_close" = "强制关闭";
-"game.menu.confirm.force_close" = "确认强制关闭？";
-"game.menu.log_output" = "日志输出";
-"game.menu.custom_controls" = "按键布局";
+"game.menu.force_close" = "強制關閉";
+"game.menu.confirm.force_close" = "你是否肯定想強制關閉？";
+"game.menu.log_output" = "日誌輸出";
+"game.menu.custom_controls" = "自訂控制鍵";
 "game.menu.multiplayer" = "联机";
-"game.menu.toggle_stats" = "开关 FPS/内存显示";
-"game.menu.toggle_controls" = "隐藏/显示控制按钮";
-"game.menu.toggle_virtual_mouse" = "虚拟鼠标开关";
-"game.menu.toggle_keyboard" = "游戏内键盘开关";
-"game.menu.resolution" = "分辨率调整";
-"game.menu.resolution.message" = "选择游戏分辨率缩放比例";
+"game.menu.toggle_stats" = "切換 FPS/記憶體顯示";
+"game.menu.toggle_controls" = "隱藏/顯示控制按鈕";
+"game.menu.toggle_virtual_mouse" = "虛擬滑鼠開關";
+"game.menu.toggle_keyboard" = "遊戲內鍵盤開關";
+"game.menu.resolution" = "解析度調整";
+"game.menu.resolution.message" = "選擇遊戲解析度縮放比例";
 
-"game.note.airplay" = "Minecraft 正在通过隔空播放（AirPlay）到其他设备显示";
+"game.note.airplay" = "我的世界正在AirPlay鏡像顯示器中顯示";
 
-"game.title.exit_code" = "游戏非正常退出，错误代码%d";
+"game.title.exit_code" = "遊戲以代碼%d退出";
 
 // The play button
-"Play" = "启动游戏";
+"Play" = "啟動遊戲";
 "Details" = "详情";
 
 // Version categories
-"Installed" = "已安装";
+"Installed" = "已安裝";
 "Snapshot" = "快照";
-"Releases" = "正式版";
+"Releases" = "發行";
 "Unstable" = "不稳定";
-"Old-beta" = "远古 beta 版";
-"Old-alpha" = "远古 alpha 版";
+"Old-beta" = "遠古beta版";
+"Old-alpha" = "遠古alpha版";
 
 // Custom controls
-"Copy" = "复制";
+"Copy" = "複製";
 "Edit" = "修改";
-"Move" = "移动";
+"Move" = "移動";
 "Remove" = "移除";
-"Resize" = "调整大小";
+"Resize" = "調整大小";
 // Visibility
 "Always" = "始终";
 "In game" = "游戏中";
 "In menu" = "菜单中";
 
 "custom_controls.button_edit.forward_lock" = "前进锁定";
-"custom_controls.button_edit.name" = "名称";
+"custom_controls.button_edit.name" = "名稱";
 "custom_controls.button_edit.size" = "大小";
-"custom_controls.button_edit.mapping" = "映射";
+"custom_controls.button_edit.mapping" = "對映";
 "custom_controls.button_edit.orientation" = "方向";
-"custom_controls.button_edit.toggleable" = "可切换";
-"custom_controls.button_edit.mouse_pass" = "鼠标穿透";
-"custom_controls.button_edit.swipeable" = "可滑动";
-"custom_controls.button_edit.bg_color" = "背景颜色";
-"custom_controls.button_edit.stroke_width" = "边框宽度 (%)";
-"custom_controls.button_edit.stroke_color" = "边框颜色";
-"custom_controls.button_edit.corner_radius" = "圆角半径 (%)";
-"custom_controls.button_edit.opacity" = "不透明度 (%)：";
+"custom_controls.button_edit.toggleable" = "可切換";
+"custom_controls.button_edit.mouse_pass" = "滑鼠傳入";
+"custom_controls.button_edit.swipeable" = "可滑動";
+"custom_controls.button_edit.bg_color" = "背景顏色";
+"custom_controls.button_edit.stroke_width" = "邊框寬度 (px)：";
+"custom_controls.button_edit.stroke_color" = "邊框顏色";
+"custom_controls.button_edit.corner_radius" = "圓角半徑 (%)";
+"custom_controls.button_edit.opacity" = "不透明度（%）";
 "custom_controls.button_edit.visibility" = "可见性";
 "custom_controls.button_edit.section.basic" = "基础";
 "custom_controls.button_edit.section.input" = "输入";
 "custom_controls.button_edit.section.behavior" = "行为";
 "custom_controls.button_edit.section.appearance" = "外观";
 
-"custom_controls.button_menu.add_subbutton" = "添加子按钮";
-"custom_controls.control_menu.discard_changes" = "取消更改";
+"custom_controls.button_menu.add_subbutton" = "添加子按鈕";
+"custom_controls.control_menu.discard_changes" = "放棄變更";
 "custom_controls.control_menu.exit" = "退出";
-"custom_controls.control_menu.exit.warn" = "您将会退出且不保存任何更改。";
-"custom_controls.control_menu.save" = "保存";
-"custom_controls.control_menu.save.error.default" = "控件名称不能是“default”，因为它是不可更改的。";
-"custom_controls.control_menu.save.error.json" = "JSON 文件错误";
-"custom_controls.control_menu.save.error.write" = "保存按键布局时发生错误";
-"custom_controls.control_menu.load" = "加载";
-"custom_controls.control_menu.make_default" = "设置游戏默认的按键布局";
-"custom_controls.control_menu.safe_area" = "安全区域";
-"custom_controls.control_menu.add_button" = "添加按键";
-"custom_controls.control_menu.add_drawer" = "添加组合键";
+"custom_controls.control_menu.exit.warn" = "你將要在尚未儲存更改的情況下退出";
+"custom_controls.control_menu.save" = "儲存";
+"custom_controls.control_menu.save.error.default" = "控制鍵的名稱不能為「default」，因為它會被覆寫。";
+"custom_controls.control_menu.save.error.json" = "JSON 錯誤";
+"custom_controls.control_menu.save.error.write" = "儲存檔案時發生錯誤";
+"custom_controls.control_menu.load" = "載入";
+"custom_controls.control_menu.make_default" = "設為預設植";
+"custom_controls.control_menu.safe_area" = "安全區";
+"custom_controls.control_menu.add_button" = "添加按鈕";
+"custom_controls.control_menu.add_drawer" = "增加清單";
 "custom_controls.control_menu.add_joystick" = "添加摇杆";
-"custom_controls.error.incompatible" = "此控件版本（代码 %d）在当前启动器版本中尚未实现。";
-"custom_controls.hint" = "长按屏幕上的任意位置以获取更多选项";
+"custom_controls.error.incompatible" = "此控制版本（號碼 %d）在這個啟動器構建中沒有實現。";
+"custom_controls.hint" = "長按螢幕上的任何位置以顯示更多選項";
 
-"init.migrateDir" = "目前 Amethyst 数据目录为%@。所有的游戏资源已移动到最新目录。";
+"init.migrateDir" = "Amethyst數據資料夾現為%@。你的所有已有資料已被移動到新位置。";
 
 "java.error.missing_main_class" = "%@ 缺少 main class 属性。如果这是一个 mod，请将其放入所选实例的 “mods” 文件夹。";
 "java.error.missing_runtime" = "%@ 需要 Java %d 或更高版本才能运行。请先安装并在 管理运行时 中指定。";
@@ -86,41 +86,41 @@
 "launcher.mcl.downloading_file" = "正在下载 %@";
 "launcher.mcl.error_download" = "下载 %@ 失败：%@";
 
-"launcher.menu.custom_controls" = "自定义控制按键";
-"launcher.menu.install_jar" = "安装 .jar";
+"launcher.menu.custom_controls" = "自訂控制鍵";
+"launcher.menu.install_jar" = "安裝 .jar";
 "launcher.menu.execute_jar" = "执行 .jar";
 "launcher.menu.import_modpack" = "导入整合包";
 
-"launcher.wait_jit.title" = "请等待应用获取到JIT(Just-in-time)";
-"launcher.wait_jit.message" = "Amethyst启动器必须要JIT (Just-in-time) 权限才能启动游戏";
+"launcher.wait_jit.title" = "正在等待JIT";
+"launcher.wait_jit.message" = "Amethyst依賴即時編譯令Java以最大性能執行。";
 "launcher.wait_jit_trollstore.message" = "如果仍然看到此消息，请在 TrollStore 中启用 URL Scheme。";
 
-"login.error.username.outOfRange" = "用户名必须在 3-16 个字符以内";
+"login.error.username.outOfRange" = "用戶名必須是在3至16個字元之間。";
 "login.error.fields.empty" = "请填写所有字段";
 "login.error.invalid_credentials" = "用户名或密码错误";
 "login.error.token_missing" = "访问令牌或客户端令牌缺失";
 "login.error.token_expired" = "认证令牌已过期，请重新登录";
 "login.error.invalid_response" = "服务器响应无效";
 
-"login.alert.field.username" = "用户名";
+"login.alert.field.username" = "用戶名";
 "login.alert.field.password" = "密码";
 "login.alert.field.server" = "服务器地址";
 "login.error.invalid_server" = "服务器地址无效";
 
-"login.jit.checking" = "检查是否开启 JIT 权限";
-"login.jit.enabled" = "JIT 权限已启用";
+"login.jit.checking" = "正在檢查即時編譯";
+"login.jit.enabled" = "即時編譯已啟動";
 "login.jit.fail" = "无法启用 JIT。";
 "login.jit.fail.title" = "无法在您的设备上启用 JIT。";
 "login.jit.fail.description" = "没有集成可在您的设备上自动启用 JIT，现在需要手动启用。错误已记录到 latestlog.txt。";
 "login.jit.fail.description_unsupported" = "检测到不受支持的安装方法。请使用受支持的方法重新安装。";
 
 // Login buttons
-"login.menu.sendlogs" = "发送日志文件";
-"login.option.add" = "添加账户";
-"login.option.select" = "选择账户";
+"login.menu.sendlogs" = "發送你的日誌";
+"login.option.add" = "新增帳號";
+"login.option.select" = "選擇帳號";
 "login.option.demo" = "演示账户";
-"login.option.microsoft" = "微软账户";
-"login.option.local" = "本地账户";
+"login.option.microsoft" = "微軟帳戶";
+"login.option.local" = "本地帳戶";
 "login.option.3rdparty" = "第三方账户";
 
 "login.warn.title.legacy_device" = "Amethyst 的下一个版本将与此设备不兼容。";
@@ -130,23 +130,23 @@
 "login.warn.title.limited_ram" = "该设备的可用内存有限。";
 "login.warn.message.limited_ram" = "我们建议启用自动分配内存大小，以防止不稳定和性能问题。";
 
-"login.warn.title.demomode" = "您现在是演示账户";
-"login.warn.message.demomode" = "演示模式作为离线和本地模式的替代，将允许你登录到一个尚未购买游戏的微软账户中游玩 1.3.1 及更新版本的试玩版本。因为官方启动器的一些特性，在较旧版本中会包含完整的游戏。详情请参阅 AngleAuraMC 官网，了解更多关于离线模式的过渡。";
+"login.warn.title.demomode" = "你的帳戶是一個示範帳戶";
+"login.warn.message.demomode" = "作為離線和本地模式的代替，示範模式會允許你用一個不擁有遊戲的微軟帳戶來登入，並遊玩在版本1.3.1引入的Java版試玩版。由於官方的啟動器沒有加入限制，更舊的版本將含有完整的遊戲。要了解更多關於從離線模式過渡到示範模式的資訊，請瀏覽我們的網頁。";
 
-"login.warn.title.localmode" = "关于离线模式";
+"login.warn.title.localmode" = "離線模式現為本地模式。";
 "login.warn.message.localmode" = "该改版启动器支持离线模式并使用其下载游戏。\n您仍可使用离线账户游玩，但是尽量要支持正版。\n可前往 https://minecraft.net 购买正版 Minecraft。";
 
-"login.msa.error.xsts.noxboxacc" = "此微软账户没有注册 Xbox 账户。请确认您已注册了 Xbox 账户。\n错误代码：2148916233";
-"login.msa.error.xsts.noxbox" = "Xbox Live 目前在您的国家/地区不可用，可能是 Microsoft 封锁了您的地区，请尝试使用加速器。\n错误代码：2148916235";
-"login.msa.error.xsts.krverify" = "您的账户必须通过你父母同意方可通过验证。(盲猜注册时填错生日日期了 awa)\n错误代码：2148916236 或 2148916237";
-"login.msa.error.xsts.underage" = "您的账户需要绑定家长账户才能进行下一步。(盲猜注册时填错生日日期了 awa)\n错误代码：2148916238";
+"login.msa.error.xsts.noxboxacc" = "這個微軟帳戶沒有註冊的Xbox用戶檔案。請確定你已經註冊Xbox用戶檔案。\n錯誤代碼：2148916233";
+"login.msa.error.xsts.noxbox" = "Xbox Live不適用於你的國家。\n錯誤代碼：2148916235";
+"login.msa.error.xsts.krverify" = "你的帳戶必須由你的家長認證，方可繼續。\n錯誤代碼：2148916236或2148916237。";
+"login.msa.error.xsts.underage" = "你的帳戶必須要連結到一個家長帳戶，方可繼續。\n錯誤代碼：2148916238";
 
-"login.msa.progress.acquireAccessToken" = "(1/6) 请求访问令牌";
-"login.msa.progress.acquireXBLToken" = "(2/6) 请求 Xbox Live 令牌";
-"login.msa.progress.acquireXSTS" = "(3/5)正在获取 XSTS";
-"login.msa.progress.acquireXboxProfile" = "(4/6) 获取 Xbox 配置文件";
-"login.msa.progress.acquireMCToken" = "(5/6) 请求 Minecraft 令牌";
-"login.msa.progress.checkMCProfile" = "(6/6) 检查 Minecraft 配置文件";
+"login.msa.progress.acquireAccessToken" = "(1/5) 正在取得取用金鑰";
+"login.msa.progress.acquireXBLToken" = "(2/5) 正在取得Xbox Live金鑰";
+"login.msa.progress.acquireXSTS" = "正在取得XSTS";
+"login.msa.progress.acquireXboxProfile" = "(3/5) 正在取得Xbox用戶檔案";
+"login.msa.progress.acquireMCToken" = "(4/5) 正在取得我的世界金鑰";
+"login.msa.progress.checkMCProfile" = "(5/5) 正在檢查我的世界用戶檔案";
 
 "login.3rdparty.progress.auth" = "(1/2)正在通过第三方服务器进行认证";
 "login.3rdparty.progress.refresh" = "(2/2)正在刷新第三方认证";
@@ -155,76 +155,76 @@
 "login.3rdparty.2fa.code" = "验证码";
 "login.3rdparty.2fa.empty" = "验证码不能为空";
 
-"News" = "新闻";
+"News" = "新聞";
 "preference.title.news_url" = "新闻网址";
 "preference.detail.news_url" = "设置新闻页面的网址";
 "preference.title.reset_news_url" = "恢复默认新闻网址";
 "preference.detail.reset_news_url" = "将新闻网址重置为默认值";
 "Profiles" = "实例";
-"Settings" = "设置";
+"Settings" = "設定";
 
-"preference.section.general" = "启动器设置";
+"preference.section.general" = "一般設定";
 "preference.section.ai" = "AI 助手";
-"preference.section.video" = "视频设置";
+"preference.section.video" = "動畫設定";
 "preference.section.footer.video" = "自动渲染器允许 Amethyst 选择基于 Minecraft 版本的最佳选项。减少分辨率降低 GPU 工作量以提高性能。";
 "preference.section.mobileglues" = "MobileGlues 渲染器";
 "preference.section.footer.mobileglues" = "这些设置在渲染器选择为 MobileGlues 或 Vulkan 时生效。Vulkan 渲染器的 OpenGL 回退使用 MobileGlues（对齐 Ynnyny 仓库），config.json 会被读取。Auto 渲染器会被解析为 ANGLE，不会加载 MobileGlues，设置不生效。配置将在游戏启动时写入 <POJAV_HOME>/MG/config.json。";
-"preference.section.control" = "自定义控制键";
-"preference.section.debug" = "UI设置";
-"preference.section.footer.debug" = "除了调试外，这些设置可能对自定义控件有用。您可能需要重新启动启动器才能使更改生效。";
+"preference.section.control" = "自定控制鍵";
+"preference.section.debug" = "用戶界面除錯選項";
+"preference.section.footer.debug" = "除了除錯外，這些選項可能對自定義控制鍵有用。你可能需要重新啟動啟動器來讓更變生效。";
 //"preference.section.footer.control" = "";
-"preference.section.java" = "Java 调整";
+"preference.section.java" = "Java 選項";
 //"preference.section.footer.java" = "";
 
-"preference.title.confirm" = "确认吗？";
+"preference.title.confirm" = "你確定嗎？";
 
-"preference.title.game_directory" = "游戏目录";
-"preference.title.confirm.delete_game_directory" = "目录 %@ 将被永久删除，并且无法恢复。";
-"preference.multidir.add_directory" = "添加游戏目录";
+"preference.title.game_directory" = "遊戲資料夾";
+"preference.title.confirm.delete_game_directory" = "實例%@會被永久刪除，且不能回復。";
+"preference.multidir.add_directory" = "新增遊戲目錄";
 
-"preference.title.check_sha" = "检查游戏完整性";
-"preference.detail.check_sha" = "此选项将强制启动器在哈希值可用时检查下载文件以防止下载错误。";
-"preference.title.cosmetica" = "启用 Cosmetica 披风";
-"preference.detail.cosmetica" = "启用来自 Cosmetica（原 Arc ）的披风。欲了解更多信息，请访问 https://arcapes.com。需要 OptiFine。";
+"preference.title.check_sha" = "在下載後檢查檔案";
+"preference.detail.check_sha" = "這個選項強制啟動器在可用的情況下檢查檔案的雜湊值。這樣做能夠防止有問題的下載。";
+"preference.title.cosmetica" = "Cosmetica披風";
+"preference.detail.cosmetica" = "啟用來自Cosmetica（先前是Arc）的披風。要查看更多資訊請到 https://cosmetica.cc 。需要OptiFine。";
 "preference.title.download_source" = "下载源";
 "preference.detail.download_source" = "选择游戏资源下载源。BMCLAPI镜像源提供更快的国内下载速度。";
 "preference.title.download_source-official" = "官方源";
 "preference.title.download_source-bmclapi" = "BMCLAPI镜像源";
-"preference.section.download" = "下载镜像策略";
-"preference.title.fileSource" = "文件下载源";
-"preference.detail.fileSource" = "游戏本体、库与资源文件的下载策略（Mojang 分发体系）。镜像优先使用 BMCLAPI 镜像。";
-"preference.title.assetSearchSource" = "资源搜索源";
-"preference.detail.assetSearchSource" = "Modrinth / CurseForge 的 API 查询策略。镜像优先使用 MCIM 镜像。";
-"preference.title.assetDownloadSource" = "资源下载源";
-"preference.detail.assetDownloadSource" = "模组、光影、资源包等文件的 CDN 下载策略。镜像优先使用 MCIM 镜像。";
-"preference.title.modLoaderSource" = "加载器源";
-"preference.detail.modLoaderSource" = "Fabric / Forge / NeoForge 的 meta、maven 与安装器下载策略。镜像优先使用 BMCLAPI 镜像。";
-"preference.title.mirror_policy-official_first" = "官方优先";
-"preference.title.mirror_policy-mirror_first" = "镜像优先";
+"preference.section.download" = "下載鏡像策略";
+"preference.title.fileSource" = "檔案下載源";
+"preference.detail.fileSource" = "遊戲本體、庫與資源檔案的下載策略（Mojang 分發體系）。鏡像優先使用 BMCLAPI 鏡像。";
+"preference.title.assetSearchSource" = "資源搜尋源";
+"preference.detail.assetSearchSource" = "Modrinth / CurseForge 的 API 查詢策略。鏡像優先使用 MCIM 鏡像。";
+"preference.title.assetDownloadSource" = "資源下載源";
+"preference.detail.assetDownloadSource" = "模組、光影、資源包等檔案的 CDN 下載策略。鏡像優先使用 MCIM 鏡像。";
+"preference.title.modLoaderSource" = "載入器源";
+"preference.detail.modLoaderSource" = "Fabric / Forge / NeoForge 的 meta、maven 與安裝器下載策略。鏡像優先使用 BMCLAPI 鏡像。";
+"preference.title.mirror_policy-official_first" = "官方優先";
+"preference.title.mirror_policy-mirror_first" = "鏡像優先";
 "preference.title.mod_mirror" = "模组镜像源";
 "preference.detail.mod_mirror" = "选择模组/光影/资源包/数据包/整合包/世界的 API 与文件下载镜像源。MCIM镜像源（mod.mcimirror.top）提供国内加速，兼容 Modrinth 和 CurseForge 接口。";
 "preference.title.mod_mirror-official" = "官方源";
 "preference.title.mod_mirror-mcim" = "MCIM镜像源";
-"preference.title.debug_logging" = "调试日志";
-"preference.detail.debug_logging" = "完整的记录启动器的各种活动事件到latestlog.txt文件内,有助于开发者更容易的发现错误。但Minecraft游戏内FPS可能会降低(频繁的记录日志内容会使得CPU负载变高)";
-"preference.title.jitstreamer_server" = "JitStreamer的服务器地址";
-"preference.detail.jitstreamer_server" = "该选项将自定义获取 JIT 权限地址的 JitStreamer 服务器。能用就别动！";
+"preference.title.debug_logging" = "除錯日誌";
+"preference.detail.debug_logging" = "把內部設定和動作記錄到lateslog.txt。這能幫助開發者更容易地找到問題，但由於日誌寫入的次數會增多，我的世界的運行速度可能會減慢。";
+"preference.title.jitstreamer_server" = "JitStreamer伺服器地址";
+"preference.detail.jitstreamer_server" = "這個選項允許你設定一個自定義JitStreamer IP地址，例如一個自托管的伺服器。如果你使用預設的JitStreamer伺服器，你可以忽略這個選項。";
 "preference.title.enable_altkit" = "使用 AltKit 启用 JIT";
 "preference.detail.enable_altkit" = "启用时，Amethyst 将尝试连接到本地 AltServers 以启用 JIT。";
-"preference.title.appicon" = "设置应用图标";
-"preference.detail.appicon" = "自定义图标目前不可用,会在接下来的版本中恢复此功能。";
-"preference.title.appicon-default" = "设置 Amethyst 图标为浅色";
-"preference.title.appicon-dark" = "设置 Amethyst 图标为深色";
+"preference.title.appicon" = "設定應用程式圖示";
+"preference.detail.appicon" = "讓你能選擇Amethyst在主畫面上的圖示。";
+"preference.title.appicon-default" = "熟悉的明亮Amethyst";
+"preference.title.appicon-dark" = "熟悉的暗黑Amethyst";
 "preference.title.appicon-development" = "已封装开发";
-"preference.title.hidden_sidebar" = "默认隐藏主菜单侧边栏";
+"preference.title.hidden_sidebar" = "預設隱藏主選單的側邊欄";
 "preference.detail.hidden_sidebar" = "允许您在 iOS 14 及更高版本中默认或旋转中隐藏主菜单上的侧边栏。";
 
-"preference.title.reset_warnings" = "重置所有警告";
-"preference.title.done.reset_warnings" = "带有“警告”的设置选项已被恢复默认状态";
+"preference.title.reset_warnings" = "重設所有警告";
+"preference.title.done.reset_warnings" = "所有警告已被重設。";
 
-"preference.title.reset_settings" = "重置所有设置";
-"preference.title.confirm.reset_settings" = "这将重制您所有的自定义首选项，包括分辨率、按钮大小以及 Java 参数。";
-"preference.title.done.reset_settings" = "已重置所有设置";
+"preference.title.reset_settings" = "重設所有設定";
+"preference.title.confirm.reset_settings" = "這會移除你所有的自定義偏好設定，包括解像度、按鈕大小和Java參數。";
+"preference.title.done.reset_settings" = "所有的預設設定已被回復。";
 
 "preference.title.erase_demo_data" = "清除演示游戏数据";
 "preference.title.confirm.erase_demo_data" = "进行此操作将清除演示账户使用的所有演示游戏版本和数据。";
@@ -237,18 +237,18 @@
 "preference.title.renderer.release.angle" = "ANGLE";
 "preference.title.renderer.release.zink" = "Zink";
 
-"preference.title.renderer.debug.auto" = "自动：gl4es或MobileGlues";
-"preference.title.renderer.debug.gl4es" = "holy gl4es 1.1.4 - OpenGL版本2.1";
-"preference.title.renderer.debug.angle" = "ANGLE（仅支持1.17+）- OpenGL 版本 3.2";
+"preference.title.renderer.debug.auto" = "自動：gl4es或ANGLE";
+"preference.title.renderer.debug.gl4es" = "gl4es 1.1.4 － 輸出OpenGL 2.1";
+"preference.title.renderer.debug.angle" = "ANGLE（1.17+）— 輸出OpenGL 3.2（核心，有限）";
 "preference.title.renderer.debug.mg" = "MobileGlues（1.17+）- OpenGL 版本 4.0，实验性";
-"preference.title.renderer.debug.zink" = "Zink（Mesa 25.0.7）- OpenGL 版本 4.1";
+"preference.title.renderer.debug.zink" = "Zink (Mesa 25.0.7) － 輸出OpenGL 4.1";
 "preference.title.renderer.debug.ltw" = "LTW - OpenGL Core→ES 转译（1.17+）";
 "preference.title.renderer.debug.vulkan" = "MoltenVK（26.2+）- 导出 Vulkan 1.4";
 
-"preference.detail.renderer" = "更改使用的 OpenGL 渲染器";
+"preference.detail.renderer" = "改變要使用的OpenGL渲染引擎";
 
-"preference.title.resolution" = "分辨率缩放 (%)";
-"preference.detail.resolution" = "降低分辨率会影响游戏内 UI 大小，也可能会提升FPS。默认分辨率为屏幕的分辨率，此功能可能不适用于新版 Minecraft。";
+"preference.title.resolution" = "解像度（%）";
+"preference.detail.resolution" = "允許你降低遊戲的解像度。";
 
 "preference.title.disable_game_vsync" = "解锁帧率（关闭垂直同步）";
 "preference.detail.disable_game_vsync" = "Minecraft 默认开启垂直同步，会把帧率锁在屏幕刷新率（60Hz 锁 60、120Hz 锁 120）。开启后启动器会强制关闭垂直同步，让游戏帧率可超过屏幕刷新率。如需省电降温或偏好垂直同步可关闭。";
@@ -256,8 +256,8 @@
 "preference.title.performance_hud" = "显示性能 HUD";
 "preference.detail.performance_hud" = "当可用时显示性能监控覆盖层。该功能仅支持 iOS 16 及以上系统和 Angle 渲染器。";
 
-"preference.title.fullscreen_airplay" = "全屏 AirPlay";
-"preference.detail.fullscreen_airplay" = "允许在外部显示器上全屏显示游戏，而不是直接镜像显示。";
+"preference.title.fullscreen_airplay" = "全螢幕隔空投放";
+"preference.detail.fullscreen_airplay" = "允許在外部顯示器上展示全螢幕遊戲畫面，而不是影射螢幕上的內容。";
 "preference.title.silence_other_audio" = "游戏打开时暂停音频";
 "preference.detail.silence_other_audio" = "启用后将允许 Amethyst 在启动游戏时暂停其他应用的音频。";
 "preference.title.silence_with_switch" = "使用静音开关禁用音频";
@@ -315,18 +315,18 @@
 "preference.detail.gesture_hotbar" = "启用手势，例如点击快捷栏物品槽、双手交换物品、丢弃物品";
 "preference.title.disable_haptics" = "禁用屏幕触觉反馈";
 "preference.detail.disable_haptics" = "关闭游戏中的触觉反馈（震动）效果，可节省电量。";
-"preference.title.press_duration" = "长按延迟（毫秒）";
-"preference.detail.press_duration" = "修改长按摧毁方块、丢弃物品的触发时长。";
-"preference.title.button_scale" = "屏幕按钮缩放 (%)";
-"preference.detail.button_scale" = "如果按钮过小则放大按钮，通常平板用户需要更改此选项。";
-"preference.title.mouse_scale" = "鼠标缩放 (%)";
-"preference.detail.mouse_scale" = "修改虚拟鼠标的大小";
-"preference.title.mouse_speed" = "鼠标速度 (%)";
-"preference.detail.mouse_speed" = "修改虚拟鼠标的移动速度";
-"preference.title.virtmouse_enable" = "虚拟鼠标";
-"preference.detail.virtmouse_enable" = "启用此选项以在游戏启动时显示虚拟鼠标";
-"preference.title.slideable_hotbar" = "可滑动快捷栏";
-"preference.detail.slideable_hotbar" = "使快捷栏像鼠标滚轮一样可滑动";
+"preference.title.press_duration" = "長按時間（毫秒）";
+"preference.detail.press_duration" = "觸發破壞方塊及釋出物件的按壓時間。";
+"preference.title.button_scale" = "螢幕按鈕比例（%）";
+"preference.detail.button_scale" = "如果按鈕太小的話，就增加比例，iPad用戶通常都需要這個選項。";
+"preference.title.mouse_scale" = "滑鼠比例（%）";
+"preference.detail.mouse_scale" = "改變虛擬鼠標的大小";
+"preference.title.mouse_speed" = "滑鼠速度（%）";
+"preference.detail.mouse_speed" = "改變虛擬滑鼠的速度";
+"preference.title.virtmouse_enable" = "虛擬滑鼠";
+"preference.detail.virtmouse_enable" = "啟用這個選項以在啟動時啟動虛擬鼠標。";
+"preference.title.slideable_hotbar" = "可捲動快捷欄";
+"preference.detail.slideable_hotbar" = "令快捷欄能夠以像滑鼠輪一般地捲動";
 
 // Custom mouse pointer
 "preference.title.custom_mouse_pointer" = "自定义鼠标指针";
@@ -334,12 +334,12 @@
 "preference.title.reset_mouse_pointer" = "恢复默认鼠标指针";
 "preference.detail.reset_mouse_pointer" = "将鼠标指针恢复为默认外观。";
 
-"preference.title.gyroscope_enable" = "启用陀螺仪控制";
+"preference.title.gyroscope_enable" = "啟用陀螺儀控制";
 "preference.detail.gyroscope_enable" = "启用此功能会允许您通过转动设备来在游戏中转动视角";
 "preference.title.gyroscope_invert_x_axis" = "左右反转陀螺仪";
 "preference.detail.gyroscope_invert_x_axis" = "反转陀螺仪的 X 轴";
-"preference.title.gyroscope_sensitivity" = "陀螺仪控制灵敏度";
-"preference.detail.gyroscope_sensitivity" = "调整陀螺仪控制的灵敏度";
+"preference.title.gyroscope_sensitivity" = "陀螺儀控制靈敏度";
+"preference.detail.gyroscope_sensitivity" = "調整陀螺儀控制的靈敏度";
 
 "preference.title.manage_runtime" = "管理 Java";
 "preference.title.confirm.delete_runtime" = "%@ 将被删除";
@@ -351,25 +351,25 @@
 "preference.manage_runtime.footer.java17" = "这是 Minecraft 1.17 及更高版本的默认版本。";
 "preference.manage_runtime.header.invalid" = "无效的运行时";
 
-"preference.title.java_args" = "JVM 启动参数";
+"preference.title.java_args" = "JVM 啟動引數";
 "preference.detail.java_args" = "当启动 Minecraft 时将参数传递到 Java。小心，如果修改不正确，可能会使游戏崩溃。";
-"preference.placeholder.java_args" = "自定义参数...";
+"preference.placeholder.java_args" = "提供選項......";
 "preference.title.env_variables" = "环境变量";
 "preference.detail.env_variables" = "在启动 Minecraft 时设置自定义环境变量。小心，这可能会使游戏崩溃。";
 "preference.placeholder.env_variables" = "指定变量...";
-"preference.title.auto_ram" = "自动设置内存大小";
-"preference.detail.auto_ram" = "启用内存自动调节";
-"preference.warn.auto_ram" = "在未越狱的设备禁用此选项上可能会导致应用不稳定。请谨慎更改此选项。";
-"preference.title.allocated_memory" = "内存分配 (MB)";
-"preference.detail.allocated_memory" = "控制给 Minecraft 分配多少内存";
-"preference.warn.allocated_memory" = "由于系统的限制,可能会导致游戏不稳定";
-"preference.title.custom_env" = "环境变量";
+"preference.title.auto_ram" = "自動調節RAM";
+"preference.detail.auto_ram" = "啟用 RAM 自動調節";
+"preference.warn.auto_ram" = "在沒有越獄的裝置上收據這個選項能夠導致不穩定。請小心繼續。";
+"preference.title.allocated_memory" = "記憶體分配（MB）";
+"preference.detail.allocated_memory" = "分配多少記憶體給Minecraft";
+"preference.warn.allocated_memory" = "由於系統限制，在這個數值或以上時，這個選項可能會導致不穩定。";
+"preference.title.custom_env" = "環境變量";
 "preference.detail.custom_env" = "此选项正在构建中。在此期间创建并编辑 custom_env.txt。";
 
-"preference.title.debug_skip_wait_jit" = "跳过获取\"JIT(Just-in-time)\"请求";
-"preference.detail.debug_skip_wait_jit" = "这并不是让您在没有 JIT 的情况下启动，而是跳过调试检查，因为在越狱设备上会检查失败。";
-"preference.title.debug_ipad_ui" = "使用 iPadOS 界面";
-"preference.detail.debug_ipad_ui" = "开启后会使用 iPad OS 的专用界面，否则使用 iPhone 的界面。";
+"preference.title.debug_skip_wait_jit" = "跳過「正在等待即時編譯」對話方塊。";
+"preference.detail.debug_skip_wait_jit" = "這不會允許你在沒有即時編譯的情況下啟動，而只會跳過除錯器檢測，因為這個檢測在部份越獄中無法正常運作。";
+"preference.title.debug_ipad_ui" = "解鎖iPadOS用戶介面";
+"preference.detail.debug_ipad_ui" = "當啟動時或當iPhone用戶介面被禁用時，解鎖iPad專屬用戶介面（提示、鍵盤等）";
 
 "ai.fix.dash_title" = "AI 修复诊断工作台";
 "ai.fix.dash_subtitle" = "先分析，再修复，所有高风险操作都将等待确认";
@@ -440,14 +440,14 @@
 "ai.fix.stopped_by_user" = "已停止修复";
 "ai.fix.approve" = "同意";
 "ai.fix.reject" = "拒绝";
-"preference.title.debug_auto_correction" = "自动校正";
-"preference.detail.debug_auto_correction" = "在游戏中输入文本时启用自动校正。";
-"preference.title.debug_hide_home_indicator" = "隐藏主屏幕指示键";
-"preference.detail.debug_hide_home_indicator" = "此选项将会禁用主屏幕指示键锁定，你将会需要启用引导式访问来同时隐藏和锁定主屏幕指示键。";
-"preference.title.debug_show_layout_bounds" = "显示边界布局";
-"preference.detail.debug_show_layout_bounds" = "显示剪辑边界、边距";
-"preference.title.debug_show_layout_overlap" = "布局重叠显示";
-"preference.detail.debug_show_layout_overlap" = "用浅黄色覆盖每个视图，颜色越深则重叠越多";
+"preference.title.debug_auto_correction" = "自動校正";
+"preference.detail.debug_auto_correction" = "當在遊戲中輸入文字時，啟用自動校正。";
+"preference.title.debug_hide_home_indicator" = "隱藏主畫面指示器";
+"preference.detail.debug_hide_home_indicator" = "這會禁用主畫面指示器鎖定。你必須使用指導模式來同時隱藏和鎖定主畫面顯示器。";
+"preference.title.debug_show_layout_bounds" = "顯示佈局界線";
+"preference.detail.debug_show_layout_bounds" = "顯示剪輯範圍、邊界";
+"preference.title.debug_show_layout_overlap" = "顯示重複的佈局";
+"preference.detail.debug_show_layout_overlap" = "通過用透明顏色來覆蓋所有視圖，來顯示重複的視圖";
 
 "preference.profile.title.name" = "名称";
 "preference.profile.title.loader_type" = "加载器类型";
@@ -491,7 +491,7 @@
 "controller_configurator.playstation.title.bumper_right" = "R1";
 "controller_configurator.playstation.title.trigger_left" = "L2";
 "controller_configurator.playstation.title.trigger_right" = "R2";
-"controller_configurator.playstation.title.named_back" = "选择";
+"controller_configurator.playstation.title.named_back" = "選擇";
 "controller_configurator.playstation.title.named_start" = "开始";
 "controller_configurator.playstation.title.named_a" = "叉";
 "controller_configurator.playstation.title.named_b" = "圆";
@@ -719,185 +719,185 @@
 
 // 下载进度与速率（Phase 6 Task 6.1）
 "download.speed.format" = "%@/s";
-"download.progress.file_count" = "%1$ld/%2$ld 个文件 · %3$@/%4$@";
+"download.progress.file_count" = "%1$ld/%2$ld 個檔案 · %3$@/%4$@";
 "download.progress.file_count_short" = "%1$ld/%2$ld · %3$@";
 
 // 下载历史（Phase 6 Task 6.2）
-"download.history.title" = "下载历史";
-"download.history.entry" = "历史";
+"download.history.title" = "下載歷史";
+"download.history.entry" = "歷史";
 "download.history.clear" = "清空";
-"download.history.clear_confirm" = "确定清空全部下载历史？此操作不可恢复。";
+"download.history.clear_confirm" = "確定清空全部下載歷史？此操作無法復原。";
 "download.history.cancel" = "取消";
-"download.history.empty" = "暂无下载历史";
+"download.history.empty" = "暫無下載歷史";
 "download.history.result.success" = "成功";
-"download.history.result.failed" = "失败";
+"download.history.result.failed" = "失敗";
 
 // 统一任务阶段标题（redesign-download-ui Phase 1 Task 1.4 / Phase 7 Task 7.1）
-"taskStage.title.fetchVersionManifest" = "获取版本清单";
-"taskStage.title.downloadVersionJSON" = "下载版本 JSON";
-"taskStage.title.downloadClient" = "下载客户端";
-"taskStage.title.downloadLibraries" = "下载库文件";
-"taskStage.title.downloadAssets" = "下载资源文件";
-"taskStage.title.verifyIntegrity" = "验证完整性";
-"taskStage.title.fetchLoaderProfile" = "获取加载器 profile";
-"taskStage.title.downloadLoaderLibraries" = "下载加载器库";
-"taskStage.title.writeVersionJSON" = "写入版本 JSON";
-"taskStage.title.downloadInstaller" = "下载安装器";
-"taskStage.title.resolveDependencies" = "解析依赖";
-"taskStage.title.installLoader" = "安装加载器";
+"taskStage.title.fetchVersionManifest" = "取得版本清單";
+"taskStage.title.downloadVersionJSON" = "下載版本 JSON";
+"taskStage.title.downloadClient" = "下載客戶端";
+"taskStage.title.downloadLibraries" = "下載庫檔案";
+"taskStage.title.downloadAssets" = "下載資源檔案";
+"taskStage.title.verifyIntegrity" = "驗證完整性";
+"taskStage.title.fetchLoaderProfile" = "取得載入器 profile";
+"taskStage.title.downloadLoaderLibraries" = "下載載入器庫";
+"taskStage.title.writeVersionJSON" = "寫入版本 JSON";
+"taskStage.title.downloadInstaller" = "下載安裝器";
+"taskStage.title.resolveDependencies" = "解析依賴";
+"taskStage.title.installLoader" = "安裝載入器";
 "taskStage.title.parseModpack" = "解析整合包";
-"taskStage.title.extractFiles" = "解压文件";
-"taskStage.title.downloadDependencies" = "下载依赖文件";
-"taskStage.title.downloadGameFiles" = "下载游戏文件";
-"taskStage.title.finalizeConfig" = "完成配置";
-"taskStage.title.downloadFile" = "下载文件";
+"taskStage.title.extractFiles" = "解壓檔案";
+"taskStage.title.downloadDependencies" = "下載依賴檔案";
+"taskStage.title.downloadGameFiles" = "下載遊戲檔案";
+"taskStage.title.finalizeConfig" = "完成設定";
+"taskStage.title.downloadFile" = "下載檔案";
 
 // 统一进度页（redesign-download-ui Phase 2 / Phase 7 Task 7.1）
-"taskProgress.stage.running" = "进行中";
+"taskProgress.stage.running" = "進行中";
 "taskProgress.state.pending" = "等待中";
-"taskProgress.state.downloading" = "下载中";
-"taskProgress.state.paused" = "已暂停";
+"taskProgress.state.downloading" = "下載中";
+"taskProgress.state.paused" = "已暫停";
 "taskProgress.state.completed" = "已完成";
 "taskProgress.state.cancelled" = "已取消";
-"taskProgress.state.failed" = "失败";
+"taskProgress.state.failed" = "失敗";
 "taskProgress.button.minimize" = "最小化";
 "taskProgress.button.cancel" = "取消";
-"taskProgress.button.pause" = "暂停";
-"taskProgress.button.resume" = "继续";
-"taskProgress.button.retry" = "重试";
-"taskProgress.button.retryWithCount" = "重试 (%1$ld/%2$ld)";
-"taskProgress.button.viewDetail" = "查看详情";
-"taskProgress.button.hideDetail" = "收起详情";
-"taskProgress.total.title" = "总进度";
-"taskProgress.total.indeterminate" = "进行中";
+"taskProgress.button.pause" = "暫停";
+"taskProgress.button.resume" = "繼續";
+"taskProgress.button.retry" = "重試";
+"taskProgress.button.retryWithCount" = "重試 (%1$ld/%2$ld)";
+"taskProgress.button.viewDetail" = "查看詳情";
+"taskProgress.button.hideDetail" = "收合詳情";
+"taskProgress.total.title" = "總進度";
+"taskProgress.total.indeterminate" = "進行中";
 "taskProgress.eta.seconds" = "%ld 秒";
 "taskProgress.eta.minutesSeconds" = "%1$ld 分 %2$ld 秒";
 "taskProgress.eta.minutes" = "%ld 分";
-"taskProgress.eta.hoursMinutes" = "%1$ld 小时 %2$ld 分";
-"taskProgress.eta.hours" = "%ld 小时";
-"taskProgress.eta.format" = "剩余约 %1$@";
-"taskProgress.fileCount.format" = "%1$ld/%2$ld 个文件 · %3$@/%4$@";
-"taskProgress.fileCount.onlyCount" = "%1$ld/%2$ld 个文件";
-"taskProgress.errorDetail.title" = "错误详情";
-"taskProgress.errorDetail.domainCode" = "错误域：%1$@ (code %2$ld)";
-"taskProgress.errorDetail.underlying" = "底层错误：%1$@";
-"taskProgress.errorDetail.retry" = "已重试：%1$ld/%2$ld";
-"taskProgress.errorDetail.stage" = "当前阶段：%1$@";
+"taskProgress.eta.hoursMinutes" = "%1$ld 小時 %2$ld 分";
+"taskProgress.eta.hours" = "%ld 小時";
+"taskProgress.eta.format" = "剩餘約 %1$@";
+"taskProgress.fileCount.format" = "%1$ld/%2$ld 個檔案 · %3$@/%4$@";
+"taskProgress.fileCount.onlyCount" = "%1$ld/%2$ld 個檔案";
+"taskProgress.errorDetail.title" = "錯誤詳情";
+"taskProgress.errorDetail.domainCode" = "錯誤域：%1$@ (code %2$ld)";
+"taskProgress.errorDetail.underlying" = "底層錯誤：%1$@";
+"taskProgress.errorDetail.retry" = "已重試：%1$ld/%2$ld";
+"taskProgress.errorDetail.stage" = "當前階段：%1$@";
 
 // 资源管理界面通用（redesign-resource-managers：六界面 + 基类共用）
 "resman.common.cancel" = "取消";
-"resman.common.delete" = "删除";
+"resman.common.delete" = "刪除";
 "resman.common.ok" = "好";
 "resman.common.done" = "完成";
-"resman.common.select" = "选择";
-"resman.common.close" = "关闭";
-"resman.common.refresh" = "刷新";
+"resman.common.select" = "選擇";
+"resman.common.close" = "關閉";
+"resman.common.refresh" = "重新整理";
 "resman.common.notice" = "提示";
-"resman.common.select_all" = "全选";
-"resman.common.deselect_all" = "取消全选";
-"resman.common.selected_count" = "已选 %ld 项";
-"resman.common.confirm_delete" = "确认删除";
-"resman.common.delete_message" = "确定要删除 %@ 吗？";
-"resman.common.delete_message_irreversible" = "确定要删除 %@ 吗？\n此操作无法撤销。";
-"resman.common.delete_failed" = "删除失败";
-"resman.common.operation_failed" = "操作失败";
-"resman.common.cannot_import" = "无法导入";
-"resman.common.import_failed" = "导入失败";
-"resman.common.import_result" = "导入完成（成功 %1$ld 个，失败 %2$ld 个）";
-"resman.common.go_download" = "去下载";
-"resman.common.enable" = "启用";
-"resman.common.disable" = "禁用";
-"resman.common.disabled_tag" = "已禁用";
-"resman.common.disabled_format" = "%@ · 已禁用";
-"resman.common.unknown_file" = "未知文件";
-"resman.common.unknown_error" = "未知错误";
+"resman.common.select_all" = "全選";
+"resman.common.deselect_all" = "取消全選";
+"resman.common.selected_count" = "已選 %ld 項";
+"resman.common.confirm_delete" = "確認刪除";
+"resman.common.delete_message" = "確定要刪除 %@ 嗎？";
+"resman.common.delete_message_irreversible" = "確定要刪除 %@ 嗎？\n此操作無法復原。";
+"resman.common.delete_failed" = "刪除失敗";
+"resman.common.operation_failed" = "操作失敗";
+"resman.common.cannot_import" = "無法匯入";
+"resman.common.import_failed" = "匯入失敗";
+"resman.common.import_result" = "匯入完成（成功 %1$ld 個，失敗 %2$ld 個）";
+"resman.common.go_download" = "前往下載";
+"resman.common.enable" = "啟用";
+"resman.common.disable" = "停用";
+"resman.common.disabled_tag" = "已停用";
+"resman.common.disabled_format" = "%@ · 已停用";
+"resman.common.unknown_file" = "未知檔案";
+"resman.common.unknown_error" = "未知錯誤";
 "resman.common.pack_format" = "格式 %@";
-"resman.common.batch_delete" = "批量删除";
-"resman.common.delete_complete_failures" = "删除完成，%ld 个失败";
+"resman.common.batch_delete" = "批次刪除";
+"resman.common.delete_complete_failures" = "刪除完成，%ld 個失敗";
 
 // Mod 管理
 "resman.mods.title" = "管理 Mod";
-"resman.mods.search_placeholder" = "搜索本地 Mod...";
-"resman.mods.import" = "导入 Mod";
-"resman.mods.check_update" = "检查更新";
+"resman.mods.search_placeholder" = "搜尋本機 Mod...";
+"resman.mods.import" = "匯入 Mod";
+"resman.mods.check_update" = "檢查更新";
 "resman.mods.filter.all" = "全部";
-"resman.mods.filter.enabled" = "已启用";
-"resman.mods.filter.disabled" = "已禁用";
-"resman.mods.sort.name" = "名称";
-"resman.mods.sort.modified" = "修改时间";
-"resman.mods.empty" = "还没有 Mod";
-"resman.mods.search_empty" = "没有匹配的 Mod";
-"resman.mods.none_selected" = "未选择任何 Mod";
-"resman.mods.no_local_for_update" = "没有本地 Mod 可检查更新。";
-"resman.mods.no_version_info" = "无法获取当前版本信息。";
-"resman.mods.processing" = "处理中...";
-"resman.mods.download" = "下载";
-"resman.mods.download_count" = "%@ 次下载";
-"resman.mods.dir_not_found" = "无法定位 mods 目录";
-"resman.mods.picker_title" = "选择 Mod 文件";
-"resman.mods.link_unavailable" = "链接不可用";
-"resman.mods.link_unavailable_message" = "该 Mod 没有可用的在线链接。";
-"resman.mods.batch.toggle_complete" = "批量%@完成";
-"resman.mods.batch.result_message" = "成功 %1$ld 个，失败 %2$ld 个。";
-"resman.mods.batch.delete_message" = "确定要删除已选的 %ld 个 Mod 吗？\n此操作无法撤销。";
-"resman.mods.update.all_latest" = "所有 Mod 均为最新版本";
-"resman.mods.update.all_latest_skipped" = "所有已识别的 Mod 均为最新版本\n（%ld 个无法识别已跳过）";
-"resman.mods.update.found_title" = "发现 %ld 个可更新";
+"resman.mods.filter.enabled" = "已啟用";
+"resman.mods.filter.disabled" = "已停用";
+"resman.mods.sort.name" = "名稱";
+"resman.mods.sort.modified" = "修改時間";
+"resman.mods.empty" = "還沒有 Mod";
+"resman.mods.search_empty" = "沒有符合的 Mod";
+"resman.mods.none_selected" = "未選擇任何 Mod";
+"resman.mods.no_local_for_update" = "沒有本機 Mod 可檢查更新。";
+"resman.mods.no_version_info" = "無法取得目前版本資訊。";
+"resman.mods.processing" = "處理中...";
+"resman.mods.download" = "下載";
+"resman.mods.download_count" = "%@ 次下載";
+"resman.mods.dir_not_found" = "無法定位 mods 目錄";
+"resman.mods.picker_title" = "選擇 Mod 檔案";
+"resman.mods.link_unavailable" = "連結不可用";
+"resman.mods.link_unavailable_message" = "該 Mod 沒有可用的線上連結。";
+"resman.mods.batch.toggle_complete" = "批次%@完成";
+"resman.mods.batch.result_message" = "成功 %1$ld 個，失敗 %2$ld 個。";
+"resman.mods.batch.delete_message" = "確定要刪除已選的 %ld 個 Mod 嗎？\n此操作無法復原。";
+"resman.mods.update.all_latest" = "所有 Mod 均為最新版本";
+"resman.mods.update.all_latest_skipped" = "所有已識別的 Mod 均為最新版本\n（%ld 個無法識別已略過）";
+"resman.mods.update.found_title" = "發現 %ld 個可更新";
 "resman.mods.update.update_all" = "全部更新";
 "resman.mods.update.latest" = "最新";
-"resman.mods.update.more_total" = "...共 %ld 项";
-"resman.mods.update.skipped_line" = "\n%ld 个 Mod 无法识别已跳过";
-"resman.mods.update.checking" = "正在检查更新...";
-"resman.mods.update.checking_progress" = "正在检查更新（%1$ld/%2$ld）";
-"resman.mods.update.downloading" = "正在下载更新（%1$ld/%2$ld）";
-"resman.mods.update.replacing" = "正在替换文件...";
-"resman.mods.update.failed_title" = "更新失败";
-"resman.mods.update.temp_dir_failed" = "无法创建临时目录：%@";
+"resman.mods.update.more_total" = "...共 %ld 項";
+"resman.mods.update.skipped_line" = "\n%ld 個 Mod 無法識別已略過";
+"resman.mods.update.checking" = "正在檢查更新...";
+"resman.mods.update.checking_progress" = "正在檢查更新（%1$ld/%2$ld）";
+"resman.mods.update.downloading" = "正在下載更新（%1$ld/%2$ld）";
+"resman.mods.update.replacing" = "正在取代檔案...";
+"resman.mods.update.failed_title" = "更新失敗";
+"resman.mods.update.temp_dir_failed" = "無法建立暫存目錄：%@";
 "resman.mods.update.done_title" = "更新完成";
-"resman.mods.update.done_message" = "成功 %1$ld / 失败 %2$ld / 跳过 %3$ld";
+"resman.mods.update.done_message" = "成功 %1$ld / 失敗 %2$ld / 略過 %3$ld";
 
 // 数据包管理
-"resman.datapacks.title" = "管理数据包";
-"resman.datapacks.search_placeholder" = "搜索本地数据包...";
-"resman.datapacks.import" = "导入数据包";
-"resman.datapacks.tip" = "提示：数据包需放入 saves/<世界>/datapacks/ 才能生效，请手动移动到目标世界目录。";
-"resman.datapacks.dir_not_found" = "无法定位 datapacks 目录";
-"resman.datapacks.picker_title" = "选择数据包文件";
-"resman.datapacks.empty" = "还没有数据包";
-"resman.datapacks.search_empty" = "没有匹配的数据包";
+"resman.datapacks.title" = "管理資料包";
+"resman.datapacks.search_placeholder" = "搜尋本機資料包...";
+"resman.datapacks.import" = "匯入資料包";
+"resman.datapacks.tip" = "提示：資料包需放入 saves/<世界>/datapacks/ 才能生效，請手動移動到目標世界目錄。";
+"resman.datapacks.dir_not_found" = "無法定位 datapacks 目錄";
+"resman.datapacks.picker_title" = "選擇資料包檔案";
+"resman.datapacks.empty" = "還沒有資料包";
+"resman.datapacks.search_empty" = "沒有符合的資料包";
 
 // 资源包管理
-"resman.resourcepacks.title" = "管理资源包";
-"resman.resourcepacks.search_placeholder" = "搜索本地资源包...";
-"resman.resourcepacks.import" = "导入资源包";
-"resman.resourcepacks.dir_not_found" = "无法定位 resourcepacks 目录";
-"resman.resourcepacks.picker_title" = "选择资源包文件";
-"resman.resourcepacks.empty" = "还没有资源包";
-"resman.resourcepacks.search_empty" = "没有匹配的资源包";
+"resman.resourcepacks.title" = "管理資源包";
+"resman.resourcepacks.search_placeholder" = "搜尋本機資源包...";
+"resman.resourcepacks.import" = "匯入資源包";
+"resman.resourcepacks.dir_not_found" = "無法定位 resourcepacks 目錄";
+"resman.resourcepacks.picker_title" = "選擇資源包檔案";
+"resman.resourcepacks.empty" = "還沒有資源包";
+"resman.resourcepacks.search_empty" = "沒有符合的資源包";
 
 // 世界管理
 "resman.worlds.title" = "管理世界";
-"resman.worlds.search_placeholder" = "搜索本地世界...";
-"resman.worlds.import" = "导入世界";
-"resman.worlds.dir_not_found" = "无法定位 saves 目录";
-"resman.worlds.picker_title" = "选择世界 zip 文件";
-"resman.worlds.empty" = "还没有世界";
-"resman.worlds.search_empty" = "没有匹配的世界";
-"resman.worlds.last_played" = "上次游玩 %@";
-"resman.worlds.importing" = "正在导入";
-"resman.worlds.delete_message" = "确定要删除世界 %@ 吗？\n此操作无法撤销。";
+"resman.worlds.search_placeholder" = "搜尋本機世界...";
+"resman.worlds.import" = "匯入世界";
+"resman.worlds.dir_not_found" = "無法定位 saves 目錄";
+"resman.worlds.picker_title" = "選擇世界 zip 檔案";
+"resman.worlds.empty" = "還沒有世界";
+"resman.worlds.search_empty" = "沒有符合的世界";
+"resman.worlds.last_played" = "上次遊玩 %@";
+"resman.worlds.importing" = "正在匯入";
+"resman.worlds.delete_message" = "確定要刪除世界 %@ 嗎？\n此操作無法復原。";
 
 // 光影管理
 "resman.shaders.title" = "管理光影";
-"resman.shaders.search_placeholder" = "搜索本地光影...";
-"resman.shaders.import" = "导入光影";
-"resman.shaders.dir_not_found" = "无法定位 shaderpacks 目录";
-"resman.shaders.picker_title" = "选择光影包文件";
-"resman.shaders.empty" = "还没有光影包";
-"resman.shaders.search_empty" = "没有找到本地光影";
-"resman.shaders.none_selected" = "未选择任何光影";
-"resman.shaders.delete_selected" = "删除所选";
-"resman.shaders.batch_delete_message" = "确定要删除已选的 %ld 个光影包吗？\n此操作无法撤销。";
+"resman.shaders.search_placeholder" = "搜尋本機光影...";
+"resman.shaders.import" = "匯入光影";
+"resman.shaders.dir_not_found" = "無法定位 shaderpacks 目錄";
+"resman.shaders.picker_title" = "選擇光影包檔案";
+"resman.shaders.empty" = "還沒有光影包";
+"resman.shaders.search_empty" = "沒有找到本機光影";
+"resman.shaders.none_selected" = "未選擇任何光影";
+"resman.shaders.delete_selected" = "刪除所選";
+"resman.shaders.batch_delete_message" = "確定要刪除已選的 %ld 個光影包嗎？\n此操作無法復原。";
 "i18n_str_2" = "添加账户";
 "i18n_str_10" = "微软账户";
 "i18n_str_11" = "使用 Microsoft 账户登录（正版）";
