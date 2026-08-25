@@ -469,44 +469,45 @@ NS_ASSUME_NONNULL_END
     if (indexPath.section == 0) {
         switch (indexPath.row) {
             case 0:
-                cell.textLabel.text = @"名称";
-                cell.accessoryView = _nameField;
+                [self configureInputCell:cell label:@"名称" field:_nameField];
                 break;
             case 1:
-                cell.textLabel.text = @"Base URL";
-                cell.accessoryView = _baseURLField;
+                [self configureInputCell:cell label:@"Base URL" field:_baseURLField];
                 break;
             case 2:
-                cell.textLabel.text = @"API Key";
-                cell.accessoryView = _apiKeyField;
+                [self configureInputCell:cell label:@"API Key" field:_apiKeyField];
                 break;
             case 3:
-                cell.textLabel.text = @"模型";
-                cell.accessoryView = _modelField;
+                [self configureInputCell:cell label:@"模型" field:_modelField];
                 break;
         }
     } else if (indexPath.section == 1) {
         switch (indexPath.row) {
             case 0: {
                 cell.textLabel.text = @"温度";
-                _temperatureLabel = [[UILabel alloc] init];
-                _temperatureLabel.font = [UIFont monospacedSystemFontOfSize:15 weight:UIFontWeightRegular];
-                _temperatureLabel.textColor = [UIColor secondaryLabelColor];
-                _temperatureLabel.textAlignment = NSTextAlignmentCenter;
+                if (!_temperatureLabel) {
+                    _temperatureLabel = [[UILabel alloc] init];
+                    _temperatureLabel.font = [UIFont monospacedSystemFontOfSize:15 weight:UIFontWeightRegular];
+                    _temperatureLabel.textColor = [UIColor secondaryLabelColor];
+                    _temperatureLabel.textAlignment = NSTextAlignmentCenter;
+                }
                 [self refreshTemperatureLabel];
-                _temperatureSlider.frame = CGRectMake(0, 0, 160, 31);
-                cell.accessoryView = _temperatureSlider;
-                // 温度值通过 detailTextLabel 显示
                 cell.detailTextLabel.text = _temperatureLabel.text;
+                // 滑块放入 contentView 右侧撑满，避免 accessoryView 区域过窄
+                _temperatureSlider.translatesAutoresizingMaskIntoConstraints = NO;
+                [cell.contentView addSubview:_temperatureSlider];
+                [NSLayoutConstraint activateConstraints:@[
+                    [_temperatureSlider.leadingAnchor constraintEqualToAnchor:cell.textLabel.trailingAnchor constant:12],
+                    [_temperatureSlider.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
+                    [_temperatureSlider.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+                ]];
                 break;
             }
             case 1:
-                cell.textLabel.text = @"最大 Token 上限";
-                cell.accessoryView = _maxTokensField;
+                [self configureInputCell:cell label:@"最大 Token 上限" field:_maxTokensField];
                 break;
             case 2:
-                cell.textLabel.text = @"上下文窗口";
-                cell.accessoryView = _contextWindowField;
+                [self configureInputCell:cell label:@"上下文窗口" field:_contextWindowField];
                 break;
         }
     } else {
@@ -515,6 +516,22 @@ NS_ASSUME_NONNULL_END
         cell.textLabel.textColor = accentColor();
     }
     return cell;
+}
+
+/// 把输入框放入 cell.contentView 右侧并撑满可点区域。
+/// 关键修复（Base URL 等输入框点不动/视觉错位）：此前输入框放在 cell.accessoryView，
+/// 该区域窄、靠近 cell 最右，触摸面积小且易被遮挡；改用 contentView + AutoLayout 后
+/// 输入框紧贴标签右侧并延伸至 cell 右缘，点击区显著变大、布局稳定。
+- (void)configureInputCell:(UITableViewCell *)cell label:(NSString *)label field:(UITextField *)field {
+    cell.textLabel.text = label;
+    field.translatesAutoresizingMaskIntoConstraints = NO;
+    [cell.contentView addSubview:field];
+    [NSLayoutConstraint activateConstraints:@[
+        [field.leadingAnchor constraintEqualToAnchor:cell.textLabel.trailingAnchor constant:12],
+        [field.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
+        [field.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        [field.heightAnchor constraintGreaterThanOrEqualToConstant:34],
+    ]];
 }
 
 - (nullable UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {

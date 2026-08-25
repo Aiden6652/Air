@@ -22,6 +22,8 @@
 // #import "TerracottaManager.h"
 // #import "TerracottaBridge.h"
 #import "AccountListViewController.h"
+#import "AI/AIViewController.h"
+#import "AI/AiSessionStore.h"
 
 // 布局常量（iPad/宽屏基准值；iPhone 上通过 traitCollection 适配后会变窄）
 static const CGFloat kSidebarWidthPad = 70.0;      // iPad 左侧边栏卡片宽度
@@ -434,6 +436,13 @@ static CGFloat LauncherCardLayoutRightPanelWidth(UITraitCollection *trait) {
                                              selector:@selector(showAccountManager)
                                                  name:@"ShowAccountManager"
                                                object:nil];
+    // AI 助手：卡片布局下点侧边栏 AI Agent 按钮发 ShowAIPage 通知。
+    // 关键修复（点 AI 中间栏不切换）：卡片布局此前未监听 ShowAIPage，
+    // 导致菜单发出通知后无人响应、中间栏不变。与 LauncherRootViewController 对齐。
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(showAIPage)
+                                                 name:@"ShowAIPage"
+                                               object:nil];
     // 首页快捷瓷砖触发：切到对应内容区子页面（不再 FormSheet 弹窗）
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(showModsManager)
@@ -567,6 +576,18 @@ static CGFloat LauncherCardLayoutRightPanelWidth(UITraitCollection *trait) {
     // 包装在导航控制器中，使其子页面能够正常导航
     UINavigationController *navVC = [[UINavigationController alloc] initWithRootViewController:vc];
     navVC.navigationBar.prefersLargeTitles = YES;
+    [self setContentViewController:navVC animated:YES];
+}
+
+- (void)showAIPage {
+    // 在中间内容区显示 AI 助手页面（与 LauncherRootViewController showAIPage 一致）。
+    // 关键修复（点 AI 中间栏不切换）：卡片布局此前缺失此方法，
+    // 现在 ShowAIPage 通知到达后能正常切到 AI 页面。
+    // 从 AiSessionStore 取最近会话，没有则让 AIViewController 新建一个。
+    AiSession *session = [[AiSessionStore sharedStore] lastActiveSession];
+    AIViewController *vc = [[AIViewController alloc] initWithSession:session];
+    UINavigationController *navVC = [[UINavigationController alloc] initWithRootViewController:vc];
+    navVC.navigationBar.prefersLargeTitles = NO;
     [self setContentViewController:navVC animated:YES];
 }
 
