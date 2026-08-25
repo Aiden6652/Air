@@ -124,7 +124,7 @@
 "login.option.3rdparty" = "第三方账户";
 
 "login.warn.title.legacy_device" = "Amethyst 的下一个版本将与此设备不兼容。";
-"login.warn.message.legacy_device" = "运行下一个主要版本，需要一台能够运行 iOS 14 的设备。";
+"login.warn.message.legacy_device" = "运行下一个主要版本，需要一台能够运行 iOS 14.5 的设备。";
 "login.warn.title.legacy_ios" = "Amethyst 的下一个版本将需要系统更新。";
 "login.warn.message.legacy_ios" = "运行下一个主要版本，需要一台能够运行 iOS 14 或更高版本的设备。";
 "login.warn.title.limited_ram" = "该设备的可用内存有限。";
@@ -238,32 +238,32 @@
 "preference.title.renderer.release.zink" = "Zink";
 
 "preference.title.renderer.debug.auto" = "自动：gl4es或MobileGlues";
-"preference.title.renderer.debug.gl4es" = "holy gl4es 1.1.4 - OpenGL版本2.1";
-"preference.title.renderer.debug.angle" = "ANGLE（仅支持1.17+）- OpenGL 版本 3.2";
-"preference.title.renderer.debug.mg" = "MobileGlues（1.17+）- OpenGL 版本 4.0，实验性";
-"preference.title.renderer.debug.zink" = "Zink（Mesa 25.0.7）- OpenGL 版本 4.1";
-"preference.title.renderer.debug.ltw" = "LTW - OpenGL Core→ES 转译（1.17+）";
-"preference.title.renderer.debug.vulkan" = "MoltenVK（26.2+）- 导出 Vulkan 1.4";
+"preference.title.renderer.debug.gl4es" = "holy gl4es - OpenGL 2.1";
+"preference.title.renderer.debug.angle" = "ANGLE（1.17+）- OpenGL 3.2";
+"preference.title.renderer.debug.mg" = "MobileGlues（1.17+）- OpenGL 4.0~4.6";
+"preference.title.renderer.debug.zink" = "Zink（Mesa 25.0.7）- OpenGL 4.1";
+"preference.title.renderer.debug.ltw" = "LTW （1.17+）- gl2es（严重不稳定）";
+"preference.title.renderer.debug.vulkan" = "MoltenVK（26.2+）- Vulkan 1.4";
 
-"preference.detail.renderer" = "更改使用的 OpenGL 渲染器";
+"preference.detail.renderer" = "更改使用的渲染器";
 
 "preference.title.resolution" = "分辨率缩放 (%)";
-"preference.detail.resolution" = "降低分辨率会影响游戏内 UI 大小，也可能会提升FPS。默认分辨率为屏幕的分辨率，此功能可能不适用于新版 Minecraft。";
+"preference.detail.resolution" = "降低分辨率会影响游戏内 UI 大小，也可能会提升FPS。默认分辨率为屏幕的分辨率，此功能不适用于新版 Minecraft。";
 
-"preference.title.disable_game_vsync" = "解锁帧率（关闭垂直同步）";
-"preference.detail.disable_game_vsync" = "Minecraft 默认开启垂直同步，会把帧率锁在屏幕刷新率（60Hz 锁 60、120Hz 锁 120）。开启后启动器会强制关闭垂直同步，让游戏帧率可超过屏幕刷新率。如需省电降温或偏好垂直同步可关闭。";
+"preference.title.disable_game_vsync" = "解锁帧率（实验性）";
+"preference.detail.disable_game_vsync" = "Minecraft 默认开启垂直同步，会把帧率锁在屏幕刷新率。开启后启动器会强制关闭垂直同步，让游戏帧率可超过屏幕刷新率。部分设备可能会无效。";
 
 "preference.title.performance_hud" = "显示性能 HUD";
 "preference.detail.performance_hud" = "当可用时显示性能监控覆盖层。该功能仅支持 iOS 16 及以上系统和 Angle 渲染器。";
 
-"preference.title.fullscreen_airplay" = "全屏 AirPlay";
+"preference.title.fullscreen_airplay" = "全屏隔空投送（AirPlay）";
 "preference.detail.fullscreen_airplay" = "允许在外部显示器上全屏显示游戏，而不是直接镜像显示。";
 "preference.title.silence_other_audio" = "游戏打开时暂停音频";
-"preference.detail.silence_other_audio" = "启用后将允许 Amethyst 在启动游戏时暂停其他应用的音频。";
+"preference.detail.silence_other_audio" = "启用后将允许 Air 在启动游戏时暂停其他应用的音频。";
 "preference.title.silence_with_switch" = "使用静音开关禁用音频";
 "preference.detail.silence_with_switch" = "启用时，可以使用静音模式禁用音频，耳机和外部扬声器不受此影响。";
 "preference.title.allow_microphone" = "允许麦克风输入";
-"preference.detail.allow_microphone" = "仅当您使用 VoiceChat Mod 时启用此项。静音开关将被忽略，并且会影响其他应用的音频质量。";
+"preference.detail.allow_microphone" = "仅当您使用 SimpleVoiceChat Mod 时启用此项。静音开关将被忽略，并且会影响其他应用的音频质量。";
 
 /* MobileGlues 设置 */
 "preference.title.enable_angle" = "ANGLE ES 驱动";
@@ -314,7 +314,7 @@
 "preference.title.gesture_hotbar" = "快捷栏手势";
 "preference.detail.gesture_hotbar" = "启用手势，例如点击快捷栏物品槽、双手交换物品、丢弃物品";
 "preference.title.disable_haptics" = "禁用屏幕触觉反馈";
-"preference.detail.disable_haptics" = "关闭游戏中的触觉反馈（震动）效果，可节省电量。";
+"preference.detail.disable_haptics" = "关闭游戏中的触觉反馈（震动）效果。";
 "preference.title.press_duration" = "长按延迟（毫秒）";
 "preference.detail.press_duration" = "修改长按摧毁方块、丢弃物品的触发时长。";
 "preference.title.button_scale" = "屏幕按钮缩放 (%)";
@@ -349,7 +349,7 @@
 "preference.manage_runtime.footer.default" = "Minecraft 1.16.5 和更早版本可能运行更新的 Java 版本，但与 mod 的兼容性不能保证。外部运行时可放在 “java_runtimes” 文件夹。更改 “Execute .jar” 的 Java 版本仅在安装程序无需新版 Java 时生效。";
 "preference.manage_runtime.footer.java8" = "这是 Minecraft 1.16.5 及更早版本的默认版本。";
 "preference.manage_runtime.footer.java17" = "这是 Minecraft 1.17 及更高版本的默认版本。";
-"preference.manage_runtime.header.invalid" = "无效的运行时";
+"preference.manage_runtime.header.invalid" = "不可用的运行时";
 
 "preference.title.java_args" = "JVM 启动参数";
 "preference.detail.java_args" = "当启动 Minecraft 时将参数传递到 Java。小心，如果修改不正确，可能会使游戏崩溃。";
@@ -397,7 +397,7 @@
 "ai.fix.risk.verify" = "修复后需手动验证";
 "ai.fix.risk.verify_sub" = "请重新启动游戏确认实际效果";
 "ai.fix.input_title" = "指令与补充信息";
-"ai.fix.input_placeholder" = "描述现象、补充信息或直接开始对话...";
+"ai.fix.input_placeholder" = "说点什么...";
 "ai.fix.stop" = "停止";
 "ai.fix.send" = "发送";
 "ai.fix.exit" = "退出启动器";
@@ -419,16 +419,16 @@
 "ai.fix.experimental_message" = "AI 崩溃修复功能为实验性功能，可能较为不稳定。在使用前请确保已做好备份工作。是否继续？";
 "ai.fix.continue" = "继续";
 "ai.fix.cancel" = "取消";
-"ai.fix.please_configure" = "请先完成 API 配置后点击“保存”按钮。";
-"ai.fix.settings_mode" = "您已进入 AI 修复设置界面。请点击“开始修复”按钮启动诊断，或直接发送补充信息。";
+"ai.fix.please_configure" = "请先完成 API 配置后点击\"保存\"按钮。";
+"ai.fix.settings_mode" = "您已进入 AI 修复设置界面。配置完成后，点击发送按钮开始对话。";
 "ai.fix.starting" = "正在启动 AI 修复流程...";
 "ai.fix.start_failed" = "启动失败";
 "ai.fix.tool_success" = "%@ 执行成功";
 "ai.fix.tool_failed" = "执行失败";
-"ai.fix.error" = "错误";
-"ai.fix.completed" = "修复完成！";
+"ai.fix.error" = "出错";
+"ai.fix.completed" = "已完成";
 "ai.fix.modifications" = "共修改了 %lu 个文件";
-"ai.fix.restart_hint" = "修复流程已结束。请手动重新启动游戏进行验证：1) 关闭当前游戏实例；2) 返回启动器并重新进入对应配置；3) 正常启动游戏并复现原场景；4) 若问题仍存在，可继续反馈日志或使用撤销修改。";
+"ai.fix.restart_hint" = "请重新启动游戏验证修复效果。如果问题仍未解决，可以继续对话或前往 GitHub 提交 Issue。";
 "ai.fix.waiting_confirm" = "等待确认";
 "ai.fix.waiting_subtitle" = "当前操作需要您确认后才会执行";
 "ai.fix.executing" = "执行工具中...";
@@ -532,12 +532,12 @@
 
 "提示" = "提示";
 
-"announcement.preview_version" = "欢迎使用Amethyst iOS Remastered测试版！";
-"announcement.latest_version" = "欢迎使用Amethyst iOS Remastered！当前已是最新正式版。";
+"announcement.preview_version" = "欢迎使用 Air 公测版！";
+"announcement.latest_version" = "欢迎使用 Air 启动器！当前已是最新正式版。";
 "announcement.new_version_available" = "发现新版本：%@";
 "announcement.download_button" = "前往下载";
 
-"preference.touchcontroller.title" = "TouchController 管理界面";
+"preference.touchcontroller.title" = "TouchController 管理";
 "preference.touchcontroller.section.mode" = "通信方式";
 "preference.touchcontroller.section.info" = "信息";
 "preference.touchcontroller.mode.title" = "通信方式";
@@ -548,7 +548,7 @@
 "preference.touchcontroller.udp.title" = "UDP 协议模式";
 "preference.touchcontroller.udp.message" = "TouchController 将通过 UDP 端口 12450 进行通信。此模式兼容性较好，提供稳定的网络通信。\n该通信方式由WeiErLiTeo制作。";
 "preference.touchcontroller.staticlib.title" = "静态库模式";
-"preference.touchcontroller.staticlib.message" = "TouchController 将使用原生静态库进行高性能本地通信（Unix Domain Socket）。此模式性能更好，但需要静态库支持。\n该通信方式由Mod作者fifth_light与启动器作者制作。";
+"preference.touchcontroller.staticlib.message" = "TouchController 将使用原生静态库进行高性能本地通信。此模式性能更好，但需要静态库支持。\n该通信方式由Mod作者fifth_light与启动器作者制作。";
 "preference.touchcontroller.about" = "关于 TouchController";
 "preference.touchcontroller.about.title" = "关于 TouchController";
 "preference.touchcontroller.about.message" = "TouchController 是一个为 Minecraft Java 版添加触摸控制的模组。本启动器支持两种通信模式：\n\n• UDP 协议：基于网络的通信\n• 静态库：高性能本地通信\n\n访问 GitHub 获取更多信息。";
@@ -585,7 +585,7 @@
 "crash.log_unavailable" = "无法读取日志文件";
 "crash.interface_title" = "崩溃界面";
 "crash.log_info" = "日志信息";
-"crash.error_title" = "游戏因出现致命错误而崩溃";
+"crash.error_title" = "抱歉，您的 Minecraft 已崩溃";
 "crash.error_code" = "错误代码：";
 "crash.possible_reason" = "可能的原因：";
 "crash.debug_reference" = "参考 debug 文档";
@@ -595,17 +595,17 @@
 "crash.experimental" = "实验性";
 "crash.quick_fix" = "快速修复建议";
 "crash.reason.mod_conflict" = "Mod 冲突导致崩溃（NoSuchMethodError/ClassCastException 等）";
-"crash.reason.missing_library" = "缺失游戏库文件（UnsatisfiedLinkError/NoClassDefFoundError）";
+"crash.reason.missing_library" = "缺失游戏库文件（UnsatisfiedLinkError/NoClassDefFoundError）或 渲染后端不匹配";
 "crash.reason.java_version" = "Java 版本不匹配（UnsupportedClassVersionError）";
-"crash.reason.renderer" = "渲染器错误（OpenGL/Metal/EGL 初始化失败）";
-"crash.reason.mod_loading" = "Mod 加载失败（Forge/Fabric/OptiFine 加载错误）";
+"crash.reason.renderer" = "渲染器错误（OpenGL/Vulkan 初始化失败）";
+"crash.reason.mod_loading" = "Mod 加载失败（Mod 加载器错误）";
 // 快速修复建议文案
 "crash.suggestion.oom_ram" = "降低内存分配（建议 1024-2048MB）";
 "crash.suggestion.oom_getmoream" = "使用 GetMoreRam (LiveContainer) 解除 iOS 内存限制";
-"crash.suggestion.oom_mods" = "移除重量级 Mod（如光影、高清材质）";
+"crash.suggestion.oom_mods" = "移除占用较高的大型 Mod";
 "crash.suggestion.oom_restart" = "重启启动器后重试（释放内存碎片）";
-"crash.suggestion.segfault_renderer" = "尝试切换渲染器（gl4es / MetalGlues / virgil）";
-"crash.suggestion.segfault_jit" = "确保 JIT 已启用（TrollStore/SideStore + JIT 权限）";
+"crash.suggestion.segfault_renderer" = "尝试切换渲染器";
+"crash.suggestion.segfault_jit" = "确保 JIT 已启用";
 "crash.suggestion.segfault_restart" = "重启启动器后重试";
 "crash.suggestion.abort_mods" = "检查 Mod 是否兼容（移除最近添加的 Mod）";
 "crash.suggestion.abort_renderer" = "尝试切换渲染器";
@@ -614,15 +614,15 @@
 "crash.suggestion.modconflict_check" = "检查 Mod 版本兼容性（Forge/Fabric/API 版本）";
 "crash.suggestion.modconflict_log" = "查看完整日志定位冲突 Mod";
 "crash.suggestion.missinglib_reinstall" = "重新安装当前游戏版本";
-"crash.suggestion.missinglib_check" = "检查实例目录中的 libraries 文件夹是否完整";
+"crash.suggestion.missinglib_check" = "如果 Minecraft 版本为 26.2+，将渲染器切换为 MoltenVK";
 "crash.suggestion.missinglib_network" = "检查网络连接，确保下载源可访问";
 "crash.suggestion.javaver_change" = "在设置中切换 Java 版本（8/17/21）";
 "crash.suggestion.javaver_check" = "检查游戏版本要求的 Java 版本";
-"crash.suggestion.renderer_switch" = "尝试切换渲染器：gl4es / MetalGlues / virgil";
+"crash.suggestion.renderer_switch" = "尝试切换渲染器";
 "crash.suggestion.renderer_shader" = "禁用光影包后重试";
 "crash.suggestion.renderer_resolution" = "降低游戏分辨率缩放比例";
 "crash.suggestion.modload_remove" = "移除问题 Mod（查看日志中的错误行）";
-"crash.suggestion.modload_update" = "更新 Mod 加载器（Forge/Fabric/OptiFine）";
+"crash.suggestion.modload_update" = "更新 Mod 加载器";
 "crash.suggestion.modload_version" = "检查 Mod 是否支持当前 MC 版本";
 "crash.suggestion.java_log" = "查看完整日志定位异常堆栈";
 "crash.suggestion.java_mods" = "检查 Mod 是否兼容（移除最近添加的 Mod）";
