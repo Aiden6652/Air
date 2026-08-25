@@ -148,6 +148,16 @@ static const NSInteger kMaxToolAttempts = 3;
     // 1. 拼装 payload：system + 历史（剔除流式占位、含 tool 消息）
     NSMutableArray *payloadMessages = [NSMutableArray array];
     NSString *systemPrompt = [[AiSettings sharedSettings] systemPrompt];
+
+    // 2. 工具定义
+    NSArray *tools = [[AiToolRegistry sharedRegistry] openAIToolSchemas];
+
+    // 关键修复（AI 不知道自己能使用工具）：即便 tools 随请求作为 functions 传入，
+    // 若系统提示未点明，模型往往只给文字建议而不主动调用工具。
+    // 因此在存在工具时向 system prompt 追加一句明确的能力说明（不覆盖用户自定义内容，仅追加其尾）。
+    if (tools.count > 0) {
+        systemPrompt = [systemPrompt stringByAppendingString:@"\n\n你可以调用内置工具来直接操控启动器，例如：排查并分析崩溃日志、读取已安装的游戏版本与组件状态、安装 Minecraft 版本或 Mod 加载器等、下载/安装模组、光影、资源包、数据包。当用户的请求可以通过这些工具完成时，请主动调用合适的工具去执行，而不是只给出文字建议；也请结合工具返回结果继续推进任务。"];
+    }
     if (systemPrompt.length > 0) {
         [payloadMessages addObject:[AiMessage messageWithRole:@"system" content:systemPrompt]];
     }
@@ -155,9 +165,6 @@ static const NSInteger kMaxToolAttempts = 3;
         if (m.streaming) continue;
         [payloadMessages addObject:m];
     }
-
-    // 2. 工具定义
-    NSArray *tools = [[AiToolRegistry sharedRegistry] openAIToolSchemas];
 
     // 3. 创建助手占位消息（streaming 标记）
     AiMessage *assistantMessage = [AiMessage messageWithRole:@"assistant" content:@""];

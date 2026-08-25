@@ -28,7 +28,7 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
 
 // 空态视图
 @property (nonatomic, strong) UIView *emptyStateView;
-@property (nonatomic, strong) UILabel *emptyIcon;
+@property (nonatomic, strong) UIImageView *emptyIcon;
 @property (nonatomic, strong) UILabel *emptyTitle;
 @property (nonatomic, strong) UILabel *emptySubtitle;
 @property (nonatomic, strong) UIButton *configureButton;
@@ -209,12 +209,14 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
     self.emptyStateView.backgroundColor = [UIColor clearColor];
     [self.view addSubview:self.emptyStateView];
 
-    self.emptyIcon = [[UILabel alloc] init];
+    // 关键修复（空态图标显示成一串英文字母）：原为 UILabel 却填入 SF Symbol 名（"sparkles"）
+    // 导致显示成文字。改为 UIImageView + systemImageNamed: 真正渲染图标。
+    self.emptyIcon = [[UIImageView alloc] init];
     self.emptyIcon.translatesAutoresizingMaskIntoConstraints = NO;
-    self.emptyIcon.font = [UIFont systemFontOfSize:56];
-    self.emptyIcon.text = @"sparkles";
-    self.emptyIcon.textColor = [UIColor secondaryLabelColor];
-    self.emptyIcon.textAlignment = NSTextAlignmentCenter;
+    self.emptyIcon.contentMode = UIViewContentModeScaleAspectFit;
+    UIImageSymbolConfiguration *iconConfig = [UIImageSymbolConfiguration configurationWithPointSize:56 weight:UIImageSymbolWeightRegular];
+    self.emptyIcon.image = [UIImage systemImageNamed:@"sparkles" withConfiguration:iconConfig];
+    self.emptyIcon.tintColor = [UIColor secondaryLabelColor];
     [self.emptyStateView addSubview:self.emptyIcon];
 
     self.emptyTitle = [[UILabel alloc] init];
@@ -456,13 +458,13 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
     if (!hasProvider) {
         // 未配置提供商：无论是否已有消息都显示配置引导
         self.emptyStateView.hidden = NO;
-        self.emptyIcon.text = @"gearshape.2";
+        self.emptyIcon.image = [UIImage systemImageNamed:@"gearshape.2" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:56 weight:UIImageSymbolWeightRegular]];
         self.emptyTitle.text = @"尚未配置 AI 提供商";
         self.emptySubtitle.text = @"请到 设置 → AI 助手 配置 API 服务";
         self.configureButton.hidden = NO;
     } else if (!hasMessages) {
         self.emptyStateView.hidden = NO;
-        self.emptyIcon.text = @"sparkles";
+        self.emptyIcon.image = [UIImage systemImageNamed:@"sparkles" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:56 weight:UIImageSymbolWeightRegular]];
         self.emptyTitle.text = @"和 AI 助手打个招呼吧";
         self.emptySubtitle.text = @"向 Air 询问启动器问题或 Minecraft 知识";
         self.configureButton.hidden = YES;

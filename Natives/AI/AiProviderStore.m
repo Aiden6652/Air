@@ -152,6 +152,7 @@ static NSString * const kSelectedProviderIdKey = @"ai.selected_provider_id";
 
 - (nullable AiProvider *)providerById:(NSString *)identifier {
     if (identifier.length == 0) return nil;
+    [self loadIfNeeded];
     for (AiProvider *provider in _providers) {
         if ([provider.identifier isEqualToString:identifier]) {
             return provider;
@@ -161,6 +162,9 @@ static NSString * const kSelectedProviderIdKey = @"ai.selected_provider_id";
 }
 
 - (nullable AiProvider *)selectedProvider {
+    // 关键修复（重启后误报"未配置供应商"）：必须先从磁盘加载 providers，
+    // 否则启动早期 _providers 为空，providerById 恒返回 nil，导致空态误提示"未配置"。
+    [self loadIfNeeded];
     NSString *sid = [[NSUserDefaults standardUserDefaults] stringForKey:kSelectedProviderIdKey];
     return [self providerById:sid];
 }
