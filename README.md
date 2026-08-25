@@ -10,7 +10,7 @@
   <img alt="Downloads" src="https://img.shields.io/github/downloads/herbrine8403/Amethyst-iOS-MyRemastered/total?label=Downloads&style=flat">
   <img alt="Release" src="https://img.shields.io/github/v/release/herbrine8403/Amethyst-iOS-MyRemastered?style=flat">
   <img alt="License" src="https://img.shields.io/github/license/herbrine8403/Amethyst-iOS-MyRemastered?style=flat">
-  <img alt="Last Commit" src="https://img.shields.io/github/last-commit/herbrine8403/Amethyst-iOS-MyRemastered?color=c78aff&label=last%20commit&style=flat">
+  <a title="Crowdin" target="_blank" href="https://crowdin.com/project/amethyst-ios-remastered"><img alt="Crowdin" src="https://badges.crowdin.net/amethyst-ios-remastered/localized.svg">
 </div>
 
 <p align="center">
@@ -129,6 +129,10 @@ JIT (Just-In-Time compilation) is essential for smooth gameplay. Choose the appr
 - [@WeiErLiTeo](https://github.com/WeiErLiTeo) -- Mod download integration, TouchController optimizations, and two-finger long-press keyboard trigger
 - [@Li2548](https://github.com/Li2548) -- Upstream synchronization
 
+## About Translations
+
+If you would like to contribute translations for this project, please go to [Crowdin](https://crowdin.com/project/amethyst-ios-remastered).
+
 ## Third-Party Components
 
 | Component | Purpose | License | Source |
@@ -159,7 +163,7 @@ Additional thanks to [MCHeads](https://mc-heads.net) for Minecraft avatar servic
 
 ## Sponsor
 
-If you find this project valuable, consider supporting development through [Ko-Fi](https://ko-fi.com/herbrine8403), [爱发电](https://afdian.com/a/herbrine8403), or [WeChat Reward Code](donate.png).
+If you find this project valuable, consider supporting development through [Ko-Fi](https://ko-fi.com/herbrine8403), [Afdian](https://afdian.com/a/herbrine8403), or [WeChat Reward Code](donate.png).
 
 ## Star History
 
