@@ -16,6 +16,7 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
 @property (nonatomic, copy, nullable) void (^onComplete)(NSDictionary * _Nullable fullResponse, NSError * _Nullable error);
 
 @property (nonatomic, strong) NSMutableString *streamBuffer;    // 未切分完的流缓冲
+@property (nonatomic, strong) NSMutableData *streamData;        // 原始字节缓冲（保证跨块多字节字符完整性）
 @property (nonatomic, strong) NSMutableString *fullResponseText; // 已接收全文
 @property (nonatomic, strong) NSMutableString *pendingDelta;     // 待节流刷新的增量
 @property (nonatomic, assign) NSTimeInterval lastChunkFlushTime;
@@ -29,6 +30,7 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     self = [super init];
     if (self) {
         self.streamBuffer = [NSMutableString string];
+        self.streamData = [NSMutableData data];
         self.fullResponseText = [NSMutableString string];
         self.pendingDelta = [NSMutableString string];
     }
@@ -58,6 +60,7 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     self.onChunk = onChunk;
     self.onComplete = onComplete;
     [self.streamBuffer setString:@""];
+    [self.streamData setLength:0];
     [self.fullResponseText setString:@""];
     [self.pendingDelta setString:@""];
     self.streamDone = NO;
@@ -206,6 +209,24 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
 
 #pragma mark - 流式解析
 
+/// 从字节缓冲里取出以 \n 结尾的完整字节串解码并切行处理（保留不完整的多字节尾部）
+- (void)processBufferedStreamData {
+    if (self.streamData.length == 0) return;
+    static unsigned char lf = '\n';
+    NSData *lfData = [NSData dataWithBytes:&lf length:1];
+    NSRange lastLF = [self.streamData rangeOfData:lfData options:NSDataSearchBackwards
+                                            range:NSMakeRange(0, self.streamData.length)];
+    // 尚无完整行：可能是多字节字符被切开尚未拼齐，保留字节等待下一块
+    if (lastLF.location == NSNotFound) return;
+    NSUInteger completeLen = lastLF.location + 1;
+    NSData *completeData = [self.streamData subdataWithRange:NSMakeRange(0, completeLen)];
+    NSString *text = [[NSString alloc] initWithData:completeData encoding:NSUTF8StringEncoding];
+    if (text.length > 0) {
+        [self processStreamText:text];
+    }
+    [self.streamData replaceBytesInRange:NSMakeRange(0, completeLen) withBytes:NULL length:0];
+}
+
 /// 追加接收到的文本并切行处理
 - (void)processStreamText:(NSString *)text {
     if (text.length == 0 || self.streamDone) return;
@@ -330,14 +351,12 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
     if (self.streamDone) return;
     if (data.length == 0) return;
-    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    if (text.length == 0) {
-        // 尝试兼容 BOM/非 UTF8 部分
-        text = [[NSString alloc] initWithData:data encoding:NSUTF16StringEncoding];
-    }
-    if (text.length > 0) {
-        [self processStreamText:text];
-    }
+    // 关键修复（AI 说话说不全/好话说一半）：不能把每块 data 直接按 UTF8 解码成字符串，
+    // 否则中文/emoji 等多字节字符恰落在两块 data 切分边界时，前一块解码损坏，
+    // 导致该 SSE 行 JSON 解析失败被整行丢弃，输出表现为被截断/少字/空白。
+    // 改为字节级缓冲：只解码以 \n 结尾的完整字节串，跨块的多字节字符保留到后续拼齐。
+    [self.streamData appendData:data];
+    [self processBufferedStreamData];
 }
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
@@ -369,6 +388,14 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
         return;
     }
 
+    // 处理末尾没有换行的最后一块字节（避免丢失最后几个字/整块结尾内容）
+    if (self.streamData.length > 0) {
+        NSString *tail = [[NSString alloc] initWithData:self.streamData encoding:NSUTF8StringEncoding];
+        if (tail.length > 0) {
+            [self processStreamText:tail];
+        }
+        [self.streamData setLength:0];
+    }
     [self flushPendingDelta];
     NSDictionary *fullResponse = @{@"content": [self.fullResponseText copy] ?: @""};
     if (complete) {
