@@ -112,8 +112,8 @@ static const CGFloat kMsgCornerRadius = 12.0;
 - (void)configureWithMessage:(AiMessage *)message markdownEnabled:(BOOL)enabled {
     if (!message) return;
 
-    // 工具调用 / 工具结果：渲染为居中系统卡片，不进入左右气泡
-    if (message.isToolCall || message.isToolResult) {
+    // 工具结果：渲染为居中系统卡片（仅显示成功/失败状态）
+    if (message.isToolResult) {
         self.bubbleView.hidden = YES;
         self.toolCardView.hidden = NO;
         self.toolCardLabel.text = [[self class] toolCardTextForMessage:message];
@@ -123,7 +123,8 @@ static const CGFloat kMsgCornerRadius = 12.0;
     self.toolCardView.hidden = YES;
     self.bubbleView.hidden = NO;
     BOOL isUser = [message.role isEqualToString:@"user"];
-    NSString *content = message.content ?: @"";
+    // 工具调用消息与 AI 的话共存：气泡显示 AI 文本并附加工具调用提示
+    NSString *content = message.isToolCall ? [[self class] displayContentForMessage:message] : (message.content ?: @"");
     UIColor *contentColor = [UIColor labelColor];
 
     // 文本内容
@@ -185,12 +186,22 @@ static const CGFloat kMsgCornerRadius = 12.0;
 
 #pragma mark - 工具卡片文本
 
+/// 工具调用消息用于气泡显示的内容：AI 的话 + 工具调用提示（共存）
++ (NSString *)displayContentForMessage:(AiMessage *)message {
+    if (message.isToolCall) {
+        NSString *base = message.content.length > 0 ? message.content : @"（正在调用工具…）";
+        NSString *name = message.toolName.length > 0 ? message.toolName : (message.toolCallID ?: @"工具");
+        return [base stringByAppendingFormat:@"\n\n⚙️ 工具：%@", name];
+    }
+    return message.content ?: @"";
+}
+
 + (NSString *)toolCardTextForMessage:(AiMessage *)message {
     if (!message) return @"";
     NSString *name = message.toolName.length > 0 ? message.toolName : (message.toolCallID ?: @"工具");
     if (message.isToolResult) {
-        NSString *content = [message.content stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
-        return [NSString stringWithFormat:@"✅ %@ 完成：%@", name, content];
+        // 只显示执行成功/失败状态，不展示冗长的工具返回正文（避免占满屏幕）
+        return message.toolSucceeded ? [NSString stringWithFormat:@"✅ %@ 执行成功", name] : [NSString stringWithFormat:@"❌ %@ 执行失败", name];
     }
     return [NSString stringWithFormat:@"⚙️ 工具：%@", name];
 }
@@ -200,8 +211,8 @@ static const CGFloat kMsgCornerRadius = 12.0;
 + (CGFloat)cellHeightForMessage:(AiMessage *)message width:(CGFloat)width markdownEnabled:(BOOL)enabled {
     if (!message || !width) return 60.0;
 
-    // 工具消息：根据卡片文本行高估算（紧凑小卡片）
-    if (message.isToolCall || message.isToolResult) {
+    // 工具结果：渲染为小卡片，仅按状态文本行高估算
+    if (message.isToolResult) {
         NSString *cardText = [self toolCardTextForMessage:message];
         CGFloat maxCardWidth = width * kMsgMaxBubbleWidthRatio - 20; // 扣左右内边距
         if (maxCardWidth < 20) maxCardWidth = 20;
@@ -217,7 +228,8 @@ static const CGFloat kMsgCornerRadius = 12.0;
         return MAX(total, 40.0);
     }
 
-    NSString *content = message.content ?: @"";
+    // 工具调用消息与 AI 的话共存在气泡中，按普通气泡文本计算高度
+    NSString *content = message.isToolCall ? [self displayContentForMessage:message] : (message.content ?: @"");
     CGFloat maxBubbleWidth = width * kMsgMaxBubbleWidthRatio;
     CGFloat textWidth = maxBubbleWidth - 2 * kMsgBubblePadding;
     if (textWidth < 20) textWidth = 20;

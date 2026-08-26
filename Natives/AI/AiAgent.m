@@ -304,7 +304,9 @@ static const NSInteger kMaxToolAttempts = 3;
         // 重试护栏：同一 callID 已执行 ≥3 次则不再回喂
         NSInteger attempts = [strongSelf.attempts[callID] integerValue];
         if (attempts >= kMaxToolAttempts) {
-            [session.messages addObject:[AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"多次尝试仍失败：%@", name ?: @""] toolCallID:callID]];
+            AiMessage *failMsg = [AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"多次尝试仍失败：%@", name ?: @""] toolCallID:callID];
+            failMsg.toolSucceeded = NO;
+            [session.messages addObject:failMsg];
             [strongSelf saveSession:session];
             terminalError = [NSError errorWithDomain:@"AiAgent" code:2
                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"工具 %@ 多次尝试仍失败", name ?: callID]}];
@@ -317,7 +319,9 @@ static const NSInteger kMaxToolAttempts = 3;
         // 校验工具是否存在
         id<AiTool> tool = [[AiToolRegistry sharedRegistry] toolForName:name ?: @""];
         if (!tool) {
-            [session.messages addObject:[AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"未知工具：%@", name ?: @""] toolCallID:callID]];
+            AiMessage *unknownMsg = [AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"未知工具：%@", name ?: @""] toolCallID:callID];
+            unknownMsg.toolSucceeded = NO;
+            [session.messages addObject:unknownMsg];
             [strongSelf saveSession:session];
             executeBlock(offset + 1);
             return;
@@ -337,7 +341,9 @@ static const NSInteger kMaxToolAttempts = 3;
                 NSString *content = result;
                 if (content.length == 0 && error) content = error.localizedDescription;
                 if (content.length == 0) content = @"（无返回）";
-                [session.messages addObject:[AiMessage toolResultMessageWithContent:content toolCallID:callID]];
+                AiMessage *resMsg = [AiMessage toolResultMessageWithContent:content toolCallID:callID];
+                resMsg.toolSucceeded = (error == nil);
+                [session.messages addObject:resMsg];
                 [ss3 saveSession:session];
                 executeBlock(offset + 1);
             }];
@@ -350,7 +356,9 @@ static const NSInteger kMaxToolAttempts = 3;
                 __strong typeof(weakSelf) ss4 = weakSelf;
                 if (!ss4 || !ss4.running) { executeBlock = nil; return; }
                 if (!approved) {
-                    [session.messages addObject:[AiMessage toolResultMessageWithContent:@"用户已取消该操作" toolCallID:callID]];
+                    AiMessage *cancelMsg = [AiMessage toolResultMessageWithContent:@"用户已取消该操作" toolCallID:callID];
+                    cancelMsg.toolSucceeded = NO;
+                    [session.messages addObject:cancelMsg];
                     [ss4 saveSession:session];
                     executeBlock(offset + 1);
                     return;

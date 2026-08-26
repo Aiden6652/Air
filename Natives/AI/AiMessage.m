@@ -45,6 +45,7 @@
         _toolArguments = nil;
         _isToolCall = NO;
         _isToolResult = NO;
+        _toolSucceeded = YES;
     }
     return self;
 }
@@ -60,6 +61,7 @@
     if ([dict[@"toolArguments"] isKindOfClass:[NSString class]]) _toolArguments = dict[@"toolArguments"];
     if ([dict[@"isToolCall"] isKindOfClass:[NSNumber class]]) _isToolCall = [dict[@"isToolCall"] boolValue];
     if ([dict[@"isToolResult"] isKindOfClass:[NSNumber class]]) _isToolResult = [dict[@"isToolResult"] boolValue];
+    if ([dict[@"toolSucceeded"] isKindOfClass:[NSNumber class]]) _toolSucceeded = [dict[@"toolSucceeded"] boolValue];
     // 时间戳（可选）
     NSNumber *ts = dict[@"createdAt"];
     if ([ts isKindOfClass:[NSNumber class]]) {
@@ -79,6 +81,8 @@
     if (self.toolArguments.length > 0) dict[@"toolArguments"] = self.toolArguments;
     if (self.isToolCall) dict[@"isToolCall"] = @YES;
     if (self.isToolResult) dict[@"isToolResult"] = @YES;
+    // 仅写出失败态，成功（默认值）不写，兼容旧版
+    if (!self.toolSucceeded) dict[@"toolSucceeded"] = @NO;
     return [dict copy];
 }
 

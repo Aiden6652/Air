@@ -29,10 +29,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *toolName;
 /// 工具参数（JSON 字符串，assistant 的 function_call arguments）
 @property (nonatomic, copy, nullable) NSString *toolArguments;
-/// 是否为 assistant 的工具调用记录（function_call）
+/// 是否为助理的工具调用记录（function_call）
 @property (nonatomic, assign) BOOL isToolCall;
 /// 是否为工具执行结果消息（role=tool）
 @property (nonatomic, assign) BOOL isToolResult;
+/// 工具执行是否成功（结果卡片用于区分 ✅/❌，默认成功）
+@property (nonatomic, assign) BOOL toolSucceeded;
 
 /// 便捷构造
 + (instancetype)messageWithRole:(NSString *)role content:(NSString *)content;
