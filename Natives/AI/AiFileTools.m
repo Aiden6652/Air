@@ -87,20 +87,22 @@ static NSString * const kAiToolDomain = @"AiTool";
     return [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
 }
 
-/// 沙盒根目录（Documents，经 realpath 归一化以匹配 POJAV_HOME 的 realpath 前缀）
+/// 沙盒容器根目录（整个 app 沙盒 container，如 /var/mobile/Containers/Data/Application/<UUID>）。
+/// 游戏目录（POJAV_GAME_DIR）、mods/saves/resourcepacks 等均位于其下，
+/// 经 realpath 归一化以匹配 POJAV_GAME_DIR 的 realpath 前缀，避免符号链接误判越界。
 + (NSString *)sandboxRoot {
-    NSString *documents = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-    const char *containerStart = [documents UTF8String];
-    NSString *root = documents;
+    NSString *home = NSHomeDirectory();
+    if (home.length == 0) home = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    const char *containerStart = [home UTF8String];
     if (containerStart) {
         char *real = realpath(containerStart, NULL);
         if (real) {
-            root = @(real);
+            NSString *root = @(real);
             free(real);
             return root;
         }
     }
-    return [documents stringByStandardizingPath];
+    return [home stringByStandardizingPath];
 }
 
 + (nullable NSString *)resolveSafely:(NSString *)path {
@@ -118,10 +120,13 @@ static NSString * const kAiToolDomain = @"AiTool";
     if (usedGameDir) {
         joined = worked; // 已被替换为物理绝对路径（在沙盒内）
     } else if ([worked hasPrefix:@"/"]) {
-        // 以 / 开头：视为从沙盒根（Documents）拼接
-        NSString *trimmed = worked;
-        while ([trimmed hasPrefix:@"/"]) trimmed = [trimmed substringFromIndex:1];
-        joined = [stdRoot stringByAppendingPathComponent:trimmed];
+        // 绝对物理路径（可能是 getenv("POJAV_GAME_DIR") 直接返回的实例根，
+        // 也可能是 /var/.../Documents/... 等沙盒内文件）。
+        // 关键修复（list_files 越界）：此前把一切 "以 / 开头的路径" 都当作
+        // "相对 Documents 拼接"，导致传入实例根的绝对路径被拼成 Documents/<容器绝对路径>，
+        // 必然越界；也导致不给 path（默认取 currentGameRoot 绝对路径）时报越界。
+        // 现在绝对路径原样使用，是否越界由下方基于容器根的检查统一裁决。
+        joined = worked;
     } else {
         // 相对路径：相对当前实例根
         joined = [[self currentGameRoot] stringByAppendingPathComponent:worked];

@@ -81,6 +81,12 @@ static const NSInteger kMaxToolAttempts = 3;
                 entry[@"arguments"] = [prev stringByAppendingString:func[@"arguments"]];
             }
         }
+        // 兼容部分兼容 OpenAI 协议的模型把 name 放在 tc 顶层（而非 function.name）
+        if (![entry[@"name"] isKindOfClass:[NSString class]] || [entry[@"name"] length] == 0) {
+            if ([tc[@"name"] isKindOfClass:[NSString class]] && [tc[@"name"] length] > 0) {
+                entry[@"name"] = tc[@"name"];
+            }
+        }
     }
 }
 
