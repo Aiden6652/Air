@@ -5,8 +5,11 @@
 //  Air AI Agent 资源/网络工具（Phase 3b）实现：
 //  - AiAssetSearchTool：Modrinth 搜索（search_mods / search_resourcepacks / search_shaders /
 //    search_datapacks / search_modpacks / search_worlds）。
-//  - AiAssetInstallTool：资源安装（install_mod / install_resourcepack / install_shader /
-//    install_datapack）、下载页引导（install_game_version / install_loader）。
+//  - AiAssetInstallTool：直接安装（HMCL AE 式全自动）：
+//      install_mod / install_resourcepack / install_shader / install_datapack（Modrinth 下载 + gameVersion 匹配）；
+//      install_game_version（MinecraftResourceDownloadTask 直接安装本体，下载中心 6 阶段进度）；
+//      install_loader（Fabric/Quilt 直接安装：自动预装原版 + meta profile + Fabric API；
+//                     Forge/NeoForge/OptiFine 涉及 JVM 图形安装器，保留下载页引导）。
 //  两类工具共享文件内私有 helper（AiAssetNetworkUtil / AiAssetInstaller）。
 //  - 网络统一用 NSURLSession GET JSON（参考 AnnouncementService）。
 //  - 文件下载统一走 PLDownloadClient，并注册到 DownloadTaskManager 以便进度页跟踪。
@@ -23,6 +26,8 @@
 #import "PLDownloadClient.h"
 #import "DownloadTaskManager.h"
 #import "DownloadTaskItem.h"
+#import "MinecraftResourceDownloadTask.h"
+#import "PLTaskStages.h"
 #import "AiSafetyManager.h"
 
 /// 工具错误域与常见错误码
@@ -48,6 +53,19 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
 /// 判断某实例（gameDir）下是否已安装对应 MC 版本的 vanilla 本体
 + (BOOL)isGameVersionInstalled:(NSString *)mcVersion inGameDir:(NSString *)gameDir;
 
+/// 拉取 Mojang/BMCLAPI 版本清单，返回指定版本的清单条目（含 id/url）。
+/// versionId 支持 latest-release / latest-snapshot / latest（别名 latest-release）。
++ (void)fetchVersionEntry:(NSString *)versionId
+               completion:(void (^)(NSDictionary * _Nullable entry, NSError * _Nullable error))completion;
+
+/// 确保 versions/{versionId}/{versionId}.json 已存在（不存在则从清单下载，含 BMCLAPI 域名替换）
++ (void)ensureVersionJSONExists:(NSString *)versionId
+                     completion:(void (^)(BOOL success))completion;
+
+/// 解析参数对应的游戏版本：优先 params.gameVersion，否则取实例 profile 的
+/// lastVersionId 并归一化（剥离 fabric/forge/neoforge/quilt/optifine 加载器后缀）
++ (NSString *)resolveGameVersionForParams:(NSDictionary *)params;
+
 /// 向主线程 post ShowDownloadPage 通知（引导用户到内置下载页）
 + (void)postShowDownloadPage;
 
@@ -65,6 +83,15 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
                resourceType:(NSString *)resourceType
                 expectedSHA1:(nullable NSString *)expectedSHA1
                  completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion;
+
+/// 直接安装 MC 原版本体（version JSON + libraries + assets）：
+/// 1) 拉取版本清单条目并确保 version JSON 落盘；
+/// 2) MinecraftResourceDownloadTask downloadVersion: 执行完整下载——其内部自动注册到
+///    DownloadTaskManager（6 阶段 + autoPresentDetail），下载中心/统一进度页实时展示进度；
+/// 3) 轮询 progress.finished（最长 30 分钟，与 ensureVanillaInstalled 一致）；
+/// 4) 成功后创建并选中对应实例 profile，post ReloadProfileList 刷新版本列表。
++ (void)installVanillaVersionId:(NSString *)versionId
+                     completion:(void (^)(BOOL success, NSString * _Nullable message))completion;
 
 @end
 
@@ -232,33 +259,34 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
 
 - (NSString *)summary {
     if ([_internalName isEqualToString:@"install_resourcepack"]) {
-        return @"从 Modrinth 下载并安装资源包到资源包目录。"
-               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、instance（string，可选，实例名）。"
+        return @"从 Modrinth 下载并安装资源包到资源包目录，全自动完成，进度在下载中心展示。"
+               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）。"
                "\n返回安装结果说明。";
     }
     if ([_internalName isEqualToString:@"install_shader"]) {
-        return @"从 Modrinth 下载并安装光影包到光影目录。"
-               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、instance（string，可选，实例名）。"
+        return @"从 Modrinth 下载并安装光影包到光影目录，全自动完成，进度在下载中心展示。"
+               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）。"
                "\n返回安装结果说明。";
     }
     if ([_internalName isEqualToString:@"install_datapack"]) {
-        return @"从 Modrinth 下载并安装数据包到数据包目录。"
-               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、instance（string，可选，实例名）。"
+        return @"从 Modrinth 下载并安装数据包到数据包目录，全自动完成，进度在下载中心展示。"
+               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）。"
                "\n返回安装结果说明。";
     }
     if ([_internalName isEqualToString:@"install_game_version"]) {
-        return @"引导下载页以安装某个 Minecraft 版本本体（AI 不托管数百 MB 下载）。"
-               "\n参数：versionId（string，可选，建议目标版本号）。"
-               "\n行为：安全确认后为你打开内置版本下载页，请用户在页面中完成本体安装。";
+        return @"直接下载并安装指定 Minecraft 原版本体（版本 JSON + 库文件 + 资源文件），全自动完成，进度在下载中心实时展示，无需用户操作。"
+               "\n参数：versionId（string，必填，如 1.20.1，也支持 latest-release / latest-snapshot）。"
+               "\n行为：安装完成后自动创建并选中对应实例。返回安装结果说明。";
     }
     if ([_internalName isEqualToString:@"install_loader"]) {
-        return @"引导下载页以安装加载器（Fabric/Forge/NeoForge/Quilt/OptiFine）。"
-               "\n参数：mcVersion（string，必填，目标 MC 版本）、loaderType（string，必填，fabric/forge/neoforge/quilt/optifine）、instance（string，可选，实例名）。"
-               "\n行为：先检查 vanilla 本体是否已安装；未装则先引导装本体，已装则引导安装加载器。";
+        return @"直接安装模组加载器（全自动，进度在下载中心展示）。"
+               "\n参数：mcVersion（string，必填，目标 MC 版本）、loaderType（string，必填，fabric/forge/neoforge/quilt/optifine）、loaderVersion（string，可选，加载器版本，缺省取最新稳定版）、instance（string，可选，实例名）。"
+               "\n行为：Fabric/Quilt 直接安装——若原版本体未安装会先自动安装原版，随后写入加载器版本 JSON 并注册实例，Fabric 还会自动安装 Fabric API；"
+               "Forge/NeoForge/OptiFine 安装器需要运行 Java 图形安装器/处理器，暂无法全自动，将打开内置下载页引导用户完成。";
     }
     // install_mod
-    return @"从 Modrinth 下载并安装模组到 mods 目录。"
-           "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、instance（string，可选，实例名）。"
+    return @"从 Modrinth 下载并安装模组到 mods 目录，全自动完成，进度在下载中心展示。"
+           "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则自动选择适配实例 MC 版本的最新 release 版本）、gameVersion（string，可选，指定 MC 版本过滤，缺省自动取实例当前 MC 版本）、instance（string，可选，实例名）。"
            "\n返回安装结果说明。";
 }
 
@@ -325,6 +353,12 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
         return;
     }
     NSString *versionId = [params[@"versionId"] isKindOfClass:[NSString class]] ? params[@"versionId"] : @"";
+    // 版本匹配（HMCL AE 式自动化关键）：install_mod 自动按实例 MC 版本过滤，
+    // 其余资源类型仅在显式传入 gameVersion 时过滤
+    NSString *gameVersion = [params[@"gameVersion"] isKindOfClass:[NSString class]] ? params[@"gameVersion"] : @"";
+    if (gameVersion.length == 0 && [_internalName isEqualToString:@"install_mod"]) {
+        gameVersion = [AiAssetNetworkUtil resolveGameVersionForParams:params];
+    }
 
     NSString *encSlug = [slugOrId stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
     // 1. 项目信息（取项目名做 displayName）
@@ -343,7 +377,7 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
         if ([projectJSON isKindOfClass:[NSDictionary class]] && [projectJSON[@"title"] isKindOfClass:[NSString class]]) {
             projectTitle = projectJSON[@"title"];
         }
-        [self fetchVersionsForSlug:encSlug versionId:versionId completion:^(NSString * _Nullable filename, NSURL * _Nullable fileURL, NSString * _Nullable sha1, NSError * _Nullable verError) {
+        [self fetchVersionsForSlug:encSlug versionId:versionId gameVersion:gameVersion completion:^(NSString * _Nullable filename, NSURL * _Nullable fileURL, NSString * _Nullable sha1, NSError * _Nullable verError) {
             if (verError) {
                 completion(nil, verError);
                 return;
@@ -361,11 +395,17 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
     }];
 }
 
-/// 拉取项目版本列表并选择目标版本文件（可选匹配 versionId，否则选 release 最新）
+/// 拉取项目版本列表并选择目标版本文件：
+/// - versionId 非空：精确匹配该版本 id；
+/// - gameVersion 非空：仅在其 game_versions 包含该 MC 版本的版本中选择（无匹配则报错）；
+/// - 否则选 release 最新版本。
 - (void)fetchVersionsForSlug:(NSString *)encSlug
                    versionId:(NSString *)versionId
+                 gameVersion:(NSString *)gameVersion
                   completion:(void (^)(NSString * _Nullable filename, NSURL * _Nullable fileURL, NSString * _Nullable sha1, NSError * _Nullable error))completion {
-    NSString *urlStr = [NSString stringWithFormat:@"https://api.modrinth.com/v2/project/%@/version?featured=true", encSlug];
+    // featured=true 会在按 gameVersion 过滤时漏掉大量仅标记非 featured 的兼容版本，
+    // 直接拉全量版本列表自行过滤
+    NSString *urlStr = [NSString stringWithFormat:@"https://api.modrinth.com/v2/project/%@/version", encSlug];
     NSURL *url = [NSURL URLWithString:urlStr];
     if (!url) {
         completion(nil, nil, nil, [NSError errorWithDomain:kAiAssetToolDomain code:500 userInfo:@{NSLocalizedDescriptionKey: @"版本列表地址无效"}]);
@@ -380,6 +420,23 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
         if (versions.count == 0) {
             completion(nil, nil, nil, [NSError errorWithDomain:kAiAssetToolDomain code:404 userInfo:@{NSLocalizedDescriptionKey: @"该项目暂无可用版本"}]);
             return;
+        }
+        // gameVersion 兼容性过滤（Modrinth 版本对象的 game_versions 数组）
+        if (gameVersion.length > 0) {
+            NSMutableArray *filtered = [NSMutableArray array];
+            for (id v in versions) {
+                if (![v isKindOfClass:[NSDictionary class]]) continue;
+                NSArray *gvs = v[@"game_versions"];
+                if ([gvs isKindOfClass:[NSArray class]] && [gvs containsObject:gameVersion]) {
+                    [filtered addObject:v];
+                }
+            }
+            if (filtered.count == 0) {
+                completion(nil, nil, nil, [NSError errorWithDomain:kAiAssetToolDomain code:404
+                                                        userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未找到适配 MC %@ 的版本，可换用 versionId 指定版本重试", gameVersion]}]);
+                return;
+            }
+            versions = filtered;
         }
         // 选择版本
         NSDictionary *chosen = nil;
@@ -424,24 +481,30 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
     }];
 }
 
-#pragma mark - install_game_version（引导下载页）
+#pragma mark - install_game_version（HMCL AE 式全自动直接安装）
 
 - (void)performInstallGameVersion:(NSDictionary *)params
                        completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion {
     NSString *versionId = [params[@"versionId"] isKindOfClass:[NSString class]] ? params[@"versionId"] : @"";
+    if (versionId.length == 0) {
+        completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:400
+                                        userInfo:@{NSLocalizedDescriptionKey: @"缺少必填参数 versionId"}]);
+        return;
+    }
 
-    void (^openPage)(void) = ^{
-        // 打开下载页引导用户完成本体安装
-        [AiAssetNetworkUtil postShowDownloadPage];
-        NSString *hint = versionId.length > 0 ? versionId : @"目标版本";
-        completion([NSString stringWithFormat:@"已为你打开版本下载页，请选择 %@ 完成安装；安装 MC 本体后我才能继续安装加载器/模组。", hint], nil);
-    };
-
-    // 确认由 AiAgent 统一安全门处理（ControlledWrite 在 Safe/Ask 下已弹确认），此处不再重复弹窗
-    openPage();
+    // 直接安装：进度由 MinecraftResourceDownloadTask 自动注册到下载中心（6 阶段 + autoPresentDetail），
+    // 用户可在下载中心实时查看；无需打开下载页引导手动操作。
+    [AiAssetInstaller installVanillaVersionId:versionId completion:^(BOOL success, NSString * _Nullable message) {
+        if (success) {
+            completion([NSString stringWithFormat:@"MC %@ 本体已安装完成（版本 JSON、库文件、资源文件均已就绪），并已创建并选中对应实例。", versionId], nil);
+        } else {
+            completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:500
+                                            userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"安装 MC %@ 失败：%@", versionId, message ?: @"未知错误"]}]);
+        }
+    }];
 }
 
-#pragma mark - install_loader（检查本体并引导加载器）
+#pragma mark - install_loader（Fabric/Quilt 直接安装；Forge/NeoForge/OptiFine 引导下载页）
 
 - (void)performInstallLoader:(NSDictionary *)params
                   completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion {
@@ -457,16 +520,297 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
                                         userInfo:@{NSLocalizedDescriptionKey: @"loaderType 必须为 fabric / forge / neoforge / quilt / optifine 之一"}]);
         return;
     }
+
+    // Fabric/Quilt：meta API 直装（profile JSON + 版本注册 + Fabric API），全程进度在下载中心展示
+    if ([loaderType isEqualToString:@"fabric"] || [loaderType isEqualToString:@"quilt"]) {
+        [self performFabricLikeLoaderInstall:params mcVersion:mcVersion loaderType:loaderType completion:completion];
+        return;
+    }
+
+    // Forge/NeoForge/OptiFine：安装器需要运行 Java 图形安装器/处理器（进程内 JVM 只能创建一次），
+    // 无法安全全自动，保留下载页引导
     NSString *profile = [AiAssetNetworkUtil resolveProfileName:params];
     NSString *gameDir = [AiAssetNetworkUtil resolveGameDirForProfile:profile];
     BOOL installed = [AiAssetNetworkUtil isGameVersionInstalled:mcVersion inGameDir:gameDir];
 
     [AiAssetNetworkUtil postShowDownloadPage];
     if (!installed) {
-        completion([NSString stringWithFormat:@"MC %@ 本体尚未安装。必须先安装对应版本的 MC 本体（紫色规则），已为你打开下载页，请先完成本体安装，再来让我装 %@。", mcVersion, loaderType], nil);
+        completion([NSString stringWithFormat:@"%@ 安装器需要运行 Java 图形安装器，暂无法全自动。MC %@ 本体也尚未安装，已为你打开下载页，请先安装 MC 本体，再在页面中安装 %@。", [loaderType capitalizedString], mcVersion, loaderType], nil);
     } else {
-        completion([NSString stringWithFormat:@"MC %@ 已就绪，已为你打开下载页，请在页面中安装 %@ 加载器（通常选择版本时点选对应加载器）。", mcVersion, loaderType], nil);
+        completion([NSString stringWithFormat:@"%@ 安装器需要运行 Java 图形安装器，暂无法全自动。MC %@ 已就绪，已为你打开下载页，请在页面中安装 %@ 加载器。", [loaderType capitalizedString], mcVersion, loaderType], nil);
     }
+}
+
+/// Fabric/Quilt 直接安装（参考 DownloadViewController installFabricLikeLoader，去 UI 依赖）：
+/// 1) 原版本体未装 → 自动先直装原版（installVanillaVersionId）；
+/// 2) 解析 loader 版本（缺省取最新稳定版）→ 拉取 meta profile JSON；
+/// 3) 注册安装任务（Modloader + Fabric 3 阶段 + autoPresentDetail）→ 写入 versions/{id}/{id}.json；
+/// 4) 注册并选中实例 profile，post ReloadProfileList；
+/// 5) Fabric（非 Quilt）自动安装 Fabric API 到 mods 目录（独立 Mod 下载任务）。
+- (void)performFabricLikeLoaderInstall:(NSDictionary *)params
+                             mcVersion:(NSString *)mcVersion
+                            loaderType:(NSString *)loaderType
+                            completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion {
+    BOOL isQuilt = [loaderType isEqualToString:@"quilt"];
+    NSString *displayName = isQuilt ? @"Quilt" : @"Fabric";
+    NSString *metaBase = isQuilt ? @"https://meta.quiltmc.org/v3/versions/loader"
+                                 : @"https://meta.fabricmc.net/v2/versions/loader";
+    NSString *loaderVersion = [params[@"loaderVersion"] isKindOfClass:[NSString class]] ? params[@"loaderVersion"] : @"";
+
+    // 阶段下标与 PLTaskStagesFabricExtra() 一致
+    static const NSUInteger kAiFabricStageProfile = 0;
+    static const NSUInteger kAiFabricStageLoaderLibs = 1;
+    static const NSUInteger kAiFabricStageWriteJSON = 2;
+
+    __weak typeof(self) weakSelf = self;
+
+    // 原版预装检查 + 安装
+    NSString *profile = [AiAssetNetworkUtil resolveProfileName:params];
+    NSString *gameDir = [AiAssetNetworkUtil resolveGameDirForProfile:profile];
+    BOOL vanillaInstalled = [AiAssetNetworkUtil isGameVersionInstalled:mcVersion inGameDir:gameDir];
+
+    void (^continueWithLoader)(void) = ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [strongSelf continueFabricInstallWithMetaBase:metaBase
+                                           displayName:displayName
+                                               isQuilt:isQuilt
+                                             mcVersion:mcVersion
+                                         loaderVersion:loaderVersion
+                                         profileStage:kAiFabricStageProfile
+                                            libsStage:kAiFabricStageLoaderLibs
+                                            jsonStage:kAiFabricStageWriteJSON
+                                            completion:completion];
+    };
+
+    if (vanillaInstalled) {
+        continueWithLoader();
+        return;
+    }
+
+    // 自动预装原版（HMCL AE 式全自动；进度在下载中心以独立 MC 任务展示）
+    [AiAssetInstaller installVanillaVersionId:mcVersion completion:^(BOOL success, NSString * _Nullable message) {
+        if (!success) {
+            completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:500
+                                            userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"自动预装 MC %@ 本体失败：%@（无法继续安装 %@）", mcVersion, message ?: @"未知错误", displayName]}]);
+            return;
+        }
+        continueWithLoader();
+    }];
+}
+
+/// 原版就绪后的 Fabric/Quilt 安装主体（解析 loader 版本 → meta profile → 写 JSON → Fabric API）
+- (void)continueFabricInstallWithMetaBase:(NSString *)metaBase
+                               displayName:(NSString *)displayName
+                                   isQuilt:(BOOL)isQuilt
+                                 mcVersion:(NSString *)mcVersion
+                              loaderVersion:(NSString *)loaderVersion
+                               profileStage:(NSUInteger)profileStage
+                                  libsStage:(NSUInteger)libsStage
+                                  jsonStage:(NSUInteger)jsonStage
+                                completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion {
+    __weak typeof(self) weakSelf = self;
+
+    void (^startWithLoaderVersion)(NSString *) = ^(NSString *resolvedLoaderVersion) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        DownloadTaskManager *manager = [DownloadTaskManager sharedManager];
+        NSString *downloadSource = getPrefObject(@"general.download_source") ?: @"official";
+        NSString *taskName = [NSString stringWithFormat:@"%@-%@-%@", isQuilt ? @"quilt" : @"fabric", mcVersion, resolvedLoaderVersion];
+        DownloadTaskItem *task = [manager registerTaskWithResourceType:DownloadTaskResourceTypeModloader
+                                                          resourceName:taskName
+                                                           displayName:[NSString stringWithFormat:@"%@ %@ (%@)", displayName, resolvedLoaderVersion, mcVersion]
+                                                        downloadSource:downloadSource
+                                                               rawTask:nil
+                                                        supportsResume:NO
+                                                               iconURL:nil];
+        if (!task) {
+            completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:500
+                                            userInfo:@{NSLocalizedDescriptionKey: @"注册加载器安装任务失败"}]);
+            return;
+        }
+        [manager setTaskWithId:task.taskId stages:PLTaskStagesFabricExtra()];
+        task.autoPresentDetail = YES;
+        [manager setTaskWithId:task.taskId state:DownloadTaskStateDownloading];
+
+        // 阶段0：获取加载器 profile
+        [manager updateTaskWithId:task.taskId stageAtIndex:profileStage status:PLTaskStageStatusRunning];
+        [manager updateTaskWithId:task.taskId currentStageIndex:profileStage];
+
+        NSString *profileURLStr = [NSString stringWithFormat:@"%@/%@/%@/profile/json", metaBase, mcVersion, resolvedLoaderVersion];
+        NSURL *profileURL = [NSURL URLWithString:profileURLStr];
+        if (!profileURL) {
+            [manager updateTaskWithId:task.taskId stageAtIndex:profileStage status:PLTaskStageStatusFailed];
+            NSError *err = [NSError errorWithDomain:kAiAssetToolDomain code:400
+                                        userInfo:@{NSLocalizedDescriptionKey: @"加载器 profile 地址无效"}];
+            [manager setTaskWithId:task.taskId completedWithError:err];
+            completion(nil, err);
+            return;
+        }
+
+        [AiAssetNetworkUtil getJSONFromURL:profileURL completion:^(id _Nullable json, NSError * _Nullable pError) {
+            if (pError || ![json isKindOfClass:[NSDictionary class]]) {
+                [manager updateTaskWithId:task.taskId stageAtIndex:profileStage status:PLTaskStageStatusFailed];
+                [manager updateTaskWithId:task.taskId stageAtIndex:profileStage progress:0 message:pError.localizedDescription];
+                NSError *err = pError ?: [NSError errorWithDomain:kAiAssetToolDomain code:2
+                                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"获取 %@ profile 失败", displayName]}];
+                [manager setTaskWithId:task.taskId completedWithError:err];
+                completion(nil, err);
+                return;
+            }
+            [manager updateTaskWithId:task.taskId stageAtIndex:profileStage status:PLTaskStageStatusCompleted];
+
+            // 阶段2：写入版本 JSON（与 DownloadViewController installFabricLikeLoader 一致，用 POJAV_GAME_DIR）
+            [manager updateTaskWithId:task.taskId stageAtIndex:jsonStage status:PLTaskStageStatusRunning];
+            [manager updateTaskWithId:task.taskId currentStageIndex:jsonStage];
+
+            NSDictionary *profileJson = (NSDictionary *)json;
+            NSString *versionId = [profileJson[@"id"] isKindOfClass:[NSString class]] ? profileJson[@"id"] : @"";
+            if (versionId.length == 0) {
+                [manager updateTaskWithId:task.taskId stageAtIndex:jsonStage status:PLTaskStageStatusFailed];
+                NSError *err = [NSError errorWithDomain:kAiAssetToolDomain code:3
+                                                userInfo:@{NSLocalizedDescriptionKey: @"profile JSON 缺少版本 id"}];
+                [manager setTaskWithId:task.taskId completedWithError:err];
+                completion(nil, err);
+                return;
+            }
+
+            const char *env = getenv("POJAV_GAME_DIR");
+            NSString *gameDirRoot = (env && strlen(env) > 0) ? [NSString stringWithUTF8String:env] : NSHomeDirectory();
+            NSString *jsonPath = [gameDirRoot stringByAppendingPathComponent:
+                                  [NSString stringWithFormat:@"versions/%@/%@.json", versionId, versionId]];
+            [[NSFileManager defaultManager] createDirectoryAtPath:[jsonPath stringByDeletingLastPathComponent]
+                                      withIntermediateDirectories:YES
+                                                       attributes:nil
+                                                            error:nil];
+            NSError *saveError = nil;
+            NSData *jsonData = [NSJSONSerialization dataWithJSONObject:profileJson options:NSJSONWritingPrettyPrinted error:&saveError];
+            if (!jsonData || ![jsonData writeToFile:jsonPath options:NSDataWritingAtomic error:&saveError]) {
+                [manager updateTaskWithId:task.taskId stageAtIndex:jsonStage status:PLTaskStageStatusFailed];
+                NSError *err = [NSError errorWithDomain:kAiAssetToolDomain code:4
+                                                userInfo:@{NSLocalizedDescriptionKey: saveError.localizedDescription ?: @"写入版本 JSON 失败"}];
+                [manager setTaskWithId:task.taskId completedWithError:err];
+                completion(nil, err);
+                return;
+            }
+
+            // 注册并选中实例 profile（与正常安装流程一致）
+            NSMutableDictionary *prof = [NSMutableDictionary dictionary];
+            prof[@"name"] = versionId;
+            prof[@"lastVersionId"] = versionId;
+            prof[@"gameDir"] = @".";
+            prof[@"type"] = @"custom";
+            prof[@"created"] = [NSDate date].description;
+            [PLProfiles.current saveProfile:prof withName:versionId];
+            PLProfiles.current.selectedProfileName = versionId;
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
+            [manager updateTaskWithId:task.taskId stageAtIndex:jsonStage status:PLTaskStageStatusCompleted];
+
+            // Fabric 自动安装 Fabric API（独立 Mod 下载任务）；Quilt 用 QSL/QFAPI，跳过
+            if (!isQuilt) {
+                [manager updateTaskWithId:task.taskId stageAtIndex:libsStage status:PLTaskStageStatusRunning];
+                [manager updateTaskWithId:task.taskId currentStageIndex:libsStage];
+                [strongSelf installFabricAPIForGameVersion:mcVersion completion:^(BOOL apiOK, NSString * _Nullable apiMessage) {
+                    if (apiOK) {
+                        [manager updateTaskWithId:task.taskId stageAtIndex:libsStage status:PLTaskStageStatusCompleted];
+                    } else {
+                        // Fabric API 失败不阻塞加载器安装本身，仅标注阶段失败原因
+                        [manager updateTaskWithId:task.taskId stageAtIndex:libsStage status:PLTaskStageStatusFailed];
+                        [manager updateTaskWithId:task.taskId stageAtIndex:libsStage progress:0 message:apiMessage];
+                    }
+                    [manager setTaskWithId:task.taskId completedWithError:nil];
+                    NSString *result = apiOK
+                        ? [NSString stringWithFormat:@"%@ %@ 已安装完成（MC %@），并已自动安装 Fabric API，实例已创建并选中。", displayName, resolvedLoaderVersion, mcVersion]
+                        : [NSString stringWithFormat:@"%@ %@ 已安装完成（MC %@），实例已创建并选中；但 Fabric API 自动安装失败：%@，可让我重新安装或手动处理。", displayName, resolvedLoaderVersion, mcVersion, apiMessage ?: @"未知原因"];
+                    completion(result, nil);
+                }];
+            } else {
+                [manager updateTaskWithId:task.taskId stageAtIndex:libsStage status:PLTaskStageStatusSkipped];
+                [manager setTaskWithId:task.taskId completedWithError:nil];
+                completion([NSString stringWithFormat:@"Quilt %@ 已安装完成（MC %@），实例已创建并选中。", resolvedLoaderVersion, mcVersion], nil);
+            }
+        }];
+    };
+
+    if (loaderVersion.length > 0) {
+        startWithLoaderVersion(loaderVersion);
+        return;
+    }
+
+    // 未指定 loader 版本：取最新稳定版（fallback 首个）
+    NSString *listURLStr = [NSString stringWithFormat:@"%@/%@", metaBase, mcVersion];
+    NSURL *listURL = [NSURL URLWithString:listURLStr];
+    if (!listURL) {
+        completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:400
+                                        userInfo:@{NSLocalizedDescriptionKey: @"加载器版本列表地址无效"}]);
+        return;
+    }
+    [AiAssetNetworkUtil getJSONFromURL:listURL completion:^(id _Nullable json, NSError * _Nullable error) {
+        if (error) {
+            completion(nil, error);
+            return;
+        }
+        NSArray *list = [json isKindOfClass:[NSArray class]] ? json : nil;
+        if (list.count == 0) {
+            completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:404
+                                            userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"MC %@ 暂无可用 %@ 加载器版本", mcVersion, displayName]}]);
+            return;
+        }
+        NSString *picked = nil;
+        for (id v in list) {
+            if (![v isKindOfClass:[NSDictionary class]]) continue;
+            NSString *ver = [v[@"version"] isKindOfClass:[NSString class]] ? v[@"version"] : nil;
+            if (ver.length > 0 && [v[@"stable"] boolValue]) {
+                picked = ver;
+                break;
+            }
+        }
+        if (!picked) {
+            NSDictionary *first = [list.firstObject isKindOfClass:[NSDictionary class]] ? list.firstObject : nil;
+            if ([first[@"version"] isKindOfClass:[NSString class]]) picked = first[@"version"];
+        }
+        if (picked.length == 0) {
+            completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:404
+                                            userInfo:@{NSLocalizedDescriptionKey: @"无法解析加载器版本号"}]);
+            return;
+        }
+        startWithLoaderVersion(picked);
+    }];
+}
+
+/// 自动安装 Fabric API（slug=fabric-api，按 gameVersion 匹配版本，下载到 mods 目录，独立 Mod 任务）
+- (void)installFabricAPIForGameVersion:(NSString *)mcVersion
+                            completion:(void (^)(BOOL success, NSString * _Nullable message))completion {
+    NSError *err = nil;
+    NSString *modsFolder = [[ModService sharedService] ensureModsFolderForProfile:[AiAssetNetworkUtil resolveProfileName:@{}] error:&err];
+    if (modsFolder.length == 0) {
+        completion(NO, @"无法确定 mods 目录");
+        return;
+    }
+    [self fetchVersionsForSlug:@"fabric-api"
+                     versionId:@""
+                   gameVersion:mcVersion
+                    completion:^(NSString * _Nullable filename, NSURL * _Nullable fileURL, NSString * _Nullable sha1, NSError * _Nullable verError) {
+        if (verError) {
+            completion(NO, verError.localizedDescription);
+            return;
+        }
+        NSString *safeFile = [AiAssetNetworkUtil safeFileName:filename];
+        [AiAssetInstaller downloadFileFromURL:fileURL
+                                     filename:safeFile
+                                       folder:modsFolder
+                                  displayName:@"Fabric API"
+                                 resourceType:DownloadTaskResourceTypeMod
+                                  expectedSHA1:sha1
+                                   completion:^(NSString * _Nullable result, NSError * _Nullable dError) {
+            if (dError) {
+                completion(NO, dError.localizedDescription);
+            } else {
+                completion(YES, nil);
+            }
+        }];
+    }];
 }
 
 @end
@@ -559,6 +903,176 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
     return NO;
 }
 
++ (void)fetchVersionEntry:(NSString *)versionId
+               completion:(void (^)(NSDictionary * _Nullable entry, NSError * _Nullable error))completion {
+    NSString *downloadSource = getPrefObject(@"general.download_source") ?: @"official";
+    BOOL useBMCLAPI = [downloadSource isEqualToString:@"bmclapi"];
+    NSString *manifestURLStr = useBMCLAPI
+        ? @"https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json"
+        : @"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+    NSURL *manifestURL = [NSURL URLWithString:manifestURLStr];
+    if (!manifestURL) {
+        if (completion) completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:500
+                                                        userInfo:@{NSLocalizedDescriptionKey: @"版本清单地址无效"}]);
+        return;
+    }
+    [self getJSONFromURL:manifestURL completion:^(id _Nullable json, NSError * _Nullable error) {
+        if (error) {
+            if (completion) completion(nil, error);
+            return;
+        }
+        NSDictionary *manifest = [json isKindOfClass:[NSDictionary class]] ? json : nil;
+        NSArray *versions = [manifest[@"versions"] isKindOfClass:[NSArray class]] ? manifest[@"versions"] : nil;
+        if (versions.count == 0) {
+            if (completion) completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:2
+                                                            userInfo:@{NSLocalizedDescriptionKey: @"版本清单格式无效"}]);
+            return;
+        }
+
+        // latest 别名解析（latest-release/latest/latest-snapshot）
+        NSString *target = versionId;
+        if ([target isEqualToString:@"latest"] || [target isEqualToString:@"latest-release"]) {
+            NSDictionary *latest = [manifest[@"latest"] isKindOfClass:[NSDictionary class]] ? manifest[@"latest"] : nil;
+            NSString *release = [latest[@"release"] isKindOfClass:[NSString class]] ? latest[@"release"] : nil;
+            target = release.length > 0 ? release : getPrefObject(@"internal.latest_version.release");
+        } else if ([target isEqualToString:@"latest-snapshot"]) {
+            NSDictionary *latest = [manifest[@"latest"] isKindOfClass:[NSDictionary class]] ? manifest[@"latest"] : nil;
+            NSString *snapshot = [latest[@"snapshot"] isKindOfClass:[NSString class]] ? latest[@"snapshot"] : nil;
+            target = snapshot.length > 0 ? snapshot : getPrefObject(@"internal.latest_version.snapshot");
+        }
+        if (![target isKindOfClass:[NSString class]] || target.length == 0) {
+            if (completion) completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:404
+                                                            userInfo:@{NSLocalizedDescriptionKey: @"无法解析目标版本号"}]);
+            return;
+        }
+
+        for (id v in versions) {
+            if (![v isKindOfClass:[NSDictionary class]]) continue;
+            if ([v[@"id"] isEqualToString:target]) {
+                if (completion) completion(v, nil);
+                return;
+            }
+        }
+        if (completion) completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:404
+                                                        userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"版本清单中未找到版本 %@", target]}]);
+    }];
+}
+
++ (void)ensureVersionJSONExists:(NSString *)versionId
+                     completion:(void (^)(BOOL success))completion {
+    if (versionId.length == 0) {
+        if (completion) completion(NO);
+        return;
+    }
+    const char *env = getenv("POJAV_GAME_DIR");
+    NSString *gameDir = (env && strlen(env) > 0) ? [NSString stringWithUTF8String:env] : NSHomeDirectory();
+    if (gameDir.length == 0) {
+        const char *home = getenv("POJAV_HOME");
+        gameDir = (home && strlen(home) > 0) ? [NSString stringWithUTF8String:home] : NSHomeDirectory();
+    }
+    NSString *versionDir = [gameDir stringByAppendingPathComponent:
+                            [NSString stringWithFormat:@"versions/%@", versionId]];
+    NSString *versionJsonPath = [versionDir stringByAppendingPathComponent:
+                                 [NSString stringWithFormat:@"%@.json", versionId]];
+
+    // 1. 已存在，直接成功
+    if ([NSFileManager.defaultManager fileExistsAtPath:versionJsonPath]) {
+        if (completion) completion(YES);
+        return;
+    }
+
+    // 2. 拉清单取条目 → 下载 version JSON → 落盘
+    [self fetchVersionEntry:versionId completion:^(NSDictionary * _Nullable entry, NSError * _Nullable error) {
+        if (!entry) {
+            if (completion) completion(NO);
+            return;
+        }
+        NSString *versionJSONURL = [entry[@"url"] isKindOfClass:[NSString class]] ? entry[@"url"] : nil;
+        if (versionJSONURL.length == 0) {
+            if (completion) completion(NO);
+            return;
+        }
+        // BMCLAPI 镜像域名替换（与 ensureVanillaVersionJSONExists 一致）
+        NSString *downloadSource = getPrefObject(@"general.download_source") ?: @"official";
+        if ([downloadSource isEqualToString:@"bmclapi"]) {
+            versionJSONURL = [versionJSONURL stringByReplacingOccurrencesOfString:@"piston-meta.mojang.com"
+                                                                       withString:@"bmclapi2.bangbang93.com"];
+            versionJSONURL = [versionJSONURL stringByReplacingOccurrencesOfString:@"launchermeta.mojang.com"
+                                                                       withString:@"bmclapi2.bangbang93.com"];
+        }
+        NSURL *jsonURL = [NSURL URLWithString:versionJSONURL];
+        if (!jsonURL) {
+            if (completion) completion(NO);
+            return;
+        }
+        [self getJSONFromURL:jsonURL completion:^(id _Nullable json, NSError * _Nullable jError) {
+            if (jError || ![json isKindOfClass:[NSDictionary class]]) {
+                if (completion) completion(NO);
+                return;
+            }
+            NSData *data = [NSJSONSerialization dataWithJSONObject:json options:NSJSONWritingPrettyPrinted error:nil];
+            if (!data) {
+                if (completion) completion(NO);
+                return;
+            }
+            [NSFileManager.defaultManager createDirectoryAtPath:versionDir
+                                    withIntermediateDirectories:YES
+                                                     attributes:nil
+                                                          error:nil];
+            BOOL ok = [data writeToFile:versionJsonPath options:NSDataWritingAtomic error:nil];
+            if (completion) completion(ok);
+        }];
+    }];
+}
+
++ (NSString *)resolveGameVersionForParams:(NSDictionary *)params {
+    // 1. 显式 gameVersion 参数优先
+    NSString *explicit = [params[@"gameVersion"] isKindOfClass:[NSString class]] ? params[@"gameVersion"] : @"";
+    if (explicit.length > 0) return explicit;
+
+    // 2. 实例 profile 的 lastVersionId（归一化剥离加载器后缀）
+    NSString *profileName = [self resolveProfileName:params];
+    @try {
+        NSDictionary *profiles = [PLProfiles current].profiles;
+        NSDictionary *prof = [profiles isKindOfClass:[NSDictionary class]] ? profiles[profileName] : nil;
+        if ([prof isKindOfClass:[NSDictionary class]]) {
+            NSString *lastVersionId = [prof[@"lastVersionId"] isKindOfClass:[NSString class]] ? prof[@"lastVersionId"] : @"";
+            if (lastVersionId.length > 0) {
+                return [self normalizeGameVersion:lastVersionId];
+            }
+        }
+    } @catch (NSException *ex) {
+        // ignore
+    }
+    return @"";
+}
+
+/// 归一化版本号：剥离 fabric/forge/neoforge/quilt/optifine 加载器后缀。
+/// 例：1.20.1-forge-47.2.0 → 1.20.1；fabric-loader-0.16.9-1.20.1 → 1.20.1；1.20.1 原样返回。
++ (NSString *)normalizeGameVersion:(NSString *)rawVersion {
+    if (rawVersion.length == 0) return @"";
+    NSArray *parts = [rawVersion componentsSeparatedByString:@"-"];
+    if (parts.count == 1) return rawVersion;
+    NSSet *loaderTokens = [NSSet setWithObjects:@"fabric", @"forge", @"neoforge", @"quilt", @"optifine", @"loader", nil];
+    for (NSUInteger i = 0; i < parts.count; i++) {
+        if (![loaderTokens containsObject:[parts[i] lowercaseString]]) continue;
+        // 优先取 loader token 前一组件（1.20.1-forge-47.2.0），否则后一组件（fabric-loader-x-1.20.1）
+        if (i > 0 && [self isPlausibleMCVersion:parts[i - 1]]) return parts[i - 1];
+        if (i + 1 < parts.count && [self isPlausibleMCVersion:parts[i + 1]]) return parts[i + 1];
+    }
+    return rawVersion;
+}
+
+/// 判断字符串是否像 MC 版本号（1.20.1 / 1.7.10 / 24w14a 等）
++ (BOOL)isPlausibleMCVersion:(NSString *)s {
+    if (s.length < 2) return NO;
+    if (!isdigit([s characterAtIndex:0])) return NO;
+    if ([s containsString:@"."]) return YES;
+    // 快照形如 24w14a：数字开头 + w + 数字 + 字母结尾
+    if (s.length >= 4 && [s characterAtIndex:s.length - 1] >= 'a' && [s characterAtIndex:s.length - 1] <= 'z') return YES;
+    return NO;
+}
+
 + (void)postShowDownloadPage {
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:@"ShowDownloadPage" object:nil];
@@ -642,6 +1156,86 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
                 if (completion) completion(result, nil);
             });
         }];
+}
+
++ (void)installVanillaVersionId:(NSString *)versionId
+                     completion:(void (^)(BOOL success, NSString * _Nullable message))completion {
+    if (versionId.length == 0) {
+        if (completion) dispatch_async(dispatch_get_main_queue(), ^{ completion(NO, @"缺少版本号"); });
+        return;
+    }
+
+    // 1. 拉清单条目（含 version JSON 的下载 url；latest-release/latest-snapshot 在此解析）
+    [AiAssetNetworkUtil fetchVersionEntry:versionId completion:^(NSDictionary * _Nullable entry, NSError * _Nullable error) {
+        if (!entry) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (completion) completion(NO, error.localizedDescription ?: @"未在版本清单中找到该版本");
+            });
+            return;
+        }
+        NSString *resolvedId = [entry[@"id"] isKindOfClass:[NSString class]] ? entry[@"id"] : versionId;
+
+        // 2. 先确保 version JSON 落盘（BMCLAPI 域名替换；也保证 remoteVersionList 未加载时
+        //    downloadVersionMetadata: 走本地 JSON 分支仍可继续下载 libraries/assets）
+        [AiAssetNetworkUtil ensureVersionJSONExists:resolvedId completion:^(BOOL jsonOK) {
+            if (!jsonOK) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (completion) completion(NO, @"下载版本 JSON 失败");
+                });
+                return;
+            }
+
+            // 3. MinecraftResourceDownloadTask 完整安装（版本 JSON/库/资源）。
+            //    downloadVersion: 内部自动注册 DownloadTaskManager 任务（6 阶段 + autoPresentDetail），
+            //    下载中心/统一进度页实时展示进度；对已存在且 SHA1 正确的文件自动跳过。
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __block BOOL errored = NO;
+                MinecraftResourceDownloadTask *task = [MinecraftResourceDownloadTask new];
+                task.maxRetryCount = 3;
+                task.handleError = ^{
+                    errored = YES;
+                };
+
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    [task downloadVersion:entry];
+
+                    // 轮询等待完成（最长 30 分钟，与 ensureVanillaInstalled 一致）。
+                    // prepareForDownload 会重建 progress，故每轮重新取值，避免 KVO 悬空。
+                    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:30 * 60];
+                    BOOL succeeded = NO;
+                    while ([deadline timeIntervalSinceNow] > 0) {
+                        if (errored) break;
+                        NSProgress *p = task.progress;
+                        if (p && p.finished) {
+                            succeeded = !p.cancelled;
+                            break;
+                        }
+                        [NSThread sleepForTimeInterval:0.5];
+                    }
+
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (succeeded) {
+                            // 4. 注册并选中实例 profile（与 downloadVanillaVersion: 一致），刷新版本列表
+                            NSMutableDictionary *profile = [NSMutableDictionary dictionary];
+                            profile[@"name"] = resolvedId;
+                            profile[@"lastVersionId"] = resolvedId;
+                            profile[@"gameDir"] = @".";
+                            profile[@"type"] = @"custom";
+                            profile[@"created"] = [NSDate date].description;
+                            [PLProfiles.current saveProfile:profile withName:resolvedId];
+                            PLProfiles.current.selectedProfileName = resolvedId;
+                            [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadProfileList" object:nil];
+                            if (completion) completion(YES, nil);
+                        } else {
+                            NSString *msg = errored ? @"下载出错（详见下载中心任务详情）"
+                                                    : @"安装超时（30 分钟）";
+                            if (completion) completion(NO, msg);
+                        }
+                    });
+                });
+            });
+        }];
+    }];
 }
 
 @end
