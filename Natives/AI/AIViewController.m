@@ -360,7 +360,6 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
 
     [self.inputBar clearText];
     [self.inputBar setIsSending:YES];
-    [self reloadAndScrollToBottom];
 
     // 发送流程：AiAgent 会追加用户消息 + 助手占位消息并处理持久化
     __weak typeof(self) weakSelf = self;
@@ -387,6 +386,11 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
             [strongSelf updateEmptyState];
         });
     }];
+
+    // 关键修复（发送后用户消息不立即显示）：sendUserMessage 已同步把用户消息与助手占位
+    // 追加进 session.messages，此刻再 reloadData 即可让用户消息立即显示；此前在调用前刷新，
+    // 用户消息尚未加入，只有等首个 AI chunk 到来才显示。
+    [self reloadAndScrollToBottom];
 }
 
 /// 节流刷新正在流式生成的最后一条助手消息
