@@ -520,6 +520,13 @@ add_executable(AngelAuraAmethyst
 
   # Air AI Agent 资源/网络工具（3b：Modrinth 搜索 + 资源安装/引导）
   AI/AiAssetTools.m
+
+  # Air AI Agent 第二轮增强（enhance-ai-agent：设置 / to-do / sleep / 下载查询 / 实例创建）
+  AI/AiSettingsTools.m
+  AI/AiTodoTool.m
+  AI/AiSleepTool.m
+  AI/AiDownloadProbe.m
+  AI/AiInstanceCreator.m
 )
 
 # Add ModLoaderIcons PNG files into the app bundle Resources/ModLoaderIcons so they are available at runtime.

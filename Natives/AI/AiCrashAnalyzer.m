@@ -21,7 +21,9 @@
            "\n  - log（string，可选）：启动日志全文（通常来自 read_latest_log）。"
            "\n  - crashReport（string，可选）：崩溃报告全文（通常来自 read_crash_report）。"
            "\n至少提供一个入参。返回 JSON：{matched, category, explanation, suggestions}。"
-           "\ncategory 取值：内存不足 / JNI 初始化失败 / 图形初始化失败 / Java 版本不符 / 数值越界 / 未知。"
+           "\ncategory 取值：内存不足 / JNI 初始化失败 / 图形初始化失败 / Java 版本不符 / 数值越界 / "
+           "iOS-妙控键盘崩溃 / iOS-MC 26.2 OpenGL 语法错误 / iOS-MC 26.3-Snapshot4 启动失败（SDL3） / "
+           "iOS-启动器自身闪退 / iOS-LWJGL 魔改兼容问题 / iOS-启动黑屏/直接闪退（JIT） / 未知。"
            "\n边界：仅内置规则匹配，不承诺 100% 命中；未命中时给出通用排查建议。";
 }
 
@@ -93,6 +95,81 @@
             @"suggestions": @[
                 @"删除/重置该实例的相关配置文件后重新创建。",
                 @"重新安装该游戏版本，避免混用损坏的旧配置。",
+            ],
+        },
+        // ===== iOS 环境已知错误（enhance-ai-agent Task 17）=====
+        @{
+            @"category": @"iOS-妙控键盘崩溃",
+            @"alternatives": @[
+                @[@"Magic Keyboard", @"crash"],
+                @[@"妙控键盘"],
+            ],
+            @"explanation": @"这是 iOS 平台点击妙控键盘（Magic Keyboard）触发的已知崩溃，开发者已知晓该问题。",
+            @"suggestions": @[
+                @"开发者已知该问题，请耐心等待开发者修复。",
+                @"修复前尽量避免连接/点击妙控键盘，或改用触屏与虚拟键盘操作。",
+            ],
+        },
+        @{
+            @"category": @"iOS-MC 26.2 OpenGL 语法错误",
+            @"alternatives": @[
+                @[@"26.2", @"OpenGL", @"syntax"],
+                @[@"GL_INVALID_OPERATION", @"syntax error"],
+            ],
+            @"explanation": @"Minecraft 26.2 在 iOS 渲染层触发了 OpenGL 语法错误，是当前渲染器与该版本的兼容性问题。",
+            @"suggestions": @[
+                @"把该实例的渲染器切换为 MoltenVK（set_setting：key=video.renderer, value=MoltenVK）。",
+                @"切换渲染器后重新启动游戏验证。",
+            ],
+        },
+        @{
+            @"category": @"iOS-MC 26.3-Snapshot4 启动失败（SDL3）",
+            @"alternatives": @[
+                @[@"26.3-Snapshot4"],
+                @[@"SDL3"],
+            ],
+            @"explanation": @"Mojang 在 26.3-Snapshot4 把渲染库从 LWJGL 改为 SDL3，iOS 端暂未实现对应支持，因此无法启动。",
+            @"suggestions": @[
+                @"目前无解，建议换用其它 Minecraft 版本（如 26.2 或更早的正式版）。",
+            ],
+        },
+        @{
+            @"category": @"iOS-启动器自身闪退",
+            @"alternatives": @[
+                @[@"启动器", @"闪退"],
+                @[@"launcher", @"SIGKILL"],
+            ],
+            @"explanation": @"启动器自身发生了闪退（而非游戏崩溃），需要开发者介入排查。",
+            @"suggestions": @[
+                @"通过 GitHub Issues 或官方 QQ 群（966475918）上报该问题，附上 latestlog.txt。",
+                @"开发者一般在法定节假日集中修复此类问题。",
+            ],
+        },
+        @{
+            @"category": @"iOS-LWJGL 魔改兼容问题",
+            @"alternatives": @[
+                @[@"LWJGL", @"UnsatisfiedLinkError"],
+                @[@"LWJGL", @"no such function"],
+                @[@"LWJGL", @"NoSuchMethodError"],
+            ],
+            @"explanation": @"5.0.0 公测起开发者魔改了 LWJGL 3.3.3 以适配 Minecraft 26.2（含部分 3.4.1 特性），"
+                            "这可能导致部分旧版本游戏无法启动。",
+            @"suggestions": @[
+                @"确认游戏版本与 LWJGL 版本的兼容性（旧版本游戏建议用对应旧版实例配置）。",
+                @"通过 GitHub Issues 或官方 QQ 群（966475918）反馈具体版本组合。",
+            ],
+        },
+        @{
+            @"category": @"iOS-启动黑屏/直接闪退（JIT）",
+            @"alternatives": @[
+                @[@"JIT", @"SIGSEGV"],
+                @[@"JIT", @"SIGTRAP"],
+                @[@"ptrace", @"debugged"],
+            ],
+            @"explanation": @"属于 JIT（即时编译）未正确开启导致的问题：启动后黑屏或直接闪退。",
+            @"suggestions": @[
+                @"建议换用 StikDebug 或 LiveContainer 开启 JIT 后再启动游戏。",
+                @"开发者已知晓该问题，等待后续修复。",
             ],
         },
     ];

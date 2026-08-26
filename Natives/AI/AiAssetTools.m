@@ -15,6 +15,17 @@
 //  - 文件下载统一走 PLDownloadClient，并注册到 DownloadTaskManager 以便进度页跟踪。
 //  - 传统中括号语法 + ARC；结果一律调度回主线程回调。
 //
+//  enhance-ai-agent 第二轮增强：
+//  - Modrinth 请求链：官方 → MCIM 镜像（mod.mcimirror.top）→ 官方重试；下载文件双候选
+//    （官方 CDN → cdn.mcimirror.top 镜像），失败自动切换（PLDownloadClient candidateURLs）。
+//  - 版本清单链：BMCLAPI 默认 → official 兜底（不依赖 general.download_source 偏好）。
+//  - latest 别名：install_loader 的 loaderVersion 与资源安装的 versionId 均可传
+//    "latest"/"latest-release"，等价于自动选择最新稳定版，无需先拉版本列表。
+//  - install_mod 检测 Sodium 自动连带安装 Podium（或 Podium Port）；Iris 附带 Zink 渲染器提醒；
+//    安装完成统一附「可能缺少依赖 Mod，建议启动测试」提醒。
+//  - install_* 支持 wait 参数（默认 true）：wait=false 时后台执行，立即返回任务信息，
+//    AI 可用 check_downloads 查询进度。
+//
 
 #import "AiAssetTools.h"
 #import "PLProfiles.h"
@@ -33,6 +44,24 @@
 /// 工具错误域与常见错误码
 static NSString * const kAiAssetToolDomain = @"AiAssetTool";
 
+/// 解析 wait 参数（默认 YES；"false"/"no"/"0"/JSON false → NO）
+static BOOL aiWaitRequested(NSDictionary *params) {
+    id v = params[@"wait"];
+    if (v == nil) return YES;
+    if ([v isKindOfClass:[NSNumber class]]) return [v boolValue];
+    if ([v isKindOfClass:[NSString class]]) {
+        NSString *s = [(NSString *)v lowercaseString];
+        if ([s isEqualToString:@"false"] || [s isEqualToString:@"no"] || [s isEqualToString:@"0"]) return NO;
+        return YES;
+    }
+    return YES;
+}
+
+/// 判断字符串是否为 latest 别名（latest / latest-release）
+static BOOL aiIsLatestAlias(NSString *s) {
+    return [s isEqualToString:@"latest"] || [s isEqualToString:@"latest-release"];
+}
+
 #pragma mark - 文件内私有工具类：网络与路径
 
 /// 网络 / 路径 / 安全文件名等通用 helper（文件内私有）
@@ -40,6 +69,12 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
 
 /// GET JSON（对象或数组均可）；统一调度回主线程
 + (void)getJSONFromURL:(NSURL *)url completion:(void (^)(id _Nullable json, NSError * _Nullable error))completion;
+
+/// Modrinth API GET JSON（官方 → MCIM 镜像 → 官方重试）：
+/// apiPath 为以 / 开头的 v2 路径（如 /search?... 或 /project/xxx/version）。
+/// completion 返回 json、实际使用的源（Modrinth / Modrinth-MCIM镜像）与错误。
++ (void)getModrinthJSONWithPath:(NSString *)apiPath
+                     completion:(void (^)(id _Nullable json, NSString * _Nullable usedSource, NSError * _Nullable error))completion;
 
 /// 把文件名安全化（去掉会破坏路径的分隔符）
 + (NSString *)safeFileName:(NSString *)rawName;
@@ -83,6 +118,21 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
                resourceType:(NSString *)resourceType
                 expectedSHA1:(nullable NSString *)expectedSHA1
                  completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion;
+
+/// 下载一个文件到目标目录（增强版）：
+/// - 下载候选含 MCIM 镜像（cdn.modrinth.com → cdn.mcimirror.top），失败自动切换；
+/// - waitForCompletion=NO 时注册任务后立即回调「已加入后台下载」，下载继续后台进行，
+///   终态仅回调 onFinished（可为 nil）；
+/// - waitForCompletion=YES 时行为同旧版（completion 在终态回调），onFinished 亦会触发。
++ (void)downloadFileFromURL:(NSURL *)url
+                   filename:(NSString *)filename
+                     folder:(NSString *)folder
+                displayName:(NSString *)displayName
+               resourceType:(NSString *)resourceType
+                expectedSHA1:(nullable NSString *)expectedSHA1
+          waitForCompletion:(BOOL)waitForCompletion
+                 completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion
+                 onFinished:(nullable void (^)(BOOL success, NSString * _Nullable message))onFinished;
 
 /// 直接安装 MC 原版本体（version JSON + libraries + assets）：
 /// 1) 拉取版本清单条目并确保 version JSON 落盘；
@@ -171,15 +221,10 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
     NSString *encQuery = [query stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
     NSString *facetsJSON = [NSString stringWithFormat:@"[[[\"project_type:%@\"]]]", type ?: @"mod"];
     NSString *encFacets = [facetsJSON stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
-    NSString *urlStr = [NSString stringWithFormat:@"https://api.modrinth.com/v2/search?query=%@&facets=%@&limit=8", encQuery, encFacets];
-    NSURL *url = [NSURL URLWithString:urlStr];
-    if (!url) {
-        NSError *err = [NSError errorWithDomain:kAiAssetToolDomain code:500 userInfo:@{NSLocalizedDescriptionKey: @"搜索地址无效"}];
-        completion(nil, err);
-        return;
-    }
+    NSString *apiPath = [NSString stringWithFormat:@"/search?query=%@&facets=%@&limit=8", encQuery, encFacets];
 
-    [AiAssetNetworkUtil getJSONFromURL:url completion:^(id _Nullable json, NSError * _Nullable error) {
+    // Modrinth 官方 → MCIM 镜像 → 官方重试（源切换由 helper 内部完成）
+    [AiAssetNetworkUtil getModrinthJSONWithPath:apiPath completion:^(id _Nullable json, NSString * _Nullable usedSource, NSError * _Nullable error) {
         if (error) {
             completion(nil, error);
             return;
@@ -219,7 +264,8 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
             return;
         }
         NSData *data = [NSJSONSerialization dataWithJSONObject:items options:0 error:nil];
-        completion(data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"[]", nil);
+        NSString *jsonStr = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"[]";
+        completion([NSString stringWithFormat:@"%@\n（数据源：%@）", jsonStr, usedSource ?: @"Modrinth"], nil);
     }];
 }
 
@@ -260,34 +306,34 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
 - (NSString *)summary {
     if ([_internalName isEqualToString:@"install_resourcepack"]) {
         return @"从 Modrinth 下载并安装资源包到资源包目录，全自动完成，进度在下载中心展示。"
-               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）。"
-               "\n返回安装结果说明。";
+               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，可传 \"latest\" 表示最新版）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）、wait（boolean，可选，默认 true；false 时后台下载立即返回，可用 check_downloads 查进度）。"
+               "\n说明：默认源 Modrinth，失败自动切换 MCIM 镜像再回退官方。目录不存在会自动创建。返回安装结果说明。";
     }
     if ([_internalName isEqualToString:@"install_shader"]) {
         return @"从 Modrinth 下载并安装光影包到光影目录，全自动完成，进度在下载中心展示。"
-               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）。"
-               "\n返回安装结果说明。";
+               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，可传 \"latest\" 表示最新版）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）、wait（boolean，可选，默认 true；false 时后台下载立即返回，可用 check_downloads 查进度）。"
+               "\n说明：默认源 Modrinth，失败自动切换 MCIM 镜像再回退官方。若安装 Iris 光影，建议提醒用户把渲染器切换为 Zink。返回安装结果说明。";
     }
     if ([_internalName isEqualToString:@"install_datapack"]) {
         return @"从 Modrinth 下载并安装数据包到数据包目录，全自动完成，进度在下载中心展示。"
-               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则取 release 最新版本）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）。"
-               "\n返回安装结果说明。";
+               "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，可传 \"latest\" 表示最新版）、gameVersion（string，可选，按 MC 版本过滤）、instance（string，可选，实例名）、wait（boolean，可选，默认 true；false 时后台下载立即返回，可用 check_downloads 查进度）。"
+               "\n说明：默认源 Modrinth，失败自动切换 MCIM 镜像再回退官方。返回安装结果说明。";
     }
     if ([_internalName isEqualToString:@"install_game_version"]) {
         return @"直接下载并安装指定 Minecraft 原版本体（版本 JSON + 库文件 + 资源文件），全自动完成，进度在下载中心实时展示，无需用户操作。"
-               "\n参数：versionId（string，必填，如 1.20.1，也支持 latest-release / latest-snapshot）。"
-               "\n行为：安装完成后自动创建并选中对应实例。返回安装结果说明。";
+               "\n参数：versionId（string，必填，如 1.20.1，也支持 latest-release / latest-snapshot / latest）、wait（boolean，可选，默认 true；false 时后台安装立即返回，可用 check_downloads 查进度）。"
+               "\n说明：版本清单默认从 BMCLAPI 镜像获取，失败自动切换官方源。行为：安装完成后自动创建并选中对应实例。返回安装结果说明。";
     }
     if ([_internalName isEqualToString:@"install_loader"]) {
         return @"直接安装模组加载器（全自动，进度在下载中心展示）。"
-               "\n参数：mcVersion（string，必填，目标 MC 版本）、loaderType（string，必填，fabric/forge/neoforge/quilt/optifine）、loaderVersion（string，可选，加载器版本，缺省取最新稳定版）、instance（string，可选，实例名）。"
+               "\n参数：mcVersion（string，必填，目标 MC 版本）、loaderType（string，必填，fabric/forge/neoforge/quilt/optifine）、loaderVersion（string，可选，可传 \"latest\" 表示最新稳定版，无需先拉版本列表）、instance（string，可选，实例名）、wait（boolean，可选，默认 true；false 时后台安装立即返回，可用 check_downloads 查进度）。"
                "\n行为：Fabric/Quilt 直接安装——若原版本体未安装会先自动安装原版，随后写入加载器版本 JSON 并注册实例，Fabric 还会自动安装 Fabric API；"
                "Forge/NeoForge/OptiFine 安装器需要运行 Java 图形安装器/处理器，暂无法全自动，将打开内置下载页引导用户完成。";
     }
     // install_mod
     return @"从 Modrinth 下载并安装模组到 mods 目录，全自动完成，进度在下载中心展示。"
-           "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，否则自动选择适配实例 MC 版本的最新 release 版本）、gameVersion（string，可选，指定 MC 版本过滤，缺省自动取实例当前 MC 版本）、instance（string，可选，实例名）。"
-           "\n返回安装结果说明。";
+           "\n参数：slugOrId（string，必填，Modrinth 项目 slug 或 id）、versionId（string，可选，可传 \"latest\" 表示最新版，无需先拉版本列表）、gameVersion（string，可选，指定 MC 版本过滤，缺省自动取实例当前 MC 版本）、instance（string，可选，实例名）、wait（boolean，可选，默认 true；false 时后台下载立即返回，可用 check_downloads 查进度）。"
+           "\n说明：默认源 Modrinth，失败自动切换 MCIM 镜像再回退官方；若安装 Sodium 会自动连带安装 Podium（或 Podium Port）。返回安装结果说明。";
 }
 
 #pragma mark - 执行
@@ -352,7 +398,9 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
         completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:500 userInfo:@{NSLocalizedDescriptionKey: @"无法确定安装目录"}]);
         return;
     }
+    // latest 别名：等价于不指定版本（自动选最新 release）
     NSString *versionId = [params[@"versionId"] isKindOfClass:[NSString class]] ? params[@"versionId"] : @"";
+    if (aiIsLatestAlias(versionId)) versionId = @"";
     // 版本匹配（HMCL AE 式自动化关键）：install_mod 自动按实例 MC 版本过滤，
     // 其余资源类型仅在显式传入 gameVersion 时过滤
     NSString *gameVersion = [params[@"gameVersion"] isKindOfClass:[NSString class]] ? params[@"gameVersion"] : @"";
@@ -361,14 +409,9 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
     }
 
     NSString *encSlug = [slugOrId stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
-    // 1. 项目信息（取项目名做 displayName）
-    NSString *projectURLStr = [NSString stringWithFormat:@"https://api.modrinth.com/v2/project/%@", encSlug];
-    NSURL *projectURL = [NSURL URLWithString:projectURLStr];
-    if (!projectURL) {
-        completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:400 userInfo:@{NSLocalizedDescriptionKey: @"无效的项目标识"}]);
-        return;
-    }
-    [AiAssetNetworkUtil getJSONFromURL:projectURL completion:^(id _Nullable projectJSON, NSError * _Nullable projectError) {
+    // 1. 项目信息（取项目名做 displayName；官方 → MCIM → 官方兜底）
+    NSString *projectPath = [NSString stringWithFormat:@"/project/%@", encSlug];
+    [AiAssetNetworkUtil getModrinthJSONWithPath:projectPath completion:^(id _Nullable projectJSON, NSString * _Nullable projectSource, NSError * _Nullable projectError) {
         if (projectError) {
             completion(nil, projectError);
             return;
@@ -384,15 +427,141 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
             }
             NSString *displayName = projectTitle.length > 0 ? projectTitle : filename;
             NSString *safeFile = [AiAssetNetworkUtil safeFileName:filename];
-            [AiAssetInstaller downloadFileFromURL:fileURL
-                                         filename:safeFile
-                                           folder:folder
-                                      displayName:displayName
-                                     resourceType:[self resourceTypeForTool]
-                                      expectedSHA1:sha1
-                                       completion:completion];
+
+            // Sodium 连带 Podium/Podium Port（屏蔽 Sodium 的启动器检测，否则游戏强制崩溃）
+            BOOL isModInstall = [_internalName isEqualToString:@"install_mod"];
+            NSString *lowerIdent = [NSString stringWithFormat:@"%@ %@", slugOrId, projectTitle].lowercaseString;
+            BOOL needsPodium = isModInstall && ([lowerIdent rangeOfString:@"sodium"].location != NSNotFound);
+            // Iris 提醒（建议渲染器切 Zink）
+            BOOL isIris = [lowerIdent rangeOfString:@"iris"].location != NSNotFound;
+
+            BOOL wait = aiWaitRequested(params);
+
+            // 组装最终完成文案（依赖提醒 + Iris 提醒 + Podium 连带说明）
+            void (^finishWithNote)(NSString * _Nullable, NSString * _Nullable podiumNote) = ^(NSString * _Nullable result, NSString * _Nullable podiumNote) {
+                NSMutableString *final = [NSMutableString stringWithString:result ?: @""];
+                if (podiumNote.length > 0) [final appendFormat:@"。%@", podiumNote];
+                [final appendString:@"。注意：可能尚未安装该资源的依赖（前置）Mod，建议先启动 Minecraft 测试；若崩溃可让我读取日志（read_logs），日志会显示缺失哪些前置，我再帮你补装。"];
+                if (isIris) {
+                    [final appendString:@" 提醒：若要运行 Iris 光影包，建议把渲染器切换为 Zink（可用 set_setting 修改）。"];
+                }
+                completion(final, nil);
+            };
+
+            if (wait) {
+                [AiAssetInstaller downloadFileFromURL:fileURL
+                                             filename:safeFile
+                                               folder:folder
+                                          displayName:displayName
+                                         resourceType:[self resourceTypeForTool]
+                                          expectedSHA1:sha1
+                                    waitForCompletion:YES
+                                           completion:^(NSString * _Nullable result, NSError * _Nullable error) {
+                    if (error) {
+                        completion(nil, error);
+                        return;
+                    }
+                    if (needsPodium) {
+                        // Sodium：先连带安装 Podium（或 Podium Port），再回调最终文案
+                        [self installPodiumCompanionForGameVersion:(gameVersion.length > 0 ? gameVersion : @"")
+                                                            profile:[AiAssetNetworkUtil resolveProfileName:params]
+                                                         completion:^(BOOL podOK, NSString * _Nullable podName, NSString * _Nullable podMsg) {
+                            NSString *note = podOK
+                                ? [NSString stringWithFormat:@"已自动连带安装 %@（用于屏蔽 Sodium 的启动器检测，不装会强制崩溃）", podName ?: @"Podium"]
+                                : @"注意：Sodium 需要搭配 Podium 或 Podium Port（屏蔽启动器检测，否则游戏强制崩溃），自动连带安装失败，请让我重试或手动安装";
+                            finishWithNote(result, note);
+                        }];
+                    } else {
+                        finishWithNote(result, nil);
+                    }
+                }
+                                          onFinished:nil];
+            } else {
+                // 后台执行：注册任务后立即返回，下载继续，完成后自动连带 Podium（不回调 AI）
+                [AiAssetInstaller downloadFileFromURL:fileURL
+                                             filename:safeFile
+                                               folder:folder
+                                          displayName:displayName
+                                         resourceType:[self resourceTypeForTool]
+                                          expectedSHA1:sha1
+                                    waitForCompletion:NO
+                                           completion:^(NSString * _Nullable bgResult, NSError * _Nullable bgError) {
+                    if (bgError) {
+                        completion(nil, bgError);
+                        return;
+                    }
+                    NSMutableString *final = [NSMutableString stringWithString:bgResult ?: @""];
+                    if (needsPodium) {
+                        [final appendString:@"。下载完成后将自动连带安装 Podium（或 Podium Port）"];
+                    }
+                    [final appendString:@"。任务在后台进行，可用 check_downloads 查询进度。"];
+                    completion(final, nil);
+                }
+                                          onFinished:^(BOOL success, NSString * _Nullable message) {
+                    // 后台下载终态：成功且为 Sodium → 后台连带安装 Podium（结果不回调 AI）
+                    if (!success || !needsPodium) return;
+                    [self installPodiumCompanionForGameVersion:(gameVersion.length > 0 ? gameVersion : @"")
+                                                        profile:[AiAssetNetworkUtil resolveProfileName:params]
+                                                     completion:^(BOOL podOK, NSString * _Nullable podName, NSString * _Nullable podMsg) {
+                        if (!podOK) {
+                            NSLog(@"[AI] Sodium 连带安装 Podium 失败：%@", podMsg ?: @"");
+                        }
+                    }];
+                }];
+            }
         }];
     }];
+}
+
+/// Sodium 连带安装：依次尝试 Podium / Podium Port（按 gameVersion 匹配版本，装到 mods 目录）
+- (void)installPodiumCompanionForGameVersion:(NSString *)gameVersion
+                                      profile:(NSString *)profile
+                                   completion:(void (^)(BOOL success, NSString * _Nullable installedName, NSString * _Nullable message))completion {
+    NSArray *candidateSlugs = @[@"podium", @"podium-port"];
+    __weak typeof(self) weakSelf = self;
+
+    void (^tryAtIndex)(NSUInteger) = ^(NSUInteger idx) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (idx >= candidateSlugs.count) {
+            completion(NO, nil, @"Podium 与 Podium Port 均未能安装（Modrinth 未找到适配版本）");
+            return;
+        }
+        NSString *slug = candidateSlugs[idx];
+        NSError *err = nil;
+        NSString *modsFolder = [[ModService sharedService] ensureModsFolderForProfile:profile error:&err];
+        if (modsFolder.length == 0) {
+            completion(NO, nil, @"无法确定 mods 目录");
+            return;
+        }
+        [strongSelf fetchVersionsForSlug:slug
+                                versionId:@""
+                              gameVersion:gameVersion
+                               completion:^(NSString * _Nullable filename, NSURL * _Nullable fileURL, NSString * _Nullable sha1, NSError * _Nullable verError) {
+            if (verError || !fileURL) {
+                // 当前 slug 不适配 → 尝试下一个（如仅某版本有 Port）
+                tryAtIndex(idx + 1);
+                return;
+            }
+            NSString *safeFile = [AiAssetNetworkUtil safeFileName:filename];
+            [AiAssetInstaller downloadFileFromURL:fileURL
+                                         filename:safeFile
+                                           folder:modsFolder
+                                      displayName:[slug isEqualToString:@"podium"] ? @"Podium" : @"Podium Port"
+                                     resourceType:DownloadTaskResourceTypeMod
+                                      expectedSHA1:sha1
+                                waitForCompletion:YES
+                                       completion:^(NSString * _Nullable result, NSError * _Nullable error) {
+                if (error) {
+                    tryAtIndex(idx + 1);
+                    return;
+                }
+                completion(YES, [slug isEqualToString:@"podium"] ? @"Podium" : @"Podium Port", nil);
+            }
+                                       onFinished:nil];
+        }];
+    };
+    tryAtIndex(0);
 }
 
 /// 拉取项目版本列表并选择目标版本文件：
@@ -404,14 +573,9 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
                  gameVersion:(NSString *)gameVersion
                   completion:(void (^)(NSString * _Nullable filename, NSURL * _Nullable fileURL, NSString * _Nullable sha1, NSError * _Nullable error))completion {
     // featured=true 会在按 gameVersion 过滤时漏掉大量仅标记非 featured 的兼容版本，
-    // 直接拉全量版本列表自行过滤
-    NSString *urlStr = [NSString stringWithFormat:@"https://api.modrinth.com/v2/project/%@/version", encSlug];
-    NSURL *url = [NSURL URLWithString:urlStr];
-    if (!url) {
-        completion(nil, nil, nil, [NSError errorWithDomain:kAiAssetToolDomain code:500 userInfo:@{NSLocalizedDescriptionKey: @"版本列表地址无效"}]);
-        return;
-    }
-    [AiAssetNetworkUtil getJSONFromURL:url completion:^(id _Nullable json, NSError * _Nullable error) {
+    // 直接拉全量版本列表自行过滤（官方 → MCIM → 官方兜底）
+    NSString *apiPath = [NSString stringWithFormat:@"/project/%@/version", encSlug];
+    [AiAssetNetworkUtil getModrinthJSONWithPath:apiPath completion:^(id _Nullable json, NSString * _Nullable usedSource, NSError * _Nullable error) {
         if (error) {
             completion(nil, nil, nil, error);
             return;
@@ -492,6 +656,17 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
         return;
     }
 
+    // wait=false：后台安装，立即返回（结果不回调，进度可用 check_downloads 查询）
+    if (!aiWaitRequested(params)) {
+        completion([NSString stringWithFormat:@"已在后台开始安装 MC %@（版本 JSON、库文件、资源文件），任务将注册到下载中心，可随时用 check_downloads 查看进度；安装完成后会自动创建并选中对应实例。", versionId], nil);
+        [AiAssetInstaller installVanillaVersionId:versionId completion:^(BOOL bgSuccess, NSString * _Nullable bgMessage) {
+            if (!bgSuccess) {
+                NSLog(@"[AI] 后台安装 MC %@ 失败：%@", versionId, bgMessage ?: @"");
+            }
+        }];
+        return;
+    }
+
     // 直接安装：进度由 MinecraftResourceDownloadTask 自动注册到下载中心（6 阶段 + autoPresentDetail），
     // 用户可在下载中心实时查看；无需打开下载页引导手动操作。
     [AiAssetInstaller installVanillaVersionId:versionId completion:^(BOOL success, NSString * _Nullable message) {
@@ -555,7 +730,17 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
     NSString *displayName = isQuilt ? @"Quilt" : @"Fabric";
     NSString *metaBase = isQuilt ? @"https://meta.quiltmc.org/v3/versions/loader"
                                  : @"https://meta.fabricmc.net/v2/versions/loader";
+    // latest 别名：等价于不指定版本（下方自动取最新稳定版）
     NSString *loaderVersion = [params[@"loaderVersion"] isKindOfClass:[NSString class]] ? params[@"loaderVersion"] : @"";
+    if (aiIsLatestAlias(loaderVersion)) loaderVersion = @"";
+
+    // wait=false：后台安装，立即返回；后续 completion 全部吞掉（下载中心/check_downloads 可查进度）
+    if (!aiWaitRequested(params)) {
+        completion([NSString stringWithFormat:@"已在后台开始安装 %@ 加载器（MC %@）：将自动预装原版本体（如未安装）、写入加载器版本 JSON 并注册实例%@，任务进度可在下载中心或通过 check_downloads 查看。", displayName, mcVersion, isQuilt ? @"" : @"、自动安装 Fabric API"], nil);
+        completion = ^(NSString * _Nullable r, NSError * _Nullable e) {
+            // 后台执行：终态结果不回传（进度与结果均可见于下载中心）
+        };
+    }
 
     // 阶段下标与 PLTaskStagesFabricExtra() 一致
     static const NSUInteger kAiFabricStageProfile = 0;
@@ -848,6 +1033,49 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
     [task resume];
 }
 
+/// Modrinth 请求源链：官方 → MCIM 镜像（mod.mcimirror.top）→ 官方重试
++ (void)getModrinthJSONWithPath:(NSString *)apiPath
+                     completion:(void (^)(id _Nullable json, NSString * _Nullable usedSource, NSError * _Nullable error))completion {
+    NSArray *bases = @[
+        @"https://api.modrinth.com/v2",        // 官方（默认）
+        @"https://mod.mcimirror.top/modrinth/v2", // MCIM 镜像
+        @"https://api.modrinth.com/v2",        // 官方重试（镜像不可用时回退）
+    ];
+    [self getModrinthJSONFromBases:bases index:0 path:apiPath lastError:nil completion:completion];
+}
+
++ (void)getModrinthJSONFromBases:(NSArray<NSString *> *)bases
+                           index:(NSUInteger)index
+                            path:(NSString *)path
+                       lastError:(NSError * _Nullable)lastError
+                       completion:(void (^)(id _Nullable json, NSString * _Nullable usedSource, NSError * _Nullable error))completion {
+    if (!completion) return;
+    if (path.length == 0) {
+        completion(nil, nil, [NSError errorWithDomain:kAiAssetToolDomain code:400 userInfo:@{NSLocalizedDescriptionKey: @"Modrinth API 路径为空"}]);
+        return;
+    }
+    if (index >= bases.count) {
+        NSString *detail = lastError.localizedDescription ?: @"未知错误";
+        completion(nil, nil, [NSError errorWithDomain:kAiAssetToolDomain code:1
+                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Modrinth 官方源与 MCIM 镜像均不可用：%@", detail]}]);
+        return;
+    }
+    NSURL *url = [NSURL URLWithString:[bases[index] stringByAppendingString:path]];
+    if (!url) {
+        [self getModrinthJSONFromBases:bases index:index + 1 path:path lastError:lastError completion:completion];
+        return;
+    }
+    [self getJSONFromURL:url completion:^(id _Nullable json, NSError * _Nullable error) {
+        if (json) {
+            NSString *source = [bases[index] containsString:@"mcimirror"] ? @"Modrinth(MCIM镜像)" : @"Modrinth";
+            completion(json, source, nil);
+            return;
+        }
+        // 当前源失败（网络错误/HTTP 非 2xx/JSON 解析失败）→ 切换下一源
+        [self getModrinthJSONFromBases:bases index:index + 1 path:path lastError:error completion:completion];
+    }];
+}
+
 + (NSString *)safeFileName:(NSString *)rawName {
     if (rawName.length == 0) return @"download";
     NSMutableCharacterSet *bad = [NSMutableCharacterSet characterSetWithCharactersInString:@"/\\:"];
@@ -905,27 +1133,47 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
 
 + (void)fetchVersionEntry:(NSString *)versionId
                completion:(void (^)(NSDictionary * _Nullable entry, NSError * _Nullable error))completion {
-    NSString *downloadSource = getPrefObject(@"general.download_source") ?: @"official";
-    BOOL useBMCLAPI = [downloadSource isEqualToString:@"bmclapi"];
-    NSString *manifestURLStr = useBMCLAPI
-        ? @"https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json"
-        : @"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-    NSURL *manifestURL = [NSURL URLWithString:manifestURLStr];
-    if (!manifestURL) {
+    // 版本清单源：默认 BMCLAPI 镜像，失败自动切官方源重试（不依赖 general.download_source 偏好）
+    NSArray *manifestURLStrs = @[
+        @"https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json",
+        @"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+    ];
+    [self fetchVersionEntryFromManifests:manifestURLStrs
+                                    index:0
+                               versionId:versionId
+                               lastError:nil
+                               completion:completion];
+}
+
++ (void)fetchVersionEntryFromManifests:(NSArray<NSString *> *)manifestURLStrs
+                                 index:(NSUInteger)index
+                             versionId:(NSString *)versionId
+                             lastError:(NSError * _Nullable)lastError
+                             completion:(void (^)(NSDictionary * _Nullable entry, NSError * _Nullable error))completion {
+    if (index >= manifestURLStrs.count) {
+        NSString *detail = lastError.localizedDescription ?: @"未知错误";
         if (completion) completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:500
-                                                        userInfo:@{NSLocalizedDescriptionKey: @"版本清单地址无效"}]);
+                                                        userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"获取版本清单失败（BMCLAPI 与官方源均不可用）：%@", detail]}]);
+        return;
+    }
+    NSURL *manifestURL = [NSURL URLWithString:manifestURLStrs[index]];
+    if (!manifestURL) {
+        [self fetchVersionEntryFromManifests:manifestURLStrs index:index + 1 versionId:versionId lastError:lastError completion:completion];
         return;
     }
     [self getJSONFromURL:manifestURL completion:^(id _Nullable json, NSError * _Nullable error) {
         if (error) {
-            if (completion) completion(nil, error);
+            // 当前源失败 → 切换下一源（BMCLAPI → official）重试
+            [self fetchVersionEntryFromManifests:manifestURLStrs index:index + 1 versionId:versionId lastError:error completion:completion];
             return;
         }
         NSDictionary *manifest = [json isKindOfClass:[NSDictionary class]] ? json : nil;
         NSArray *versions = [manifest[@"versions"] isKindOfClass:[NSArray class]] ? manifest[@"versions"] : nil;
         if (versions.count == 0) {
-            if (completion) completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:2
-                                                            userInfo:@{NSLocalizedDescriptionKey: @"版本清单格式无效"}]);
+            [self fetchVersionEntryFromManifests:manifestURLStrs index:index + 1 versionId:versionId
+                                      lastError:[NSError errorWithDomain:kAiAssetToolDomain code:2
+                                                                  userInfo:@{NSLocalizedDescriptionKey: @"版本清单格式无效"}]
+                                      completion:completion];
             return;
         }
 
@@ -992,14 +1240,6 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
             if (completion) completion(NO);
             return;
         }
-        // BMCLAPI 镜像域名替换（与 ensureVanillaVersionJSONExists 一致）
-        NSString *downloadSource = getPrefObject(@"general.download_source") ?: @"official";
-        if ([downloadSource isEqualToString:@"bmclapi"]) {
-            versionJSONURL = [versionJSONURL stringByReplacingOccurrencesOfString:@"piston-meta.mojang.com"
-                                                                       withString:@"bmclapi2.bangbang93.com"];
-            versionJSONURL = [versionJSONURL stringByReplacingOccurrencesOfString:@"launchermeta.mojang.com"
-                                                                       withString:@"bmclapi2.bangbang93.com"];
-        }
         NSURL *jsonURL = [NSURL URLWithString:versionJSONURL];
         if (!jsonURL) {
             if (completion) completion(NO);
@@ -1007,22 +1247,50 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
         }
         [self getJSONFromURL:jsonURL completion:^(id _Nullable json, NSError * _Nullable jError) {
             if (jError || ![json isKindOfClass:[NSDictionary class]]) {
-                if (completion) completion(NO);
+                // 官方域名失败 → BMCLAPI 镜像域名替换后重试（下载源自动兜底）
+                NSString *mirrored = [versionJSONURL stringByReplacingOccurrencesOfString:@"piston-meta.mojang.com"
+                                                                                withString:@"bmclapi2.bangbang93.com"];
+                mirrored = [mirrored stringByReplacingOccurrencesOfString:@"launchermeta.mojang.com"
+                                                               withString:@"bmclapi2.bangbang93.com"];
+                if ([mirrored isEqualToString:versionJSONURL]) {
+                    if (completion) completion(NO);
+                    return;
+                }
+                NSURL *mirrorURL = [NSURL URLWithString:mirrored];
+                if (!mirrorURL) {
+                    if (completion) completion(NO);
+                    return;
+                }
+                [self getJSONFromURL:mirrorURL completion:^(id _Nullable mJson, NSError * _Nullable mError) {
+                    if (mError || ![mJson isKindOfClass:[NSDictionary class]]) {
+                        if (completion) completion(NO);
+                        return;
+                    }
+                    [self writeVersionJSON:mJson toPath:versionJsonPath versionDir:versionDir completion:completion];
+                }];
                 return;
             }
-            NSData *data = [NSJSONSerialization dataWithJSONObject:json options:NSJSONWritingPrettyPrinted error:nil];
-            if (!data) {
-                if (completion) completion(NO);
-                return;
-            }
-            [NSFileManager.defaultManager createDirectoryAtPath:versionDir
-                                    withIntermediateDirectories:YES
-                                                     attributes:nil
-                                                          error:nil];
-            BOOL ok = [data writeToFile:versionJsonPath options:NSDataWritingAtomic error:nil];
-            if (completion) completion(ok);
+            [self writeVersionJSON:json toPath:versionJsonPath versionDir:versionDir completion:completion];
         }];
     }];
+}
+
+/// 版本 JSON 落盘（创建目录 + 原子写入）
++ (void)writeVersionJSON:(NSDictionary *)json
+                  toPath:(NSString *)versionJsonPath
+               versionDir:(NSString *)versionDir
+               completion:(void (^)(BOOL success))completion {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:json options:NSJSONWritingPrettyPrinted error:nil];
+    if (!data) {
+        if (completion) completion(NO);
+        return;
+    }
+    [NSFileManager.defaultManager createDirectoryAtPath:versionDir
+                            withIntermediateDirectories:YES
+                                             attributes:nil
+                                                  error:nil];
+    BOOL ok = [data writeToFile:versionJsonPath options:NSDataWritingAtomic error:nil];
+    if (completion) completion(ok);
 }
 
 + (NSString *)resolveGameVersionForParams:(NSDictionary *)params {
@@ -1092,6 +1360,26 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
                resourceType:(NSString *)resourceType
                 expectedSHA1:(nullable NSString *)expectedSHA1
                  completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion {
+    [self downloadFileFromURL:url
+                     filename:filename
+                       folder:folder
+                  displayName:displayName
+                 resourceType:resourceType
+                  expectedSHA1:expectedSHA1
+            waitForCompletion:YES
+                   completion:completion
+                   onFinished:nil];
+}
+
++ (void)downloadFileFromURL:(NSURL *)url
+                   filename:(NSString *)filename
+                     folder:(NSString *)folder
+                displayName:(NSString *)displayName
+               resourceType:(NSString *)resourceType
+                expectedSHA1:(nullable NSString *)expectedSHA1
+          waitForCompletion:(BOOL)waitForCompletion
+                 completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion
+                 onFinished:(nullable void (^)(BOOL success, NSString * _Nullable message))onFinished {
     if (!url || folder.length == 0 || filename.length == 0) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (completion) completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:400 userInfo:@{NSLocalizedDescriptionKey: @"下载参数不完整"}]);
@@ -1112,12 +1400,31 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
     task.downloadURL = url.absoluteString;
     [[DownloadTaskManager sharedManager] setTaskWithId:task.taskId state:DownloadTaskStateDownloading];
 
+    // 下载候选：官方 CDN 优先，MCIM 镜像兜底（cdn.modrinth.com → cdn.mcimirror.top）
+    NSMutableArray<NSURL *> *candidates = [NSMutableArray arrayWithObject:url];
+    NSString *urlStr = url.absoluteString ?: @"";
+    if ([urlStr containsString:@"cdn.modrinth.com"]) {
+        NSString *mirrored = [urlStr stringByReplacingOccurrencesOfString:@"https://cdn.modrinth.com"
+                                                                withString:@"https://cdn.mcimirror.top"];
+        NSURL *mirrorURL = [NSURL URLWithString:mirrored];
+        if (mirrorURL) [candidates addObject:mirrorURL];
+    }
+
     PLDownloadRequest *request = [[PLDownloadRequest alloc] init];
-    request.candidateURLs = @[url];
+    request.candidateURLs = candidates;
     if (expectedSHA1.length > 0) request.expectedSHA1 = expectedSHA1;
     request.destinationPath = [folder stringByAppendingPathComponent:filename];
     request.taskIdentifier = task.taskId;
     request.allowZipFallbackCheck = YES;
+
+    // wait=false：任务已注册，立即回调「已加入后台下载」，AI 可继续其它工作
+    if (!waitForCompletion) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (completion) {
+                completion([NSString stringWithFormat:@"已加入后台下载：%@（任务ID %@，目标目录 %@，文件 %@），进度可用 check_downloads 查询", dispName, task.taskId, [folder lastPathComponent], filename], nil);
+            }
+        });
+    }
 
     __block int64_t downloadedBytes = 0;
     __block NSTimeInterval lastReport = 0;
@@ -1148,12 +1455,18 @@ static NSString * const kAiAssetToolDomain = @"AiAssetTool";
                 if (!success) {
                     [[DownloadTaskManager sharedManager] setTaskWithId:task.taskId
                                                       completedWithError:error ?: [NSError errorWithDomain:kAiAssetToolDomain code:1 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}]];
-                    if (completion) completion(nil, error ?: [NSError errorWithDomain:kAiAssetToolDomain code:1 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}]);
+                    if (onFinished) onFinished(NO, error.localizedDescription ?: @"下载失败");
+                    if (waitForCompletion && completion) {
+                        completion(nil, error ?: [NSError errorWithDomain:kAiAssetToolDomain code:1 userInfo:@{NSLocalizedDescriptionKey: @"下载失败"}]);
+                    }
                     return;
                 }
                 [[DownloadTaskManager sharedManager] setTaskWithId:task.taskId completedWithError:nil];
-                NSString *result = [NSString stringWithFormat:@"已安装 %@ 到 %@（%@）", dispName, [folder lastPathComponent], filename];
-                if (completion) completion(result, nil);
+                if (onFinished) onFinished(YES, nil);
+                if (waitForCompletion && completion) {
+                    NSString *result = [NSString stringWithFormat:@"已安装 %@ 到 %@（%@）", dispName, [folder lastPathComponent], filename];
+                    completion(result, nil);
+                }
             });
         }];
 }

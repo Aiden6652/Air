@@ -155,6 +155,13 @@ static const NSInteger kMaxToolAttempts = 3;
     NSMutableArray *payloadMessages = [NSMutableArray array];
     NSString *systemPrompt = [[AiSettings sharedSettings] systemPrompt];
 
+    // 动态注入今天日期（gameDir 自动命名「MC版本 加载器 YYYY.MM.DD」需要）
+    NSDateFormatter *dateFmt = [[NSDateFormatter alloc] init];
+    dateFmt.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"zh_CN"];
+    [dateFmt setDateFormat:@"yyyy 年 M 月 d 日"];
+    NSString *todayLine = [NSString stringWithFormat:@"今天是 %@。若需新建游戏目录，命名格式为「Minecraft版本 加载器 YYYY.MM.DD」。", [dateFmt stringFromDate:[NSDate date]]];
+    systemPrompt = [systemPrompt stringByAppendingString:[NSString stringWithFormat:@"\n\n【今天日期】%@", todayLine]];
+
     // 2. 工具定义
     NSArray *tools = [[AiToolRegistry sharedRegistry] openAIToolSchemas];
 
@@ -162,7 +169,11 @@ static const NSInteger kMaxToolAttempts = 3;
     // 若系统提示未点明，模型往往只给文字建议而不主动调用工具。
     // 因此在存在工具时向 system prompt 追加一句明确的能力说明（不覆盖用户自定义内容，仅追加其尾）。
     if (tools.count > 0) {
-        systemPrompt = [systemPrompt stringByAppendingString:@"\n\n你可以调用内置工具来直接操控启动器，例如：排查并分析崩溃日志、读取已安装的游戏版本与组件状态、直接安装 Minecraft 版本或 Fabric/Quilt 加载器（未装原版会自动先装，Fabric 会自动装 Fabric API）、下载/安装模组、光影、资源包、数据包（自动匹配实例 MC 版本）。这些安装全部自动完成，用户可在下载中心实时查看进度，你无需也不应让用户去下载页手动操作（Forge/NeoForge/OptiFine 除外，它们需要图形安装器）。当用户的请求可以通过这些工具完成时，请主动调用合适的工具去执行，而不是只给出文字建议；也请结合工具返回结果继续推进任务。"];
+        systemPrompt = [systemPrompt stringByAppendingString:@"\n\n你可以调用内置工具来直接操控启动器，例如：排查并分析崩溃日志、读取已安装的游戏版本与组件状态、直接安装 Minecraft 版本或 Fabric/Quilt 加载器（未装原版会自动先装，Fabric 会自动装 Fabric API）、下载/安装模组、光影、资源包、数据包（自动匹配实例 MC 版本）、查看与修改启动器设置（总设置与实例设置）、新建游戏目录（create_instance）、管理待办清单（todo_*）、查看下载进度（check_downloads）、读取多份日志（read_logs，含启动器日志）。"
+            "版本号约定：install_loader 的 loaderVersion 与 install_* 的 versionId 均可传 \"latest\" 表示最新稳定版，无需先拉版本列表。"
+            "这些安装全部自动完成，用户可在下载中心实时查看进度，你无需也不应让用户去下载页手动操作（Forge/NeoForge/OptiFine 除外，它们需要图形安装器）。"
+            "你可以并行执行多个工具调用；下载类工具可后台执行（wait=false）后继续做其它事，稍后用 check_downloads 查进度。"
+            "当用户的请求可以通过这些工具完成时，请主动调用合适的工具去执行，而不是只给出文字建议；也请结合工具返回结果继续推进任务。"];
     }
     if (systemPrompt.length > 0) {
         [payloadMessages addObject:[AiMessage messageWithRole:@"system" content:systemPrompt]];
@@ -237,7 +248,13 @@ static const NSInteger kMaxToolAttempts = 3;
 
 #pragma mark - 工具执行阶段
 
-/// 按副本 index 升序逐个执行工具；全部完成后决定是继续下一轮还是收尾
+/// 并行执行本轮全部工具调用（enhance-ai-agent Task 15）：
+/// - 无需安全确认的调用并发派发（各工具异步回调）；
+/// - 需要用户确认的调用按 index 顺序串行确认（同一时刻只弹一个确认框）；
+/// - 工具结果消息按工具 index 顺序 append 到会话历史（assistant tool_calls 之后），
+///   各自完成即尽可能早地落盘（appendCursor 从首个未落位槽位起连续推进）；
+/// - 全部完成后统一进入下一轮或以 terminalError 收尾。
+/// 线程安全：工具 completion 与安全确认回调均在主线程，无竞态。
 - (void)runToolCalls:(NSDictionary *)accToolCalls
     assistantMessage:(AiMessage *)assistantMessage
              session:(AiSession *)session
@@ -272,36 +289,64 @@ static const NSInteger kMaxToolAttempts = 3;
     }
     [self saveSession:session];
 
+    const NSUInteger total = orderedCalls.count;
+    if (total == 0) {
+        [self startRoundInSession:session provider:provider chunkHandler:chunkHandler completionHandler:completionHandler];
+        return;
+    }
+
     __block NSError *terminalError = nil;
     __weak typeof(self) weakSelf = self;
 
-    // 逐个异步执行工具。用 __block 自引用保持递归块在异步回调期间存活，
-    // 终止分支（完成 / 错误 / 停止）时置 nil 断开自引用，避免循环持有。
-    __block void (^executeBlock)(NSUInteger);
-    executeBlock = ^(NSUInteger offset) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf || !strongSelf.running) { executeBlock = nil; return; }
+    // 结果槽位：初始 NSNull；各调用完成即填入自己的槽位
+    NSMutableArray *slots = [NSMutableArray arrayWithCapacity:total];
+    for (NSUInteger i = 0; i < total; i++) [slots addObject:[NSNull null]];
+    __block NSUInteger appendCursor = 0;   // 下一个待 append 的槽位（保证 tool 结果按工具序落盘）
+    __block NSUInteger completedCount = 0;
 
-        if (offset >= orderedCalls.count) {
-            // 该轮全部工具执行完毕
-            if (strongSelf.running == NO) { executeBlock = nil; return; }
-            if (terminalError) {
-                // 达到重试上限，以最终错误结束本轮
-                strongSelf.running = NO;
-                if (completionHandler) completionHandler(terminalError);
-                executeBlock = nil;
-                return;
-            }
-            strongSelf.toolRound++;
-            [strongSelf startRoundInSession:session
-                                   provider:provider
-                               chunkHandler:chunkHandler
-                         completionHandler:completionHandler];
-            executeBlock = nil; // 本轮结束
+    // 填槽并从 appendCursor 起连续 append（保序且尽量即时）
+    void (^storeResult)(NSUInteger, AiMessage *) = ^(NSUInteger idx, AiMessage *msg) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (idx < slots.count) slots[idx] = msg;
+        while (appendCursor < total &&
+               ![[slots objectAtIndex:appendCursor] isKindOfClass:[NSNull class]]) {
+            [session.messages addObject:[slots objectAtIndex:appendCursor]];
+            appendCursor++;
+        }
+        [strongSelf saveSession:session];
+    };
+
+    // 该轮全部工具执行完毕
+    void (^finishRound)(void) = ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf.running) return;
+        if (terminalError) {
+            // 达到重试上限，以最终错误结束本轮
+            strongSelf.running = NO;
+            if (completionHandler) completionHandler(terminalError);
             return;
         }
+        strongSelf.toolRound++;
+        [strongSelf startRoundInSession:session
+                                provider:provider
+                            chunkHandler:chunkHandler
+                      completionHandler:completionHandler];
+    };
 
-        NSDictionary *call = orderedCalls[offset];
+    // 单个调用完成：计数 + 可选的链式推进回调
+    void (^noteCompleted)(dispatch_block_t) = ^(dispatch_block_t done) {
+        completedCount++;
+        if (completedCount >= total) finishRound();
+        if (done) done();
+    };
+
+    // 执行第 idx 个调用（完成后调用 done；done 可为 nil）
+    void (^executeCallAt)(NSUInteger, dispatch_block_t) = ^(NSUInteger idx, dispatch_block_t done) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf.running) { if (done) done(); return; }
+
+        NSDictionary *call = orderedCalls[idx];
         NSString *callID = call[@"id"];
         NSString *name = call[@"name"];
         NSString *arguments = call[@"arguments"] ?: @"";
@@ -312,61 +357,56 @@ static const NSInteger kMaxToolAttempts = 3;
         if (attempts >= kMaxToolAttempts) {
             AiMessage *failMsg = [AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"多次尝试仍失败：%@", name ?: @""] toolCallID:callID];
             failMsg.toolSucceeded = NO;
-            [session.messages addObject:failMsg];
-            [strongSelf saveSession:session];
+            storeResult(idx, failMsg);
             terminalError = [NSError errorWithDomain:@"AiAgent" code:2
                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"工具 %@ 多次尝试仍失败", name ?: callID]}];
-            executeBlock(offset + 1);
+            noteCompleted(done);
             return;
         }
-        attempts++;
-        strongSelf.attempts[callID] = @(attempts);
+        strongSelf.attempts[callID] = @(attempts + 1);
 
         // 校验工具是否存在
         id<AiTool> tool = [[AiToolRegistry sharedRegistry] toolForName:name ?: @""];
         if (!tool) {
             AiMessage *unknownMsg = [AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"未知工具：%@", name ?: @""] toolCallID:callID];
             unknownMsg.toolSucceeded = NO;
-            [session.messages addObject:unknownMsg];
-            [strongSelf saveSession:session];
-            executeBlock(offset + 1);
+            storeResult(idx, unknownMsg);
+            noteCompleted(done);
             return;
         }
 
         NSDictionary *normalizedParams = [[AiToolRegistry sharedRegistry] normalizedParams:[strongSelf parseArgumentsJSON:arguments]];
 
-        // 安全确认（DangerousWrite 等需确认时阻塞等待用户选择）
         void (^proceed)(void) = ^{
             __strong typeof(weakSelf) ss2 = weakSelf;
-            if (!ss2 || !ss2.running) { executeBlock = nil; return; }
+            if (!ss2 || !ss2.running) { if (done) done(); return; }
             [[AiToolRegistry sharedRegistry] executeToolNamed:name ?: @""
                                                        params:normalizedParams
                                                    completion:^(NSString * _Nullable result, NSError * _Nullable error) {
                 __strong typeof(weakSelf) ss3 = weakSelf;
-                if (!ss3) { executeBlock = nil; return; }
+                if (!ss3) { if (done) done(); return; }
                 NSString *content = result;
                 if (content.length == 0 && error) content = error.localizedDescription;
                 if (content.length == 0) content = @"（无返回）";
                 AiMessage *resMsg = [AiMessage toolResultMessageWithContent:content toolCallID:callID];
                 resMsg.toolSucceeded = (error == nil);
-                [session.messages addObject:resMsg];
-                [ss3 saveSession:session];
-                executeBlock(offset + 1);
+                storeResult(idx, resMsg);
+                noteCompleted(done);
             }];
         };
 
+        // 安全确认（DangerousWrite 等需确认时阻塞等待用户选择）
         if ([[AiSafetyManager sharedManager] needsUserConfirmationForPermission:tool.permission]) {
             [[AiSafetyManager sharedManager] requestConfirmationWithTitle:[NSString stringWithFormat:@"AI 请求执行「%@」", name ?: @""]
                                                                   message:[NSString stringWithFormat:@"该工具需要你确认后才执行。\n参数：%@", arguments]
                                                               completion:^(BOOL approved) {
                 __strong typeof(weakSelf) ss4 = weakSelf;
-                if (!ss4 || !ss4.running) { executeBlock = nil; return; }
+                if (!ss4 || !ss4.running) { if (done) done(); return; }
                 if (!approved) {
                     AiMessage *cancelMsg = [AiMessage toolResultMessageWithContent:@"用户已取消该操作" toolCallID:callID];
                     cancelMsg.toolSucceeded = NO;
-                    [session.messages addObject:cancelMsg];
-                    [ss4 saveSession:session];
-                    executeBlock(offset + 1);
+                    storeResult(idx, cancelMsg);
+                    noteCompleted(done);
                     return;
                 }
                 proceed();
@@ -375,7 +415,35 @@ static const NSInteger kMaxToolAttempts = 3;
             proceed();
         }
     };
-    executeBlock(0);
+
+    // 分类：需要确认的（串行链，避免同时弹多个确认框）/ 无需确认的（并发派发）
+    NSMutableArray<NSNumber *> *immediateIndices = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *confirmIndices = [NSMutableArray array];
+    for (NSUInteger i = 0; i < total; i++) {
+        NSDictionary *call = orderedCalls[i];
+        NSString *name = call[@"name"];
+        id<AiTool> tool = [[AiToolRegistry sharedRegistry] toolForName:name ?: @""];
+        if (tool && [[AiSafetyManager sharedManager] needsUserConfirmationForPermission:tool.permission]) {
+            [confirmIndices addObject:@(i)];
+        } else {
+            [immediateIndices addObject:@(i)];
+        }
+    }
+
+    // 并发派发无需确认的调用
+    for (NSNumber *idxNum in immediateIndices) {
+        executeCallAt(idxNum.unsignedIntegerValue, nil);
+    }
+
+    // 串行链处理需确认的调用（一个确认完成后再弹下一个）
+    __block void (^confirmChain)(NSUInteger);
+    confirmChain = ^(NSUInteger ci) {
+        if (ci >= confirmIndices.count) { confirmChain = nil; return; }
+        executeCallAt([confirmIndices[ci] unsignedIntegerValue], ^{
+            confirmChain(ci + 1);
+        });
+    };
+    confirmChain(0);
 }
 
 #pragma mark - 停止

@@ -87,22 +87,32 @@ static NSString * const kAiToolDomain = @"AiTool";
     return [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
 }
 
-/// 沙盒容器根目录（整个 app 沙盒 container，如 /var/mobile/Containers/Data/Application/<UUID>）。
-/// 游戏目录（POJAV_GAME_DIR）、mods/saves/resourcepacks 等均位于其下，
-/// 经 realpath 归一化以匹配 POJAV_GAME_DIR 的 realpath 前缀，避免符号链接误判越界。
+/// 文件工具合法根目录：启动器目录（POJAV_HOME；未设置时回退 Documents 下的启动器目录，
+/// 与 main.m 初始化逻辑一致——沙盒内即 Documents 本身，非沙盒为 Documents/AngelAuraAmethyst）。
+/// instances/*（mods/saves/resourcepacks 等）均位于其下；
+/// 经 realpath 归一化以匹配 POJAV_GAME_DIR 符号链接解析后的真实前缀，避免误判越界。
+/// enhance-ai-agent Task 16：从「整个 App 沙盒」收紧为启动器目录，杜绝读写容器外文件。
 + (NSString *)sandboxRoot {
-    NSString *home = NSHomeDirectory();
-    if (home.length == 0) home = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-    const char *containerStart = [home UTF8String];
-    if (containerStart) {
-        char *real = realpath(containerStart, NULL);
+    NSString *root = nil;
+    const char *homeEnv = getenv("POJAV_HOME");
+    if (homeEnv && strlen(homeEnv) > 0) {
+        root = @(homeEnv);
+    } else {
+        NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        BOOL isNotSandboxed = [NSHomeDirectory().lastPathComponent isEqualToString:NSUserName()];
+        root = isNotSandboxed ? [docs stringByAppendingPathComponent:@"AngelAuraAmethyst"] : docs;
+    }
+    if (root.length == 0) root = NSHomeDirectory();
+    const char *rootStart = [root UTF8String];
+    if (rootStart) {
+        char *real = realpath(rootStart, NULL);
         if (real) {
-            NSString *root = @(real);
+            NSString *realRoot = @(real);
             free(real);
-            return root;
+            return realRoot;
         }
     }
-    return [home stringByStandardizingPath];
+    return [root stringByStandardizingPath];
 }
 
 + (nullable NSString *)resolveSafely:(NSString *)path {

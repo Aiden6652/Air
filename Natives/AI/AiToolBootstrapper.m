@@ -12,6 +12,11 @@
 #import "AiFileTools.h"
 #import "AiAskTool.h"
 #import "AiAssetTools.h"
+#import "AiSettingsTools.h"
+#import "AiTodoTool.h"
+#import "AiSleepTool.h"
+#import "AiDownloadProbe.h"
+#import "AiInstanceCreator.h"
 
 @implementation AiToolBootstrapper
 
@@ -59,6 +64,31 @@
     [registry registerTool:[[AiAssetInstallTool alloc] initWithName:@"install_datapack"]];
     [registry registerTool:[[AiAssetInstallTool alloc] initWithName:@"install_game_version"]];
     [registry registerTool:[[AiAssetInstallTool alloc] initWithName:@"install_loader"]];
+
+    // ===== enhance-ai-agent 新增工具 =====
+
+    // 日志扩展（read_latest_log/read_crash_report 支持 instance 参数）
+    [registry registerTool:[[AiLogReader alloc] initWithName:@"read_logs"]];
+
+    // 下载进度查询（ReadOnly）
+    [registry registerTool:[[AiDownloadProbe alloc] initWithName:@"check_downloads"]];
+
+    // 设置工具（list/get 为 ReadOnly；set 为 ControlledWrite）
+    [registry registerTool:[[AiSettingsTools alloc] initWithName:@"list_settings"]];
+    [registry registerTool:[[AiSettingsTools alloc] initWithName:@"get_setting"]];
+    [registry registerTool:[[AiSettingsTools alloc] initWithName:@"set_setting"]];
+
+    // to-do 清单工具
+    [registry registerTool:[[AiTodoTool alloc] initWithName:@"todo_create"]];
+    [registry registerTool:[[AiTodoTool alloc] initWithName:@"todo_list"]];
+    [registry registerTool:[[AiTodoTool alloc] initWithName:@"todo_update"]];
+    [registry registerTool:[[AiTodoTool alloc] initWithName:@"todo_delete"]];
+
+    // sleep（ReadOnly，无副作用）
+    [registry registerTool:[[AiSleepTool alloc] init]];
+
+    // 新建游戏目录实例（ControlledWrite）
+    [registry registerTool:[[AiInstanceCreator alloc] init]];
 }
 
 @end

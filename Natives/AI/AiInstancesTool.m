@@ -31,12 +31,12 @@
 
 - (NSString *)summary {
     if ([self.internalName isEqualToString:@"list_game_versions"]) {
-        return @"拉取 Minecraft Java 版的真实版本列表。"
-               "\n无参数。"
-               "\n说明：联网获取官方/镜像版本清单，解析 versions 数组，返回每个版本的 id（版本号）与 type（release/snapshot/old_alpha/old_beta）。"
-               "\n内部有 30 分钟缓存（保存在 Documents/AI/game_versions.json）。"
+        return @"拉取 Minecraft Java 版的真实版本列表（默认只返回正式版 release，避免快照等版本过多占用上下文）。"
+               "\n参数：includeSnapshots（boolean，可选，默认 false；为 true 时额外附加最新一条快照版本）。"
+               "\n说明：默认从 BMCLAPI 镜像获取版本清单，失败自动切换官方源重试；返回每个版本的 id（版本号）与 type（release/snapshot）。"
+               "\n内部有 30 分钟缓存（保存在 Documents/AI/game_versions.json，缓存完整清单）。"
                "\n边界：若网络失败会返回错误信息，不会编造版本号。"
-               "\n示例：调用后得到 [{'id':'1.21.1','type':'release'}, {'id':'25w34a','type':'snapshot'}, ...]";
+               "\n示例：调用后得到 [{'id':'1.21.1','type':'release'}, ...]";
     }
     // list_instances
     return @"列出启动器中已创建的游戏实例（即游戏目录下的版本/目录）。"
@@ -105,7 +105,15 @@
     if (!completion) return;
 
     if ([self.internalName isEqualToString:@"list_game_versions"]) {
-        [self performListGameVersions:completion];
+        BOOL includeSnapshots = NO;
+        id v = params[@"includeSnapshots"];
+        if ([v isKindOfClass:[NSString class]]) {
+            NSString *s = [(NSString *)v lowercaseString];
+            includeSnapshots = [s hasPrefix:@"t"] || [s isEqualToString:@"1"];
+        } else if (v != nil && ![v isKindOfClass:[NSNull class]]) {
+            includeSnapshots = [v boolValue];
+        }
+        [self performListGameVersionsIncludeSnapshots:includeSnapshots completion:completion];
         return;
     }
     if ([self.internalName isEqualToString:@"list_instances"]) {
@@ -192,73 +200,130 @@
     return ([[NSDate date] timeIntervalSinceDate:mtime] < 30 * 60); // 30 分钟
 }
 
-- (NSString *)versionManifestURLString {
-    NSString *source = getPrefObject(@"general.download_source");
-    if ([source isEqualToString:@"bmclapi"]) {
-        return @"https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json";
-    }
-    return @"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+/// 版本清单源列表：默认 BMCLAPI 镜像，失败自动切官方源重试
+- (NSArray<NSString *> *)versionManifestURLStrings {
+    return @[
+        @"https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json",
+        @"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+    ];
 }
 
 - (void)performListGameVersions:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion {
+    [self performListGameVersionsIncludeSnapshots:NO completion:completion];
+}
+
+- (void)performListGameVersionsIncludeSnapshots:(BOOL)includeSnapshots
+                                     completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion {
     NSString *cachePath = [self gameVersionsCachePath];
 
-    // 命中缓存且未过期
+    // 命中缓存且未过期（缓存完整清单，含全部类型；按参数过滤后返回）
     if ([self isCacheFreshAtPath:cachePath]) {
         NSData *cached = [NSData dataWithContentsOfFile:cachePath];
         if (cached) {
-            NSString *cachedStr = [[NSString alloc] initWithData:cached encoding:NSUTF8StringEncoding];
-            if (cachedStr.length > 0) {
-                completion(cachedStr, nil);
-                return;
+            NSArray *cachedVersions = [NSJSONSerialization JSONObjectWithData:cached options:0 error:nil];
+            if ([cachedVersions isKindOfClass:[NSArray class]] && cachedVersions.count > 0) {
+                NSString *filtered = [self filteredVersionsJSON:cachedVersions includeSnapshots:includeSnapshots];
+                if (filtered.length > 0) {
+                    completion(filtered, nil);
+                    return;
+                }
             }
         }
     }
 
-    NSString *urlString = [self versionManifestURLString];
+    NSArray *urlStrings = [self versionManifestURLStrings];
+    [self fetchManifestFromSources:urlStrings
+                            index:0
+                     lastError:nil
+                    completion:^(NSArray * _Nullable versions, NSString * _Nullable sourceUsed, NSError * _Nullable error) {
+        if (error) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, error); });
+            return;
+        }
+        // 写缓存（完整清单）
+        NSString *fullJSON = [self jsonStringFromObject:versions];
+        NSData *resultData = [fullJSON dataUsingEncoding:NSUTF8StringEncoding];
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            [resultData writeToFile:cachePath atomically:YES];
+        });
+        NSString *resultJSON = [self filteredVersionsJSON:versions includeSnapshots:includeSnapshots];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion([NSString stringWithFormat:@"%@\n（数据源：%@）", resultJSON, sourceUsed ?: @"bmclapi"], nil);
+        });
+    }];
+}
+
+/// 依序尝试源列表拉取版本清单（BMCLAPI → official 兜底）
+- (void)fetchManifestFromSources:(NSArray<NSString *> *)urlStrings
+                           index:(NSUInteger)index
+                      lastError:(NSError * _Nullable)lastError
+                      completion:(void (^)(NSArray * _Nullable versions, NSString * _Nullable sourceUsed, NSError * _Nullable error))completion {
+    if (index >= urlStrings.count) {
+        NSString *detail = lastError.localizedDescription ?: @"未知错误";
+        completion(nil, nil, [NSError errorWithDomain:@"AiTool" code:500
+                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"获取版本列表失败（BMCLAPI 与官方源均不可用）:%@", detail]}]);
+        return;
+    }
+    NSString *urlString = urlStrings[index];
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {
-        NSError *err = [NSError errorWithDomain:@"AiTool" code:500
-                                       userInfo:@{NSLocalizedDescriptionKey: @"版本清单地址无效"}];
-        completion(nil, err);
+        [self fetchManifestFromSources:urlStrings index:index + 1 lastError:lastError completion:completion];
         return;
     }
 
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error) {
-            NSError *err = [NSError errorWithDomain:@"AiTool" code:500
-                                           userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"获取版本列表失败：%@", error.localizedDescription]}];
-            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, err); });
-            return;
+        NSError *parseError = nil;
+        NSArray *versions = nil;
+        if (!error && data) {
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            if ([json isKindOfClass:[NSDictionary class]] && [json[@"versions"] isKindOfClass:[NSArray class]]) {
+                NSMutableArray *parsed = [NSMutableArray array];
+                for (id item in json[@"versions"]) {
+                    if (![item isKindOfClass:[NSDictionary class]]) continue;
+                    NSString *vid = item[@"id"];
+                    NSString *vtype = item[@"type"];
+                    if (![vid isKindOfClass:[NSString class]] || vid.length == 0) continue;
+                    [parsed addObject:@{
+                        @"id": vid,
+                        @"type": [vtype isKindOfClass:[NSString class]] ? (vtype ?: @"") : @"",
+                    }];
+                }
+                if (parsed.count > 0) versions = parsed;
+            }
+            if (!versions) {
+                parseError = [NSError errorWithDomain:@"AiTool" code:500
+                                              userInfo:@{NSLocalizedDescriptionKey: @"版本清单格式异常"}];
+            }
         }
-        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        if (![json isKindOfClass:[NSDictionary class]] || ![json[@"versions"] isKindOfClass:[NSArray class]]) {
-            NSError *err = [NSError errorWithDomain:@"AiTool" code:500
-                                           userInfo:@{NSLocalizedDescriptionKey: @"版本清单格式异常"}];
-            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, err); });
-            return;
-        }
-        NSArray *rawVersions = json[@"versions"];
-        NSMutableArray *versions = [NSMutableArray array];
-        for (id item in rawVersions) {
-            if (![item isKindOfClass:[NSDictionary class]]) continue;
-            NSString *vid = item[@"id"];
-            NSString *vtype = item[@"type"];
-            if (![vid isKindOfClass:[NSString class]] || vid.length == 0) continue;
-            [versions addObject:@{
-                @"id": vid,
-                @"type": [vtype isKindOfClass:[NSString class]] ? (vtype ?: @"") : @"",
-            }];
-        }
-        NSString *resultJSON = [self jsonStringFromObject:versions];
-        // 写缓存
-        NSData *resultData = [resultJSON dataUsingEncoding:NSUTF8StringEncoding];
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-            [resultData writeToFile:cachePath atomically:YES];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (versions) {
+                NSString *sourceUsed = [urlString containsString:@"bmclapi"] ? @"BMCLAPI" : @"official";
+                completion(versions, sourceUsed, nil);
+                return;
+            }
+            // 当前源失败 → 切换下一个源重试
+            NSError *err = error ?: parseError;
+            [self fetchManifestFromSources:urlStrings index:index + 1 lastError:err completion:completion];
         });
-        dispatch_async(dispatch_get_main_queue(), ^{ completion(resultJSON, nil); });
     }];
     [task resume];
+}
+
+/// 过滤版本清单：默认仅 release；includeSnapshots 时附加最新一条 snapshot
+- (NSString *)filteredVersionsJSON:(NSArray *)versions includeSnapshots:(BOOL)includeSnapshots {
+    NSMutableArray *filtered = [NSMutableArray array];
+    NSDictionary *latestSnapshot = nil;
+    for (id item in versions) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        NSString *vtype = item[@"type"];
+        if ([vtype isEqualToString:@"release"]) {
+            [filtered addObject:item];
+        } else if (includeSnapshots && [vtype isEqualToString:@"snapshot"] && !latestSnapshot) {
+            latestSnapshot = item; // 清单本身按新→旧排序，取首个即最新
+        }
+    }
+    if (latestSnapshot) [filtered addObject:latestSnapshot];
+    return [self jsonStringFromObject:filtered];
 }
 
 @end
