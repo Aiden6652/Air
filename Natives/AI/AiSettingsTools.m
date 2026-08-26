@@ -268,7 +268,7 @@
             if (!storageValue) {
                 completion(nil, [NSError errorWithDomain:@"AiTool" code:400
                                              userInfo:@{NSLocalizedDescriptionKey:
-                                                 @"无效的渲染器取值；可选 auto/GL4ES/ANGLE/MobileGlues/Zink/MoltenVK/LTW"}]]);
+                                                 @"无效的渲染器取值；可选 auto/GL4ES/ANGLE/MobileGlues/Zink/MoltenVK/LTW"}]);
                 return;
             }
         } else if ([key isEqualToString:@"video.graphics_api"]) {
@@ -276,7 +276,7 @@
             if (!storageValue) {
                 completion(nil, [NSError errorWithDomain:@"AiTool" code:400
                                              userInfo:@{NSLocalizedDescriptionKey:
-                                                 @"无效的图形 API 取值；可选 default/prefer_vulkan/prefer_opengl"}]]);
+                                                 @"无效的图形 API 取值；可选 default/prefer_vulkan/prefer_opengl"}]);
                 return;
             }
         } else {
@@ -288,7 +288,7 @@
         if (!prof) {
             completion(nil, [NSError errorWithDomain:@"AiTool" code:404
                                          userInfo:@{NSLocalizedDescriptionKey:
-                                             [NSString stringWithFormat:@"实例 %@ 不存在", profileName]}]]);
+                                             [NSString stringWithFormat:@"实例 %@ 不存在", profileName]}]);
             return;
         }
 
@@ -318,7 +318,7 @@
     } else if ([key isEqualToString:@"general.game_directory"]) {
         completion(nil, [NSError errorWithDomain:@"AiTool" code:400
                                      userInfo:@{NSLocalizedDescriptionKey:
-                                         @"不建议直接修改游戏目录键（涉及符号链接重建）；新建实例请用 create_instance 工具"}]]);
+                                         @"不建议直接修改游戏目录键（涉及符号链接重建）；新建实例请用 create_instance 工具"}]);
         return;
     } else if ([key isEqualToString:@"general.download_source"] ||
                [key isEqualToString:@"java.java_args"] ||
@@ -327,7 +327,7 @@
     } else {
         completion(nil, [NSError errorWithDomain:@"AiTool" code:400
                                      userInfo:@{NSLocalizedDescriptionKey:
-                                         [NSString stringWithFormat:@"不支持的设置键：%@（用 list_settings 查看可用键）", key]}]]);
+                                         [NSString stringWithFormat:@"不支持的设置键：%@（用 list_settings 查看可用键）", key]}]);
         return;
     }
 

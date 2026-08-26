@@ -69,7 +69,7 @@ static const NSInteger kAiTodoMaxItems = 200;
     NSString *path = [AiTodoTool todosFilePath];
     NSData *data = [NSData dataWithContentsOfFile:path];
     if (!data) return [NSMutableArray array];
-    id json = [NSJSONSerialization JSONObjectWithData:data options:NSJSONSerializationMutableContainers error:nil];
+    id json = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil];
     return [json isKindOfClass:[NSMutableArray class]] ? json : [NSMutableArray array];
 }
 
