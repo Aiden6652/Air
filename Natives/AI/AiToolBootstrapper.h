@@ -7,13 +7,14 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "AiToolRegistry.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface AiToolBootstrapper : NSObject
 
-/// 注册全部内置工具（App 启动早期调用一次即可）
-+ (void)registerBuiltinTools;
+/// 把全部内置工具注册进指定 registry（AiToolRegistry 初始化时自动调用，也可外部显式调用）
++ (void)registerBuiltinToolsIntoRegistry:(AiToolRegistry *)registry;
 
 @end
 

@@ -4,6 +4,7 @@
 //
 
 #import "AiToolRegistry.h"
+#import "AiToolBootstrapper.h"
 
 @interface AiToolRegistry ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, id<AiTool>> *tools;
@@ -24,6 +25,10 @@
     self = [super init];
     if (self) {
         _tools = [NSMutableDictionary dictionary];
+        // 关键修复（AI 不知道自己能用工具）：此前 [AiToolBootstrapper registerBuiltinTools]
+        // 从未被任何地方调用，工具列表始终为空，openAIToolSchemas 返回空数组，
+        // 模型收不到任何工具定义，表现为 AI 完全不知道能调用工具。这里在单例 init 时自动注册。
+        [AiToolBootstrapper registerBuiltinToolsIntoRegistry:self];
     }
     return self;
 }

@@ -15,8 +15,8 @@
 
 @implementation AiToolBootstrapper
 
-+ (void)registerBuiltinTools {
-    AiToolRegistry *registry = [AiToolRegistry sharedRegistry];
++ (void)registerBuiltinToolsIntoRegistry:(AiToolRegistry *)registry {
+    if (!registry) return;
 
     // ===== 3a 阶段内置工具 =====
 
