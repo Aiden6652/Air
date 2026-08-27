@@ -16,6 +16,9 @@ static const NSInteger kMaxToolRounds = 10;
 /// 同一工具调用最多尝试次数（含失败）
 static const NSInteger kMaxToolAttempts = 3;
 
+/// 工具调用结果已写入会话的消息变更通知名（object=AiSession）
+static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMessagesDidChangeNotification";
+
 @interface AiAgent ()
 @property (nonatomic, strong) AiAPIClient *client;
 
@@ -50,6 +53,14 @@ static const NSInteger kMaxToolAttempts = 3;
     if (!session) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         [[AiSessionStore sharedStore] updateSession:session];
+    });
+}
+
+/// 广播会话消息变更（供 UI 监听即时刷新；纯广播，不破坏消息协议顺序）
+- (void)notifyMessagesChanged:(AiSession *)session {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[NSNotificationCenter defaultCenter] postNotificationName:kAiSessionMessagesDidChangeNotification
+                                                            object:session];
     });
 }
 
@@ -113,6 +124,16 @@ static const NSInteger kMaxToolAttempts = 3;
         if (completionHandler) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 completionHandler([NSError errorWithDomain:@"AiAgent" code:1 userInfo:@{NSLocalizedDescriptionKey: @"会话为空"}]);
+            });
+        }
+        return;
+    }
+
+    // 并发保护：上一个 flow 尚未结束（如工具仍在执行/等待确认）时，直接拒绝新消息
+    if (self.running) {
+        if (completionHandler) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completionHandler([NSError errorWithDomain:@"AiAgent" code:3 userInfo:@{NSLocalizedDescriptionKey: @"上一条回复尚未完成，请稍候或先点停止"}]);
             });
         }
         return;
@@ -289,6 +310,7 @@ static const NSInteger kMaxToolAttempts = 3;
         }
     }
     [self saveSession:session];
+    [self notifyMessagesChanged:session];
 
     const NSUInteger total = orderedCalls.count;
     if (total == 0) {
@@ -316,6 +338,7 @@ static const NSInteger kMaxToolAttempts = 3;
             appendCursor++;
         }
         [strongSelf saveSession:session];
+        [strongSelf notifyMessagesChanged:session];
     };
 
     // 该轮全部工具执行完毕
@@ -357,6 +380,7 @@ static const NSInteger kMaxToolAttempts = 3;
         NSInteger attempts = [strongSelf.attempts[callID] integerValue];
         if (attempts >= kMaxToolAttempts) {
             AiMessage *failMsg = [AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"多次尝试仍失败：%@", name ?: @""] toolCallID:callID];
+            failMsg.toolName = name ?: @"";
             failMsg.toolSucceeded = NO;
             storeResult(idx, failMsg);
             terminalError = [NSError errorWithDomain:@"AiAgent" code:2
@@ -370,6 +394,7 @@ static const NSInteger kMaxToolAttempts = 3;
         id<AiTool> tool = [[AiToolRegistry sharedRegistry] toolForName:name ?: @""];
         if (!tool) {
             AiMessage *unknownMsg = [AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"未知工具：%@", name ?: @""] toolCallID:callID];
+            unknownMsg.toolName = name ?: @"";
             unknownMsg.toolSucceeded = NO;
             storeResult(idx, unknownMsg);
             noteCompleted(done);
@@ -390,6 +415,7 @@ static const NSInteger kMaxToolAttempts = 3;
                 if (content.length == 0 && error) content = error.localizedDescription;
                 if (content.length == 0) content = @"（无返回）";
                 AiMessage *resMsg = [AiMessage toolResultMessageWithContent:content toolCallID:callID];
+                resMsg.toolName = name ?: @"";
                 resMsg.toolSucceeded = (error == nil);
                 storeResult(idx, resMsg);
                 noteCompleted(done);
@@ -405,6 +431,7 @@ static const NSInteger kMaxToolAttempts = 3;
                 if (!ss4 || !ss4.running) { if (done) done(); return; }
                 if (!approved) {
                     AiMessage *cancelMsg = [AiMessage toolResultMessageWithContent:@"用户已取消该操作" toolCallID:callID];
+                    cancelMsg.toolName = name ?: @"";
                     cancelMsg.toolSucceeded = NO;
                     storeResult(idx, cancelMsg);
                     noteCompleted(done);

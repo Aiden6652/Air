@@ -256,9 +256,16 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
 - (void)processStreamLine:(NSString *)line {
     NSString *trimmed = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (trimmed.length == 0) return;
-    if (![trimmed hasPrefix:@"data: "]) return;
 
-    NSString *payload = [trimmed substringFromIndex:6];
+    // 前缀兼容三种形态："data: "、"data:"（无空格）、以及整行无前缀（裸行直接把整行作为 payload）
+    NSString *payload = nil;
+    if ([trimmed hasPrefix:@"data: "]) {
+        payload = [trimmed substringFromIndex:6];
+    } else if ([trimmed hasPrefix:@"data:"]) {
+        payload = [trimmed substringFromIndex:5];
+    } else {
+        payload = trimmed;
+    }
     NSString *payloadTrimmed = [payload stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
     if ([payloadTrimmed isEqualToString:@"[DONE]"]) {
         self.streamDone = YES;
@@ -395,6 +402,13 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
             [self processStreamText:tail];
         }
         [self.streamData setLength:0];
+    }
+    // 兜底：streamBuffer 里若仍有未以 \n 结尾的残行（内容最后一行或 data: [DONE] 无尾换行），
+    // 复制后清空 buffer，作为最后一个完整行解析一次，确保末尾 delta 刷出
+    if (self.streamBuffer.length > 0) {
+        NSString *tailLine = [self.streamBuffer copy];
+        [self.streamBuffer setString:@""];
+        [self processStreamLine:tailLine];
     }
     [self flushPendingDelta];
     NSDictionary *fullResponse = @{@"content": [self.fullResponseText copy] ?: @""};

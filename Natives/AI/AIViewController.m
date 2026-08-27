@@ -69,11 +69,32 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
     [self setupKeyboardObservers];
     [self updateModelLabel];
     [self updateEmptyState];
+
+    // 监听会话消息变更通知：AiAgent 在 tool_calls / tool 结果消息追加后发出（object=session），
+    // 收到后即时整表刷新，保证「assistant tool_calls → tool 结果 → 下一轮回复」按序显示。
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleSessionMessagesChanged:)
+                                                 name:@"AiSessionMessagesDidChangeNotification"
+                                               object:nil];
+}
+
+/// 会话消息变更通知回调：仅当通知携带的正是当前会话时才整表刷新并滚底
+- (void)handleSessionMessagesChanged:(NSNotification *)note {
+    if (note.object && ![note.object isEqual:self.session]) return;
+    [self reloadAndScrollToBottom];
 }
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self.activityIndicator stopAnimating];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    // 进入会话页滚动到底；无动画避免进场跳动。空会话不滚动。
+    if (self.session.messages.count > 0) {
+        [self scrollToBottomAnimated:NO];
+    }
 }
 
 #pragma mark - Nav Bar
@@ -391,6 +412,8 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
     // 追加进 session.messages，此刻再 reloadData 即可让用户消息立即显示；此前在调用前刷新，
     // 用户消息尚未加入，只有等首个 AI chunk 到来才显示。
     [self reloadAndScrollToBottom];
+    // 首条消息发送后欢迎语立即消失：用户消息已同步加入 session.messages，立刻刷新空态。
+    [self updateEmptyState];
 }
 
 /// 节流刷新正在流式生成的最后一条助手消息
@@ -410,11 +433,25 @@ static const NSTimeInterval kUIThrottleInterval = 0.2;
         NSInteger modelCount = strongSelf.session.messages.count;
         if (modelCount == 0) return;
         NSInteger tableCount = [strongSelf.tableView numberOfRowsInSection:0];
-        if (modelCount != tableCount) {
+
+        // 从末尾向前找第一条 streaming==YES 的流式占位消息；找不到则整表刷新
+        NSInteger streamingRow = NSNotFound;
+        for (NSInteger i = modelCount - 1; i >= 0; i--) {
+            AiMessage *m = strongSelf.session.messages[i];
+            if (m.streaming) {
+                streamingRow = i;
+                break;
+            }
+        }
+
+        if (streamingRow == NSNotFound) {
+            // 没有流式占位行：整表刷新兜底
+            [strongSelf.tableView reloadData];
+        } else if (modelCount != tableCount) {
             // 数据源已新增行但表尚未同步：整表刷新让行数一致
             [strongSelf.tableView reloadData];
         } else {
-            NSIndexPath *idx = [NSIndexPath indexPathForRow:(modelCount - 1) inSection:0];
+            NSIndexPath *idx = [NSIndexPath indexPathForRow:streamingRow inSection:0];
             [strongSelf.tableView reloadRowsAtIndexPaths:@[idx] withRowAnimation:UITableViewRowAnimationNone];
         }
         [strongSelf scrollToBottomAnimated:NO];
