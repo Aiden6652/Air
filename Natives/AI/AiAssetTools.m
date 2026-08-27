@@ -933,29 +933,44 @@ static BOOL aiIsLatestAlias(NSString *s) {
     }
     [AiAssetNetworkUtil getJSONFromURL:listURL completion:^(id _Nullable json, NSError * _Nullable error) {
         if (error) {
+            NSLog(@"[AI] %@ 加载器版本列表请求失败（URL: %@，错误: %@）", displayName, listURLStr, error);
             completion(nil, error);
             return;
         }
         NSArray *list = [json isKindOfClass:[NSArray class]] ? json : nil;
         if (list.count == 0) {
+            // 响应非数组或为空：打印实际类型与响应摘要，便于定位镜像劫持/错误网关
+            NSString *body = [json isKindOfClass:[NSDictionary class]] ? [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:json options:0 error:nil] encoding:NSUTF8StringEncoding] : ([json isKindOfClass:[NSString class]] ? json : NSStringFromClass([json class]));
+            NSLog(@"[AI] %@ 加载器版本列表为空（URL: %@，响应类型: %@，内容: %@）", displayName, listURLStr, NSStringFromClass([json class]), [body substringToIndex:MIN(body.length, 200)]);
             completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:404
                                             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"MC %@ 暂无可用 %@ 加载器版本", mcVersion, displayName]}]);
             return;
         }
+        // 关键修复（install_loader "latest" 无法解析版本）：Fabric/Quilt meta 版本在嵌套的
+        // loader.version，stable 在 loader.stable；兼容历史实现直接放顶层的 version/stable。
         NSString *picked = nil;
         for (id v in list) {
             if (![v isKindOfClass:[NSDictionary class]]) continue;
-            NSString *ver = [v[@"version"] isKindOfClass:[NSString class]] ? v[@"version"] : nil;
-            if (ver.length > 0 && [v[@"stable"] boolValue]) {
+            NSDictionary *loaderObj = [v[@"loader"] isKindOfClass:[NSDictionary class]] ? v[@"loader"] : nil;
+            NSString *ver = [loaderObj[@"version"] isKindOfClass:[NSString class]] ? loaderObj[@"version"] : nil;
+            if (ver.length == 0 && [v[@"version"] isKindOfClass:[NSString class]]) ver = v[@"version"];
+            BOOL stable = (loaderObj && [loaderObj[@"stable"] isKindOfClass:[NSNumber class]])
+                ? [loaderObj[@"stable"] boolValue]
+                : [v[@"stable"] boolValue];
+            if (ver.length > 0 && stable) {
                 picked = ver;
                 break;
             }
         }
         if (!picked) {
+            // fallback：没有标记 stable 时取首个条目
             NSDictionary *first = [list.firstObject isKindOfClass:[NSDictionary class]] ? list.firstObject : nil;
-            if ([first[@"version"] isKindOfClass:[NSString class]]) picked = first[@"version"];
+            NSDictionary *firstLoader = [first[@"loader"] isKindOfClass:[NSDictionary class]] ? first[@"loader"] : nil;
+            if ([firstLoader[@"version"] isKindOfClass:[NSString class]] && [firstLoader[@"version"] length] > 0) picked = firstLoader[@"version"];
+            else if ([first[@"version"] isKindOfClass:[NSString class]] && [first[@"version"] length] > 0) picked = first[@"version"];
         }
         if (picked.length == 0) {
+            NSLog(@"[AI] 无法解析 %@ 加载器版本号（URL: %@，已遍历 %lu 个条目，首个条目: %@）", displayName, listURLStr, (unsigned long)list.count, list.firstObject);
             completion(nil, [NSError errorWithDomain:kAiAssetToolDomain code:404
                                             userInfo:@{NSLocalizedDescriptionKey: @"无法解析加载器版本号"}]);
             return;
