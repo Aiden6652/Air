@@ -1914,6 +1914,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.currentModOffset = 0;
     self.hasMoreMods = YES;
     [self.modList removeAllObjects];
+    [self.modTableView reloadData];
     [self loadModList];
 }
 
@@ -1999,6 +2000,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.currentShaderOffset = 0;
     self.hasMoreShaders = YES;
     [self.shaderList removeAllObjects];
+    [self.shaderTableView reloadData];
     [self loadShaderList];
 }
 
@@ -2078,6 +2080,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.currentModpackOffset = 0;
     self.hasMoreModpacks = YES;
     [self.modpackList removeAllObjects];
+    [self.modpackTableView reloadData];
     [self loadModpackList];
 }
 
@@ -2147,6 +2150,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.currentResourcepackOffset = 0;
     self.hasMoreResourcepacks = YES;
     [self.resourcepackList removeAllObjects];
+    [self.resourcepackTableView reloadData];
     [self loadResourcePackList];
 }
 
@@ -2216,6 +2220,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.currentDatapackOffset = 0;
     self.hasMoreDatapacks = YES;
     [self.datapackList removeAllObjects];
+    [self.datapackTableView reloadData];
     [self loadDataPackList];
 }
 
@@ -2285,6 +2290,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
     self.currentWorldOffset = 0;
     self.hasMoreWorlds = YES;
     [self.worldList removeAllObjects];
+    [self.worldTableView reloadData];
     [self loadWorldList];
 }
 
@@ -2679,6 +2685,7 @@ typedef NS_ENUM(NSInteger, ModernAssetType) {
         self.currentWorldOffset = 0;
         [self.worldList removeAllObjects];
     }
+    [targetTable reloadData];
 
     [UIView animateWithDuration:0.15 animations:^{
         targetTable.alpha = 0;
