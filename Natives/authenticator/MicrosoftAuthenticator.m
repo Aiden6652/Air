@@ -185,8 +185,9 @@ typedef void(^XSTSCallback)(NSString *xsts, NSString *uhs);
             [uuid substringWithRange:NSMakeRange(16, 4)],
             [uuid substringWithRange:NSMakeRange(20, 12)]
         ];
-        self.authData[@"profilePicURL"] = [NSString stringWithFormat:@"https://api.rms.net.cn/head/%@", self.authData[@"username"]];
         self.authData[@"username"] = response[@"name"];
+        // 头像 URL 改用 profileId（正版 UUID，稳定唯一），避免 username 为空时拼出 (null)
+        self.authData[@"profilePicURL"] = [NSString stringWithFormat:@"https://api.rms.net.cn/head/%@", self.authData[@"profileId"]];
         // 微软账户用 xuid 作为 accountId（全局唯一且稳定），使同名账户可共存
         self.authData[@"accountId"] = self.authData[@"xuid"];
         callback(nil, [self saveChanges]);
@@ -233,12 +234,16 @@ typedef void(^XSTSCallback)(NSString *xsts, NSString *uhs);
 }
 
 - (BOOL)saveChanges {
+    // 修复：原版把 token 存进 Keychain 后从 authData 删除，导致账号 JSON 里没有
+    // accessToken；Java 启动时只能依赖 Keychain/JNI 链路读回，一旦该链路失败
+    // （JNI 只允许调用一次/无 nil 检查/Keychain 环境问题）token 丢失 → 离线 → 无皮肤。
+    // 现在：Keychain 照存（双保险，失败只警告不中断），但 token 也保留在 authData 中
+    // 随账号一起写入 accounts/*.json。Java 端优先从 JSON 读 token，不再依赖 Keychain。
     BOOL savedToKeychain = [self setAccessToken:self.authData[@"accessToken"] refreshToken:self.authData[@"msaRefreshToken"]];
     if (!savedToKeychain) {
-        showDialog(localize(@"Error", nil), @"Failed to save account tokens to keychain");
-        return NO;
+        NSLog(@"[MicrosoftAuthenticator] Warning: failed to save tokens to keychain, using account file only");
     }
-    [self.authData removeObjectsForKeys:@[@"accessToken", @"msaRefreshToken"]];
+    // 不再 removeObjectsForKeys:accessToken/msaRefreshToken —— 让 token 写进账号 JSON
     return [super saveChanges];
 }
 
