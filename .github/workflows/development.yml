@@ -1,4 +1,4 @@
-name: Development build
+name: Build Air ios
 
 on:
   pull_request:
