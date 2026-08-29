@@ -252,6 +252,11 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
     // 根因修复：文件 App 返回的 URL 必须先获取 security-scoped 访问权限，
     // 否则 fileExistsAtPath 会误判"文件不存在"（iOS 文件系统标准机制）。
     BOOL scoped = [fileURL startAccessingSecurityScopedResource];
+    // 诊断日志：抓取导入失败现场
+    NSLog(@"[ModpackImport] DEBUG scoped=%d path=%@", scoped, fileURL.path);
+    NSLog(@"[ModpackImport] DEBUG fileExists=%d isUbiquitous=%d",
+          [[NSFileManager defaultManager] fileExistsAtPath:fileURL.path],
+          [[fileURL resourceValuesForKeys:@[NSURLIsUbiquitousItemKey] error:nil][NSURLIsUbiquitousItemKey] boolValue]);
     NSDictionary *result = [self parseModpackScoped:fileURL error:error];
     if (scoped) {
         [fileURL stopAccessingSecurityScopedResource];
