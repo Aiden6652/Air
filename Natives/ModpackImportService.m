@@ -249,8 +249,36 @@ static NSString * const kImportedModpacksKey = @"ImportedModpacks";
 #pragma mark - Parse Modpack
 
 - (nullable NSDictionary *)parseModpackAtURL:(NSURL *)fileURL error:(NSError **)error {
+    // 根因修复：文件 App 返回的 URL 必须先获取 security-scoped 访问权限，
+    // 否则 fileExistsAtPath 会误判"文件不存在"（iOS 文件系统标准机制）。
+    BOOL scoped = [fileURL startAccessingSecurityScopedResource];
+    NSDictionary *result = [self parseModpackScoped:fileURL error:error];
+    if (scoped) {
+        [fileURL stopAccessingSecurityScopedResource];
+    }
+    return result;
+}
+
+- (nullable NSDictionary *)parseModpackScoped:(NSURL *)fileURL error:(NSError **)error {
     NSString *filePath = fileURL.path;
     NSFileManager *fm = [NSFileManager defaultManager];
+
+    // 根因修复：iCloud Drive 云端占位文件（未下载到本地）在本地没有实体，
+    // 先触发下载并等待完成，否则 fileExistsAtPath 返回 NO。
+    NSNumber *isUbiquitous = nil;
+    if ([fileURL getResourceValue:&isUbiquitous forKey:NSURLIsUbiquitousItemKey error:nil]
+            && isUbiquitous.boolValue) {
+        [fm startDownloadingUbiquitousItemAtURL:fileURL error:nil];
+        for (int i = 0; i < 60; i++) {
+            NSNumber *downloaded = nil;
+            [fileURL getResourceValue:&downloaded forKey:NSURLUbiquitousItemIsDownloadedKey error:nil];
+            if (downloaded.boolValue) {
+                break;
+            }
+            [NSThread sleepForTimeInterval:0.5];
+        }
+    }
+
     if (![fm fileExistsAtPath:filePath]) {
         if (error) {
             *error = [NSError errorWithDomain:@"ModpackImportError"
