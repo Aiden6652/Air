@@ -158,10 +158,10 @@ static NSString *const kPrefLegacyDownloadSource = @"general.download_source";
 }
 
 + (NSString *)curseForgeAPIBaseURL {
-    if ([self policyForType:PLMirrorResourceTypeAssetSearch] == PLMirrorPolicyMirrorFirst) {
-        return [NSString stringWithFormat:@"%@/curseforge/v1", PLMirrorMCIMRootURL];
-    }
-    return @"https://api.curseforge.com/v1";
+    // 修复：CF 搜索强制走 MCIM 镜像（mod.mcimirror.top，免 API key）。
+    // 官方 api.curseforge.com 无 key 必 403；不依赖 assetSearchSource 偏好，
+    // 无论设置里选什么源，CF 搜索都走镜像，保证能用。
+    return [NSString stringWithFormat:@"%@/curseforge/v1", PLMirrorMCIMRootURL];
 }
 
 + (PLMirrorPolicy)policyForType:(PLMirrorResourceType)type {
