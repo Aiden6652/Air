@@ -123,7 +123,10 @@ static NSString *CFAMirrorResolvedURL(NSString *urlString) {
 - (NSDictionary *)headers {
     NSString *key = [self apiKey];
     if (key.length == 0) {
-        return nil;
+        // 修复：CF 请求走 MCIM 镜像（mod.mcimirror.top/curseforge/v1）时无需 API key，
+        // 没 key 也放行请求（只带 Accept），避免被 missingAPIKeyError 拦截导致搜不到。
+        NSLog(@"[CurseForgeAPI] No API key configured, using MCIM mirror (key not required)");
+        return @{ @"Accept": @"application/json" };
     }
     return @{
         @"Accept": @"application/json",
@@ -145,7 +148,8 @@ static NSString *CFAMirrorResolvedURL(NSString *urlString) {
     if ([infoPlistKey isKindOfClass:NSString.class] && infoPlistKey.length > 0) {
         return YES;
     }
-    return NO;
+    // 修复：CF 源走 MCIM 镜像无需 key，恒返回 YES 以跳过 UI 层的 key 检查
+    return YES;
 }
 
 - (NSError *)missingAPIKeyError {
