@@ -18,6 +18,7 @@
 #import "AiDownloadProbe.h"
 #import "AiInstanceCreator.h"
 #import "AiWebFetchTool.h"
+#import "AiGitHubTools.h"
 
 @implementation AiToolBootstrapper
 
@@ -94,6 +95,11 @@
     // ===== 3c 阶段：通用联网浏览工具 =====
     // fetch_url（ReadOnly，任何安全模式直接放行）：允许 AI 查看 GitHub 等任意公开网页/API
     [registry registerTool:[[AiWebFetchTool alloc] init]];
+
+    // ===== 3d 阶段：GitHub 代码推送工具 =====
+    // github_set_token / github_push（ExternalNetwork）：允许 AI 替用户向 GitHub 推送代码
+    [registry registerTool:[[AiGitHubTool alloc] initWithName:@"github_set_token"]];
+    [registry registerTool:[[AiGitHubTool alloc] initWithName:@"github_push"]];
 }
 
 @end
