@@ -11,10 +11,10 @@
 #import "AiToolRegistry.h"
 #import "AiSafetyManager.h"
 
-/// 工具循环最多轮数
-static const NSInteger kMaxToolRounds = 10;
-/// 同一工具调用最多尝试次数（含失败）
-static const NSInteger kMaxToolAttempts = 3;
+/// 工具循环最多轮数（放开限制：原 10，改为较大值，避免复杂任务被截断）
+static const NSInteger kMaxToolRounds = 200;
+/// 同一工具调用最多尝试次数（含失败）（放开限制：原 3，改为较大值）
+static const NSInteger kMaxToolAttempts = 30;
 
 /// 工具调用结果已写入会话的消息变更通知名（object=AiSession）
 static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMessagesDidChangeNotification";

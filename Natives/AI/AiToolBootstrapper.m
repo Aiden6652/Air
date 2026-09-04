@@ -17,6 +17,7 @@
 #import "AiSleepTool.h"
 #import "AiDownloadProbe.h"
 #import "AiInstanceCreator.h"
+#import "AiWebFetchTool.h"
 
 @implementation AiToolBootstrapper
 
@@ -89,6 +90,10 @@
 
     // 新建游戏目录实例（ControlledWrite）
     [registry registerTool:[[AiInstanceCreator alloc] init]];
+
+    // ===== 3c 阶段：通用联网浏览工具 =====
+    // fetch_url（ReadOnly，任何安全模式直接放行）：允许 AI 查看 GitHub 等任意公开网页/API
+    [registry registerTool:[[AiWebFetchTool alloc] init]];
 }
 
 @end
