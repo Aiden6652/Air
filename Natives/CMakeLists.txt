@@ -530,6 +530,9 @@ add_executable(AngelAuraAmethyst
 
   # Air AI Agent 3c：通用联网浏览工具（fetch_url）
   AI/AiWebFetchTool.m
+
+  # Air AI Agent 3d：GitHub 代码推送工具（github_set_token / github_push）
+  AI/AiGitHubTools.m
 )
 
 # Add ModLoaderIcons PNG files into the app bundle Resources/ModLoaderIcons so they are available at runtime.
