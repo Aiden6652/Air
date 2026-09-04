@@ -527,6 +527,9 @@ add_executable(AngelAuraAmethyst
   AI/AiSleepTool.m
   AI/AiDownloadProbe.m
   AI/AiInstanceCreator.m
+
+  # Air AI Agent 3c：通用联网浏览工具（fetch_url）
+  AI/AiWebFetchTool.m
 )
 
 # Add ModLoaderIcons PNG files into the app bundle Resources/ModLoaderIcons so they are available at runtime.
