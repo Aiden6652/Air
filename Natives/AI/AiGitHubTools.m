@@ -300,8 +300,9 @@ static NSString * const kAiGitHubAPIDomain = @"https://api.github.com";
     NSMutableArray *blobShas = [NSMutableArray array];
     __block NSUInteger index = 0;
     __block BOOL failed = NO;
-
-    void (^next)(void) = ^{
+    // 必须 __block：否则 block 内递归引用到的是未初始化的栈变量，运行即崩
+    __block void (^next)(void);
+    next = ^{
         if (failed) return;
         if (index >= files.count) {
             if (completion) completion(blobShas, nil);
