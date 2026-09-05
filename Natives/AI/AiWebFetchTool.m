@@ -28,6 +28,7 @@
            "\n参数："
            "\n  - url（string，必填）：完整 URL。示例：https://api.github.com/repos/owner/repo、https://raw.githubusercontent.com/owner/repo/main/README.md、https://api.github.com/search/repositories?q=minecraft&per_page=5。"
            "\n  - maxChars（integer，可选）：返回内容最大字符数，默认 8000，最大 30000，超出部分截断。"
+           "\n  - token（string，可选）：显式传入的 Bearer Token。不传时自动使用本机已保存的 GitHub Token（github_set_token 存的那个），可避免 GitHub API 限流。"
            "\n返回：HTML 页面自动剥离标签转为纯文本；JSON/纯文本原样返回。"
            "\n边界：仅 GET 只读，不会下载文件到本地；请求失败返回错误说明。"
            "\n用法：AI 应自行构造目标 URL（GitHub 等公开网站均可直接访问），拿到内容后结合用户意图继续推进，不要把原始 JSON 大段粘贴给用户，应先总结提炼。";
@@ -78,6 +79,21 @@
     request.timeoutInterval = 20.0;
     [request setValue:@"Air/1.0 (iOS; MC Launcher)" forHTTPHeaderField:@"User-Agent"];
     [request setValue:@"application/json, text/plain, text/html, */*;q=0.8" forHTTPHeaderField:@"Accept"];
+
+    // GitHub/私有 API 认证：优先用参数 token，否则自动读取 github_set_token 保存的本机 token。
+    // 带上 token 可避免 GitHub API 匿名限流（60 次/小时 → 最高 5000 次/小时）。
+    NSString *authToken = nil;
+    id tokenParam = params[@"token"];
+    if ([tokenParam isKindOfClass:[NSString class]] && [(NSString *)tokenParam length] > 0) {
+        authToken = (NSString *)tokenParam;
+    } else {
+        authToken = [[NSUserDefaults standardUserDefaults] stringForKey:@"ai.github_token"];
+    }
+    if (authToken.length > 0) {
+        // 若调用方显式给了 token 参数，说明该 token 属于目标站点（可能是 GitHub 也可能不是），
+        // 统一按 Bearer 附加；对 GitHub 与常见 API 均适用。
+        [request setValue:[NSString stringWithFormat:@"Bearer %@", authToken] forHTTPHeaderField:@"Authorization"];
+    }
 
     NSURLSession *session = [NSURLSession sharedSession];
     NSURLSessionDataTask *task = [session dataTaskWithRequest:request
