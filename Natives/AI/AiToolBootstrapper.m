@@ -19,6 +19,8 @@
 #import "AiInstanceCreator.h"
 #import "AiWebFetchTool.h"
 #import "AiGitHubTools.h"
+#import "AiFolderAccessTool.h"
+#import "AiGitHubTreeTool.h"
 
 @implementation AiToolBootstrapper
 
@@ -100,6 +102,21 @@
     // github_set_token / github_push（ExternalNetwork）：允许 AI 替用户向 GitHub 推送代码
     [registry registerTool:[[AiGitHubTool alloc] initWithName:@"github_set_token"]];
     [registry registerTool:[[AiGitHubTool alloc] initWithName:@"github_push"]];
+
+    // ===== 3e 阶段：文件访问权限放宽 + GitHub 源码树浏览 =====
+
+    // 文件根目录枚举（ReadOnly）：让 AI 知道当前可访问哪些根（容器 + 已授权外部目录）
+    [registry registerTool:[[AiFileTools alloc] initWithName:@"list_roots"]];
+
+    // 容器外目录授权（folder_request_access 为 ExternalNetwork，其余只读/受控写入）
+    [registry registerTool:[[AiFolderAccessTool alloc] initWithName:@"folder_request_access"]];
+    [registry registerTool:[[AiFolderAccessTool alloc] initWithName:@"folder_list_authorized"]];
+    [registry registerTool:[[AiFolderAccessTool alloc] initWithName:@"folder_revoke_access"]];
+
+    // GitHub 仓库源码浏览（ReadOnly）：整树列出 / 批量读文件 / 仓库内搜代码
+    [registry registerTool:[[AiGitHubTreeTool alloc] initWithName:@"github_tree"]];
+    [registry registerTool:[[AiGitHubTreeTool alloc] initWithName:@"github_read_files"]];
+    [registry registerTool:[[AiGitHubTreeTool alloc] initWithName:@"github_search_code"]];
 }
 
 @end

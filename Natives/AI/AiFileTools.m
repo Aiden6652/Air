@@ -37,26 +37,40 @@ static NSString * const kAiToolDomain = @"AiTool";
 }
 
 - (NSString *)summary {
+    if ([self.internalName isEqualToString:@"list_roots"]) {
+        return @"列出 AI 文件工具当前可访问的根目录（容器根 + 用户已授权的外部目录）。"
+               "\n参数：无。"
+               "\n返回 JSON 数组，每项含 path（根路径）、kind（container/authorized）、name（显示名）。"
+               "\n用途：当不确定能访问哪些位置、或用户问「你能看到哪些文件夹」时调用；"
+               "若用户希望 AI 访问容器外的目录（如其它 App 的文件夹、iCloud、本地存储），"
+               "提示用户用 folder_request_access 授权。";
+    }
     if ([self.internalName isEqualToString:@"list_files"]) {
         return @"列出指定目录下的文件/子目录（不递归）。"
                "\n参数：path（string，可选，默认当前实例根目录）。"
-               "\n返回 JSON 数组，每项含 name（名称）、type（file/dir）、size（字节）、modifiedUnixTS（修改时间戳），按名称排序。";
+               "\n返回 JSON 数组，每项含 name（名称）、type（file/dir）、size（字节）、modifiedUnixTS（修改时间戳），按名称排序。"
+               "\n可访问范围：整个 App 容器（Documents/Library/tmp，含启动器目录、instances、存档、模组、配置）"
+               "以及用户已授权的外部目录；可用 list_roots 查询，容器外目录需先 folder_request_access 授权。";
     }
     if ([self.internalName isEqualToString:@"read_file"]) {
         return @"读取文本文件内容。"
                "\n参数：path（string，必填）、maxChars（number，可选，默认 8000，超长截断）。"
-               "\n返回文件文本内容；二进制文件返回「二进制文件不可读」。";
+               "\n返回文件文本内容；二进制文件返回「二进制文件不可读」。"
+               "\n可访问范围：App 容器全路径 + 已授权外部目录（见 list_roots）。";
     }
     if ([self.internalName isEqualToString:@"grep_files"]) {
         return @"在文件中用正则表达式搜索匹配行。"
                "\n参数：path（string，可选，默认当前实例根目录）、pattern（string，必填，正则表达式）、"
                "recursive（boolean，可选，默认 NO）、maxResults（number，可选，默认 50）。"
-               "\n返回 JSON 数组 {path, lineNumber, line}。";
+               "\n返回 JSON 数组 {path, lineNumber, line}。"
+               "\n可访问范围：App 容器全路径 + 已授权外部目录（见 list_roots）。";
     }
     if ([self.internalName isEqualToString:@"write_file"]) {
         return @"写文本文件（原子写入，自动创建父目录）。"
                "\n参数：path（string，必填）、content（string，必填）。"
-               "\n返回「已写入（N 字符）」。覆盖已存在内容。";
+               "\n返回「已写入（N 字符）」。覆盖已存在内容。"
+               "\n可访问范围：App 容器全路径 + 已授权外部目录；写入容器外目录前需 folder_request_access 授权。"
+               "\n注意：不要写入 /System、越权目录或破坏性路径。";
     }
     if ([self.internalName isEqualToString:@"edit_file"]) {
         return @"精确替换文件中的一段文本。"
@@ -87,69 +101,95 @@ static NSString * const kAiToolDomain = @"AiTool";
     return [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
 }
 
-/// 文件工具合法根目录：启动器目录（POJAV_HOME；未设置时回退 Documents 下的启动器目录，
-/// 与 main.m 初始化逻辑一致——沙盒内即 Documents 本身，非沙盒为 Documents/AngelAuraAmethyst）。
-/// instances/*（mods/saves/resourcepacks 等）均位于其下；
+/// 文件工具合法根目录集合（自 3e 阶段起为「多根」）：
+///  1. App 容器根（NSHomeDirectory()）——覆盖 Documents / Library / tmp / SystemData，
+///     即启动器目录、instances/*、存档、模组、偏好设置、缓存、日志等全部可写区域；
+///  2. 用户经 UIDocumentPickerViewController 显式授权的容器外目录
+///     （存于 AiFolderAccessTool 的授权书签列表，路径已 realpath 归一化）。
 /// 经 realpath 归一化以匹配 POJAV_GAME_DIR 符号链接解析后的真实前缀，避免误判越界。
-/// enhance-ai-agent Task 16：从「整个 App 沙盒」收紧为启动器目录，杜绝读写容器外文件。
-+ (NSString *)sandboxRoot {
-    NSString *root = nil;
-    const char *homeEnv = getenv("POJAV_HOME");
-    if (homeEnv && strlen(homeEnv) > 0) {
-        root = @(homeEnv);
-    } else {
-        NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-        BOOL isNotSandboxed = [NSHomeDirectory().lastPathComponent isEqualToString:NSUserName()];
-        root = isNotSandboxed ? [docs stringByAppendingPathComponent:@"AngelAuraAmethyst"] : docs;
-    }
-    if (root.length == 0) root = NSHomeDirectory();
-    const char *rootStart = [root UTF8String];
-    if (rootStart) {
-        char *real = realpath(rootStart, NULL);
-        if (real) {
-            NSString *realRoot = @(real);
-            free(real);
-            return realRoot;
+/// 3e 调整：从「仅启动器目录」放宽为「整个 App 容器 + 用户授权目录」。
++ (NSArray<NSString *> *)sandboxRoots {
+    NSMutableArray<NSString *> *roots = [NSMutableArray array];
+
+    void (^addRoot)(NSString *) = ^(NSString *candidate) {
+        if (candidate.length == 0) return;
+        NSString *normalized = nil;
+        const char *c = [candidate UTF8String];
+        if (c) {
+            char *real = realpath(c, NULL);
+            if (real) {
+                normalized = @(real);
+                free(real);
+            }
+        }
+        if (!normalized) normalized = [candidate stringByStandardizingPath];
+        if (normalized.length > 0 && ![roots containsObject:normalized]) {
+            [roots addObject:normalized];
+        }
+    };
+
+    // 1) App 容器根
+    addRoot(NSHomeDirectory());
+
+    // 2) 用户授权的外部目录（弱依赖：类不存在时安全降级）
+    Class accessClass = NSClassFromString(@"AiFolderAccessTool");
+    if (accessClass && [accessClass respondsToSelector:@selector(authorizedRootPaths)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id authorized = [accessClass performSelector:@selector(authorizedRootPaths)];
+#pragma clang diagnostic pop
+        if ([authorized isKindOfClass:[NSArray class]]) {
+            for (id p in (NSArray *)authorized) {
+                if ([p isKindOfClass:[NSString class]]) addRoot((NSString *)p);
+            }
         }
     }
-    return [root stringByStandardizingPath];
+
+    return roots;
+}
+
+/// 兼容旧标识：返回容器根（主根）。
++ (NSString *)sandboxRoot {
+    NSArray<NSString *> *roots = [self sandboxRoots];
+    return roots.firstObject ?: NSHomeDirectory();
 }
 
 + (nullable NSString *)resolveSafely:(NSString *)path {
     if (path.length == 0) return nil;
-    NSString *stdRoot = [self sandboxRoot];
+    NSArray<NSString *> *stdRoots = [self sandboxRoots];
+    NSString *primaryRoot = stdRoots.firstObject ?: NSHomeDirectory();
 
     BOOL usedGameDir = ([path rangeOfString:@"$GAMEDIR"].location != NSNotFound);
     NSString *worked = path;
     if (usedGameDir) {
         NSString *gameRoot = [self currentGameRoot];
-        worked = [worked stringByReplacingOccurrencesOfString:@"$GAMEDIR" withString:(gameRoot.length ? gameRoot : stdRoot)];
+        worked = [worked stringByReplacingOccurrencesOfString:@"$GAMEDIR" withString:(gameRoot.length ? gameRoot : primaryRoot)];
     }
 
     NSString *joined;
     if (usedGameDir) {
-        joined = worked; // 已被替换为物理绝对路径（在沙盒内）
+        joined = worked; // 已被替换为物理绝对路径
     } else if ([worked hasPrefix:@"/"]) {
-        // 绝对物理路径（可能是 getenv("POJAV_GAME_DIR") 直接返回的实例根，
-        // 也可能是 /var/.../Documents/... 等沙盒内文件）。
-        // 关键修复（list_files 越界）：此前把一切 "以 / 开头的路径" 都当作
-        // "相对 Documents 拼接"，导致传入实例根的绝对路径被拼成 Documents/<容器绝对路径>，
-        // 必然越界；也导致不给 path（默认取 currentGameRoot 绝对路径）时报越界。
-        // 现在绝对路径原样使用，是否越界由下方基于容器根的检查统一裁决。
+        // 绝对物理路径原样使用，是否越界由下方基于根集合的检查统一裁决。
         joined = worked;
+    } else if ([worked hasPrefix:@"~/"]) {
+        // 支持 ~/Documents 这类写法，映射到容器根
+        joined = [primaryRoot stringByAppendingPathComponent:[worked substringFromIndex:2]];
     } else {
         // 相对路径：相对当前实例根
         joined = [[self currentGameRoot] stringByAppendingPathComponent:worked];
     }
 
-    // 标准化（去 ./ ..、解析符号链接），随后做沙盒越界检查
+    // 标准化（去 ./ ..、解析符号链接），随后做越界检查（命中任一合法根即放行）
     NSString *std = [joined stringByResolvingSymlinksInPath];
-    stdRoot = [stdRoot stringByResolvingSymlinksInPath];
-    NSString *prefix = [stdRoot hasSuffix:@"/"] ? stdRoot : [stdRoot stringByAppendingString:@"/"];
-    if (![std isEqualToString:stdRoot] && ![std hasPrefix:prefix]) {
-        return nil; // 越界
+    for (NSString *root in stdRoots) {
+        NSString *stdRoot = [root stringByResolvingSymlinksInPath];
+        NSString *prefix = [stdRoot hasSuffix:@"/"] ? stdRoot : [stdRoot stringByAppendingString:@"/"];
+        if ([std isEqualToString:stdRoot] || [std hasPrefix:prefix]) {
+            return std; // 命中合法根
+        }
     }
-    return std;
+    return nil; // 越界
 }
 
 #pragma mark - 执行分发
@@ -158,8 +198,8 @@ static NSString * const kAiToolDomain = @"AiTool";
      completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion {
     if (!completion) return;
 
-    if ([self.internalName isEqualToString:@"list_files"]) { [self performListFiles:params completion:completion]; return; }
-    if ([self.internalName isEqualToString:@"read_file"])   { [self performReadFile:params completion:completion]; return; }
+    if ([self.internalName isEqualToString:@"list_roots"])  { [self performListRoots:params completion:completion]; return; }
+    if ([self.internalName isEqualToString:@"list_files"]) { [self performListFiles:params completion:completion]; return; }    if ([self.internalName isEqualToString:@"read_file"])   { [self performReadFile:params completion:completion]; return; }
     if ([self.internalName isEqualToString:@"grep_files"])  { [self performGrepFiles:params completion:completion]; return; }
     if ([self.internalName isEqualToString:@"write_file"])  { [self performWriteFile:params completion:completion]; return; }
     if ([self.internalName isEqualToString:@"edit_file"])   { [self performEditFile:params completion:completion]; return; }
@@ -173,6 +213,26 @@ static NSString * const kAiToolDomain = @"AiTool";
 - (NSError *)errorWithCode:(NSInteger)code message:(NSString *)message {
     return [NSError errorWithDomain:kAiToolDomain code:code
                            userInfo:@{NSLocalizedDescriptionKey: message}];
+}
+
+#pragma mark - list_roots
+
+- (void)performListRoots:(NSDictionary *)params completion:(void(^)(NSString *, NSError *))completion {
+    NSMutableArray *out = [NSMutableArray array];
+    NSArray<NSString *> *roots = [[self class] sandboxRoots];
+    NSString *container = NSHomeDirectory();
+    NSString *containerStd = [container stringByResolvingSymlinksInPath];
+    for (NSString *root in roots) {
+        BOOL isContainer = [[root stringByResolvingSymlinksInPath] isEqualToString:containerStd];
+        [out addObject:@{
+            @"path": root,
+            @"kind": isContainer ? @"container" : @"authorized",
+            @"name": isContainer ? @"App 容器（Documents/Library/tmp）" : root.lastPathComponent,
+        }];
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:out options:NSJSONWritingPrettyPrinted error:nil];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"[]";
+    completion(json, nil);
 }
 
 #pragma mark - list_files
