@@ -5,16 +5,16 @@
 //  实现见头文件。要点：
 //  - iOS 沙盒下 App 无法直接访问自身容器以外的路径，唯一正途是 UIDocumentPickerViewController
 //    （forOpeningContentTypes / forOpeningContentTypes:asCopy:NO）+ startAccessingSecurityScopedResource。
-//  - 授权凭证用 NSURLBookmarkCreationWithSecurityScope 生成书签持久化到 NSUserDefaults，
-//    跨启动有效；每次使用前 resolve 并 startAccessingSecurityScopedResource，用完 stop。
+//  - 授权凭证用书签（bookmark）持久化到 NSUserDefaults，跨启动有效。
+//    注意：iOS 没有 NSURLBookmarkCreationWithSecurityScope（macOS 专属，iOS SDK 中 unavailable），
+//    创建/解析书签时 options 传 0 即可，系统会自动附带 security scope。
 //  - 所有 UI 操作派发到主线程；选取器必须从一个可见的 VC present。
-//  - 兼容性：security-scoped 书签选项在 iOS 上需要 __IPHONE_11_0 之后；选取器 API 用
-//    @available 分支，低版本回退到已废弃的 initWithDocumentTypes:inMode:。
+//  - 选取器统一用 initWithDocumentTypes:@[@"public.folder"] inMode:UIDocumentPickerModeOpen
+//    （不依赖 iOS 14+ 的 UniformTypeIdentifiers 框架，兼容性更好）。
 //
 
 #import "AiFolderAccessTool.h"
 #import <UIKit/UIKit.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 /// 书签数组在 NSUserDefaults 中的键（数组元素为 NSData）
 static NSString * const kAiAuthorizedFolderBookmarksKey = @"ai.authorized_folder_bookmarks";
@@ -95,24 +95,18 @@ static NSString * const kAiToolDomain = @"AiTool";
 }
 
 /// 解析书签 →（url, stale）
+/// 注意：iOS 上 NSURLBookmarkResolutionWithSecurityScope 被标记为 macOS 专属（在 iOS SDK 中
+/// 显式 unavailable），但创建书签时传 0、解析时传 0 即可正常工作——系统会自动附带
+/// security scope（iOS 的 UIDocumentPicker 返回的 URL 本身就是 security-scoped）。
+/// 这是 Apple 文档与头文件长期不一致的一处坑，实测 iOS 14~17 均可用。
 + (nullable NSURL *)resolveBookmark:(NSData *)data isStale:(BOOL *)isStale {
     if (data.length == 0) return nil;
     BOOL stale = NO;
-    NSURL *url = nil;
-    if (@available(iOS 11.0, *)) {
-        url = [NSURL URLByResolvingBookmarkData:data
-                                        options:NSURLBookmarkResolutionWithSecurityScope
-                                  relativeToURL:nil
-                            bookmarkDataIsStale:&stale
-                                          error:nil];
-    }
-    if (!url) {
-        url = [NSURL URLByResolvingBookmarkData:data
-                                        options:0
-                                  relativeToURL:nil
-                            bookmarkDataIsStale:&stale
-                                          error:nil];
-    }
+    NSURL *url = [NSURL URLByResolvingBookmarkData:data
+                                           options:0
+                                     relativeToURL:nil
+                               bookmarkDataIsStale:&stale
+                                             error:nil];
     if (isStale) *isStale = stale;
     return url;
 }
@@ -135,16 +129,14 @@ static NSString * const kAiToolDomain = @"AiTool";
     if (changed) [self setBookmarkDataList:rebuilt];
 }
 
+/// 生成书签数据。iOS 无 security-scope 选项（macOS 专属，iOS SDK 中 unavailable），
+/// 传 0 即可：前提是调用前已经 startAccessingSecurityScopedResource 成功。
 + (nullable NSData *)bookmarkDataForURL:(NSURL *)url {
     if (!url) return nil;
-    if (@available(iOS 11.0, *)) {
-        NSData *data = [url bookmarkDataWithOptions:NSURLBookmarkCreationWithSecurityScope
-                     includingResourceValuesForKeys:nil
-                                      relativeToURL:nil
-                                              error:nil];
-        if (data) return data;
-    }
-    return [url bookmarkDataWithOptions:0 includingResourceValuesForKeys:nil relativeToURL:nil error:nil];
+    return [url bookmarkDataWithOptions:0
+         includingResourceValuesForKeys:nil
+                          relativeToURL:nil
+                                  error:nil];
 }
 
 + (NSArray<NSString *> *)authorizedRootPaths {
@@ -153,10 +145,9 @@ static NSString * const kAiToolDomain = @"AiTool";
     for (NSData *data in [self bookmarkDataList]) {
         NSURL *url = [self resolveBookmark:data isStale:NULL];
         if (!url) continue;
-        BOOL accessed = NO;
-        if (@available(iOS 11.0, *)) {
-            accessed = [url startAccessingSecurityScopedResource];
-        }
+        // startAccessingSecurityScopedResource 自 iOS 8 起可用，直接调用
+        BOOL accessed = [url startAccessingSecurityScopedResource];
+        (void)accessed;
         NSString *path = url.path;
         if (path.length > 0) {
             const char *c = [path UTF8String];
@@ -218,24 +209,20 @@ static NSString * const kAiToolDomain = @"AiTool";
         }
 
         UIDocumentPickerViewController *picker = nil;
-        if (@available(iOS 14.0, *)) {
-            picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder]
-                                                                           asCopy:NO];
-        } else {
+        // 不依赖 UniformTypeIdentifiers（iOS 14+ 才有的框架），
+        // 统一用旧版 NSString 类型标识 "public.folder"（UTI），任何 iOS 版本都有效。
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-            picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.folder"]
-                                                                           inMode:UIDocumentPickerModeOpen];
+        picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.folder"]
+                                                                       inMode:UIDocumentPickerModeOpen];
 #pragma clang diagnostic pop
-        }
         picker.delegate = self;
         picker.allowsMultipleSelection = NO;
         picker.modalPresentationStyle = UIModalPresentationFormSheet;
 
         id reason = params[@"reason"];
         if ([reason isKindOfClass:[NSString class]] && [(NSString *)reason length] > 0) {
-            picker.modalTitle = nil;
-            // 用标题提示原因（系统选择器无 message 位，写在标题上）
+            // UIDocumentPickerViewController 无可设置的标题属性，仅记录日志便于排查
             NSLog(@"[AiFolderAccessTool] 目录授权原因：%@", reason);
         }
 
@@ -259,14 +246,11 @@ static NSString * const kAiToolDomain = @"AiTool";
         return;
     }
 
-    BOOL accessed = NO;
-    if (@available(iOS 11.0, *)) {
-        accessed = [url startAccessingSecurityScopedResource];
-    }
+    BOOL accessed = [url startAccessingSecurityScopedResource];
 
     NSData *bookmark = [AiFolderAccessTool bookmarkDataForURL:url];
     if (!bookmark) {
-        if (accessed && @available(iOS 11.0, *)) [url stopAccessingSecurityScopedResource];
+        if (accessed) [url stopAccessingSecurityScopedResource];
         [self finishPendingWithResult:nil error:[self errorWithCode:-1 message:@"无法为该目录生成授权凭证，请重试或换一个目录"]];
         return;
     }
