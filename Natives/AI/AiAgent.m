@@ -26,6 +26,13 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
 @property (nonatomic, assign) BOOL running;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *attempts; // toolCallID -> 已尝试次数
 @property (nonatomic, assign) NSInteger toolRound;                                   // 当前工具轮数
+
+/// 本轮工具返回的图片（data URL），在下一轮请求前作为一条 user 消息送入。
+/// 为什么要绕这一道：OpenAI 协议里 role=tool 的消息 content 只能是字符串，不能带图；
+/// 而 assistant(tool_calls) → tool 结果 之间又不能插别的消息（会触发 HTTP 400）。
+/// 所以统一等本轮全部工具结果按序落盘后，再补一条带图的 user 消息进入下一轮，
+/// 顺序完全合法，模型也能直接看到像素。
+@property (nonatomic, strong) NSMutableArray<NSString *> *pendingImages;
 @end
 
 @implementation AiAgent
@@ -44,6 +51,7 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
     if (self) {
         _client = [[AiAPIClient alloc] init];
         _attempts = [NSMutableDictionary dictionary];
+        _pendingImages = [NSMutableArray array];
     }
     return self;
 }
@@ -143,6 +151,7 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
     self.running = YES;
     self.toolRound = 0;
     [self.attempts removeAllObjects];
+    [self.pendingImages removeAllObjects];
 
     // 追加用户消息
     AiMessage *userMessage = [AiMessage messageWithRole:@"user" content:text ?: @""];
@@ -172,6 +181,19 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         return;
     }
 
+    // ===== 把上一轮工具返回的图片补进对话（真图）=====
+    // 时机很关键：必须在本轮全部 tool 结果都已按序落盘「之后」、下一轮请求「之前」。
+    // 这样 assistant(tool_calls) → tool 结果的配对不会被插入的消息打断，不会触发 HTTP 400。
+    if (self.pendingImages.count > 0) {
+        AiMessage *imageMessage = [AiMessage messageWithRole:@"user"
+                                                     content:@"（以下是工具返回的图片，请直接看图作答）"];
+        imageMessage.imageDataURLs = [self.pendingImages copy];
+        [session.messages addObject:imageMessage];
+        [self.pendingImages removeAllObjects];
+        [self saveSession:session];
+        [self notifyMessagesChanged:session];
+    }
+
     // 1. 拼装 payload：system + 历史（剔除流式占位、含 tool 消息）
     NSMutableArray *payloadMessages = [NSMutableArray array];
     NSString *systemPrompt = [[AiSettings sharedSettings] systemPrompt];
@@ -188,9 +210,8 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
 
     // 关键修复（AI 不知道自己能使用工具）：即便 tools 随请求作为 functions 传入，
     // 若系统提示未点明，模型往往只给文字建议而不主动调用工具。
-    // 因此在存在工具时向 system prompt 追加一句明确的能力说明（不覆盖用户自定义内容，仅追加其尾）。
     if (tools.count > 0) {
-        systemPrompt = [systemPrompt stringByAppendingString:@"\n\n你可以调用内置工具来直接操控启动器，例如：排查并分析崩溃日志、读取已安装的游戏版本与组件状态、直接安装 Minecraft 版本或 Fabric/Quilt 加载器（未装原版会自动先装，Fabric 会自动装 Fabric API）、下载/安装模组、光影、资源包、数据包（自动匹配实例 MC 版本）、查看与修改启动器设置（总设置与实例设置）、新建游戏目录（create_instance）、管理待办清单（todo_*）、查看下载进度（check_downloads）、读取多份日志（read_logs，含启动器日志）。"
+        systemPrompt = [systemPrompt stringByAppendingString:@"\n\n你可以调用内置工具来直接操控启动器，例如：排查并分析崩溃日志、读取已安装的游戏版本与组件状态、直接安装 Minecraft 版本或 Fabric/Quilt 加载器（未装原版会自动先装，Fabric 会自动装 Fabric API）、下载/安装模组、光影、资源包、数据包（自动匹配实例 MC 版本）、查看与修改启动器设置（总设置与实例设置）、新建游戏目录（create_instance）、管理待办清单（todo_*）、查看下载进度（check_downloads）、读取多份日志（read_logs，含启动器日志）；用 view_image 直接看图片（截图 / UI 大小 / 黑边判断）。"
             "版本号约定：install_loader 的 loaderVersion 与 install_* 的 versionId 均可传 \"latest\" 表示最新稳定版，无需先拉版本列表。"
             "安装顺序纪律：必须先装原版再装加载器——调用 install_loader 前先用 list_instances 确认目标实例的原版已装好，未装则先调 install_game_version 装原版，成功后才装加载器，最后才装 Mod；卸载/切换目录同理，先补原版。"
             "这些安装全部自动完成，用户可在下载中心实时查看进度，你无需也不应让用户去下载页手动操作（Forge/NeoForge/OptiFine 除外，它们需要图形安装器）。"
@@ -240,7 +261,6 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         }
 
         if (error) {
-            // 出错：不追加错误消息到 history，仅 completionHandler 通知 UI 弹错
             if (assistantMessage.content.length == 0) {
                 [session.messages removeObject:assistantMessage];
             }
@@ -251,7 +271,6 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         }
 
         if (accToolCalls.count > 0) {
-            // 进入工具执行阶段
             [strongSelf saveSession:session];
             [strongSelf runToolCalls:accToolCalls
                     assistantMessage:assistantMessage
@@ -260,7 +279,6 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
                         chunkHandler:chunkHandler
                   completionHandler:completionHandler];
         } else {
-            // 无工具调用，正常结束
             [strongSelf saveSession:session];
             strongSelf.running = NO;
             if (completionHandler) completionHandler(nil);
@@ -276,7 +294,6 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
 /// - 工具结果消息按工具 index 顺序 append 到会话历史（assistant tool_calls 之后），
 ///   各自完成即尽可能早地落盘（appendCursor 从首个未落位槽位起连续推进）；
 /// - 全部完成后统一进入下一轮或以 terminalError 收尾。
-/// 线程安全：工具 completion 与安全确认回调均在主线程，无竞态。
 - (void)runToolCalls:(NSDictionary *)accToolCalls
     assistantMessage:(AiMessage *)assistantMessage
              session:(AiSession *)session
@@ -290,8 +307,6 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         return (ia > ib) ? NSOrderedDescending : ((ia < ib) ? NSOrderedAscending : NSOrderedSame);
     }];
 
-    // 把首个调用挂到助手消息上（isToolCall），其余调用以 toolCallMessage 追加，
-    // 序列化时这些连续的 isToolCall 助手消息被合并为同一条 assistant tool_calls 数组（见 AiAPIClient）。
     for (NSUInteger i = 0; i < orderedCalls.count; i++) {
         NSDictionary *call = orderedCalls[i];
         NSString *callID = call[@"id"];
@@ -321,13 +336,11 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
     __block NSError *terminalError = nil;
     __weak typeof(self) weakSelf = self;
 
-    // 结果槽位：初始 NSNull；各调用完成即填入自己的槽位
     NSMutableArray *slots = [NSMutableArray arrayWithCapacity:total];
     for (NSUInteger i = 0; i < total; i++) [slots addObject:[NSNull null]];
-    __block NSUInteger appendCursor = 0;   // 下一个待 append 的槽位（保证 tool 结果按工具序落盘）
+    __block NSUInteger appendCursor = 0;
     __block NSUInteger completedCount = 0;
 
-    // 填槽并从 appendCursor 起连续 append（保序且尽量即时）
     void (^storeResult)(NSUInteger, AiMessage *) = ^(NSUInteger idx, AiMessage *msg) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
@@ -341,12 +354,10 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         [strongSelf notifyMessagesChanged:session];
     };
 
-    // 该轮全部工具执行完毕
     void (^finishRound)(void) = ^{
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf || !strongSelf.running) return;
         if (terminalError) {
-            // 达到重试上限，以最终错误结束本轮
             strongSelf.running = NO;
             if (completionHandler) completionHandler(terminalError);
             return;
@@ -358,14 +369,12 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
                       completionHandler:completionHandler];
     };
 
-    // 单个调用完成：计数 + 可选的链式推进回调
     void (^noteCompleted)(dispatch_block_t) = ^(dispatch_block_t done) {
         completedCount++;
         if (completedCount >= total) finishRound();
         if (done) done();
     };
 
-    // 执行第 idx 个调用（完成后调用 done；done 可为 nil）
     void (^executeCallAt)(NSUInteger, dispatch_block_t) = ^(NSUInteger idx, dispatch_block_t done) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf || !strongSelf.running) { if (done) done(); return; }
@@ -376,7 +385,6 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         NSString *arguments = call[@"arguments"] ?: @"";
         if (callID.length == 0) callID = [NSString stringWithFormat:@"call_%ld", (long)[call[@"index"] integerValue]];
 
-        // 重试护栏：同一 callID 已执行 ≥3 次则不再回喂
         NSInteger attempts = [strongSelf.attempts[callID] integerValue];
         if (attempts >= kMaxToolAttempts) {
             AiMessage *failMsg = [AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"多次尝试仍失败：%@", name ?: @""] toolCallID:callID];
@@ -390,7 +398,6 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         }
         strongSelf.attempts[callID] = @(attempts + 1);
 
-        // 校验工具是否存在
         id<AiTool> tool = [[AiToolRegistry sharedRegistry] toolForName:name ?: @""];
         if (!tool) {
             AiMessage *unknownMsg = [AiMessage toolResultMessageWithContent:[NSString stringWithFormat:@"未知工具：%@", name ?: @""] toolCallID:callID];
@@ -406,9 +413,10 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         void (^proceed)(void) = ^{
             __strong typeof(weakSelf) ss2 = weakSelf;
             if (!ss2 || !ss2.running) { if (done) done(); return; }
-            [[AiToolRegistry sharedRegistry] executeToolNamed:name ?: @""
-                                                       params:normalizedParams
-                                                   completion:^(NSString * _Nullable result, NSError * _Nullable error) {
+            // 用带图片的通道：实现了 AiToolImageResult 的工具（如 view_image）会额外回传图片
+            [[AiToolRegistry sharedRegistry] executeToolNamedAndReturnImage:name ?: @""
+                                                                     params:normalizedParams
+                                                                 completion:^(NSString * _Nullable result, NSString * _Nullable imageDataURL, NSError * _Nullable error) {
                 __strong typeof(weakSelf) ss3 = weakSelf;
                 if (!ss3) { if (done) done(); return; }
                 NSString *content = result;
@@ -417,12 +425,13 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
                 AiMessage *resMsg = [AiMessage toolResultMessageWithContent:content toolCallID:callID];
                 resMsg.toolName = name ?: @"";
                 resMsg.toolSucceeded = (error == nil);
+                // 图片先存着，等全部工具结果落盘后由 startRoundInSession 补一条 user 消息送出去
+                if (imageDataURL.length > 0) [ss3.pendingImages addObject:imageDataURL];
                 storeResult(idx, resMsg);
                 noteCompleted(done);
             }];
         };
 
-        // 安全确认（DangerousWrite 等需确认时阻塞等待用户选择）
         if ([[AiSafetyManager sharedManager] needsUserConfirmationForPermission:tool.permission]) {
             [[AiSafetyManager sharedManager] requestConfirmationWithTitle:[NSString stringWithFormat:@"AI 请求执行「%@」", name ?: @""]
                                                                   message:[NSString stringWithFormat:@"该工具需要你确认后才执行。\n参数：%@", arguments]
@@ -444,7 +453,6 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         }
     };
 
-    // 分类：需要确认的（串行链，避免同时弹多个确认框）/ 无需确认的（并发派发）
     NSMutableArray<NSNumber *> *immediateIndices = [NSMutableArray array];
     NSMutableArray<NSNumber *> *confirmIndices = [NSMutableArray array];
     for (NSUInteger i = 0; i < total; i++) {
@@ -458,12 +466,10 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
         }
     }
 
-    // 并发派发无需确认的调用
     for (NSNumber *idxNum in immediateIndices) {
         executeCallAt(idxNum.unsignedIntegerValue, nil);
     }
 
-    // 串行链处理需确认的调用（一个确认完成后再弹下一个）
     __block void (^confirmChain)(NSUInteger);
     confirmChain = ^(NSUInteger ci) {
         if (ci >= confirmIndices.count) { confirmChain = nil; return; }
@@ -479,6 +485,8 @@ static NSString * const kAiSessionMessagesDidChangeNotification = @"AiSessionMes
 - (void)stopCurrent {
     if (self.client) [self.client stop];
     self.running = NO;
+    // 停止时丢弃未送出的图片，避免下次对话里冒出无关截图
+    [self.pendingImages removeAllObjects];
 }
 
 @end

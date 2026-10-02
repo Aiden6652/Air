@@ -20,9 +20,13 @@ NS_ASSUME_NONNULL_BEGIN
 @interface AiSleepTool : NSObject <AiTool>
 @end
 
-/// view_image：把本地图片转成「文本缩略图」，让 AI 能感知画面（尺寸 / 明暗缩略图 /
-/// 非黑内容边界），用于判断 UI 大小、四周有没有黑边、内容是否铺满屏幕。只读、不联网。
-@interface AiImageTool : NSObject <AiTool>
+/// view_image：看得见画面的读图工具。同时提供两种输出：
+/// 1) 真图（实现 AiToolImageResult）：把图片压缩成 JPEG data URL 交给 Agent，
+///    作为多模态 image 送进模型，模型可直接看到像素（截图对比、UI 布局、黑边）；
+/// 2) 文本摘要：像素尺寸 + 非黑内容边界（四周黑边像素/百分比 + 结论），
+///    另附亮度 ASCII 缩略图作为不支持视觉时的兜底。
+/// 只读、不联网、不修改文件。
+@interface AiImageTool : NSObject <AiTool, AiToolImageResult>
 @end
 
 NS_ASSUME_NONNULL_END
