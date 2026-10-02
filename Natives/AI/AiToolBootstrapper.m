@@ -91,6 +91,11 @@
     // sleep（ReadOnly，无副作用）
     [registry registerTool:[[AiSleepTool alloc] init]];
 
+    // view_image 读图（ReadOnly，无副作用）：把截图转成文本缩略图（尺寸 + 明暗图 + 非黑内容边界），
+    // 让 AI 在模型不支持视觉的情况下也能判断 UI 大小、黑边、内容有没有铺满屏幕。
+    // 实现与 AiSleepTool 同文件（原因见 AiSleepTool.h 顶部注释）。
+    [registry registerTool:[[AiImageTool alloc] init]];
+
     // 新建游戏目录实例（ControlledWrite）
     [registry registerTool:[[AiInstanceCreator alloc] init]];
 
