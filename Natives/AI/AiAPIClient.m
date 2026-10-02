@@ -2,6 +2,14 @@
 //  AiAPIClient.m
 //  Amethyst
 //
+//  说明（多模态图片）：本类负责把 AiMessage 列表序列化成 OpenAI 的 messages。
+//  带图片的消息（AiMessage.imageDataURLs 非空）会把 content 写成内容数组
+//  [{type:text,text:...},{type:image_url,image_url:{url:data:...}}]；
+//  其余消息保持纯字符串格式，兼容性最好。
+//  注意：role=tool 的消息不能携带图片（OpenAI 限制），所以图片统一走 user 消息；
+//  图片由 AiAgent 在本轮工具结果全部按序落盘后补一条 user 消息送出，
+//  这样 assistant(tool_calls) → tool 的配对顺序不会被破坏，不会触发 HTTP 400。
+//
 
 #import "AiAPIClient.h"
 
@@ -15,10 +23,10 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
 @property (nonatomic, copy, nullable) void (^onChunk)(NSString * _Nullable delta, NSDictionary * _Nullable toolCalls);
 @property (nonatomic, copy, nullable) void (^onComplete)(NSDictionary * _Nullable fullResponse, NSError * _Nullable error);
 
-@property (nonatomic, strong) NSMutableString *streamBuffer;    // 未切分完的流缓冲
-@property (nonatomic, strong) NSMutableData *streamData;        // 原始字节缓冲（保证跨块多字节字符完整性）
-@property (nonatomic, strong) NSMutableString *fullResponseText; // 已接收全文
-@property (nonatomic, strong) NSMutableString *pendingDelta;     // 待节流刷新的增量
+@property (nonatomic, strong) NSMutableString *streamBuffer;
+@property (nonatomic, strong) NSMutableData *streamData;
+@property (nonatomic, strong) NSMutableString *fullResponseText;
+@property (nonatomic, strong) NSMutableString *pendingDelta;
 @property (nonatomic, assign) NSTimeInterval lastChunkFlushTime;
 @property (nonatomic, assign) BOOL streamDone;
 @property (nonatomic, assign) NSInteger statusCode;
@@ -66,7 +74,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     self.streamDone = NO;
     self.statusCode = 0;
 
-    // 构造 URL：baseURL 末尾不是 / 则补 /，再拼 chat/completions
     NSString *base = provider.baseURL;
     if (![base hasSuffix:@"/"]) {
         base = [base stringByAppendingString:@"/"];
@@ -82,9 +89,7 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
         return;
     }
 
-    // Body
     NSMutableArray *payloadMessages = [NSMutableArray array];
-    // 待刷出的「assistant 携带多个 tool_calls」消息缓冲（OpenAI 要求同一助手消息携带 tool_calls 数组）
     __block NSString *pendingAssistantContent = @"";
     __block NSMutableArray *pendingToolCalls = nil;
     dispatch_block_t flushPendingToolCalls = ^{
@@ -98,10 +103,8 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
         pendingAssistantContent = @"";
     };
     for (AiMessage *m in messages) {
-        // 跳过流式占位消息
         if (m.streaming) continue;
 
-        // assistant 的工具调用记录：把连续的 isToolCall 助手消息合并进同一条 tool_calls 数组
         if (m.isToolCall && [m.role isEqualToString:@"assistant"]) {
             if (!pendingToolCalls) {
                 pendingToolCalls = [NSMutableArray array];
@@ -120,12 +123,23 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
             continue;
         }
 
-        // 其它角色消息：先把缓冲的 assistant tool_calls 刷出
         flushPendingToolCalls();
 
         NSMutableDictionary *entry = [NSMutableDictionary dictionary];
         entry[@"role"] = m.role ?: @"";
-        entry[@"content"] = m.content ?: @"";
+        if (m.imageDataURLs.count > 0) {
+            NSMutableArray *parts = [NSMutableArray array];
+            if (m.content.length > 0) {
+                [parts addObject:@{@"type": @"text", @"text": m.content}];
+            }
+            for (id imageURL in m.imageDataURLs) {
+                if (![imageURL isKindOfClass:[NSString class]] || [(NSString *)imageURL length] == 0) continue;
+                [parts addObject:@{@"type": @"image_url", @"image_url": @{@"url": imageURL}}];
+            }
+            entry[@"content"] = parts.count > 0 ? parts : (m.content ?: @"");
+        } else {
+            entry[@"content"] = m.content ?: @"";
+        }
         if ([m.role isEqualToString:@"tool"] && m.toolCallID.length > 0) {
             entry[@"tool_call_id"] = m.toolCallID;
         }
@@ -134,22 +148,7 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     flushPendingToolCalls();
 
     // ===== 历史清洗：剔除「悬空工具调用」（防止 HTTP 400）=====
-    // 背景：任务被强制中断 / 用户点停止 / App 崩溃时，会话里常残留
-    //   assistant(tool_calls=[...]) 却没有对应的 tool 结果，或 tool_call 之后又夹了 user 消息。
-    // OpenAI 协议要求：assistant 的每条 tool_calls 必须被紧随其后的、同 tool_call_id 的
-    // tool 结果逐条闭合，且中间不能插 user/assistant 普通消息，否则服务端直接返回 HTTP 400
-    // 「messages with role 'tool' must be a response to a preceding message with 'tool_calls'」。
-    // 这里在发送前对已构建好的 payloadMessages 做一次配对过滤，保证序列永远合法。
-    // 规则：
-    //   1. 收集所有 tool 结果消息的 tool_call_id；
-    //   2. 遍历 payloadMessages，对每条带 tool_calls 的 assistant 消息：
-    //      - 只保留那些「其所有 tool_call_id 都能在该消息之后找到对应 tool 结果」的调用；
-    //      - 若某条调用无结果闭合 → 从该 assistant 消息里剔除该调用；
-    //      - 剔除后 tool_calls 数组为空 → 整条 assistant 消息丢弃（避免空 tool_calls 也报错）；
-    //   3. 再遍历一遍，丢弃所有「找不到前置 tool_calls」的孤立 tool 结果。
-    // 全程只删不改：正常完整的对话（每个调用都有结果）不会被触碰，聊天记录内容不变。
     {
-        // 第 1 步：标记「有结果闭合」的 tool_call_id，以及其「首次出现结果」的下标
         NSMutableDictionary<NSString *, NSNumber *> *resultIndexForCallID = [NSMutableDictionary dictionary];
         for (NSUInteger i = 0; i < payloadMessages.count; i++) {
             NSDictionary *entry = payloadMessages[i];
@@ -170,12 +169,10 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
             BOOL isAssistant = [role isEqualToString:@"assistant"];
             BOOL isToolResult = [role isEqualToString:@"tool"];
 
-            // 孤立 tool 结果：其 tool_call_id 没有对应的 assistant 调用（或结果出现在调用之前）→ 丢弃
             if (isToolResult) {
                 NSString *cid = entry[@"tool_call_id"];
                 BOOL valid = NO;
                 if ([cid isKindOfClass:[NSString class]] && cid.length > 0) {
-                    // 向前查找是否存在声明了该 id 的 assistant tool_calls
                     for (NSUInteger j = 0; j < i; j++) {
                         NSDictionary *prev = payloadMessages[j];
                         NSArray *calls = prev[@"tool_calls"];
@@ -187,10 +184,9 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
                     }
                 }
                 if (valid) [sanitized addObject:entry];
-                continue; // 无效的孤立 tool 结果直接丢弃
+                continue;
             }
 
-            // assistant 带 tool_calls：只保留「在该消息之后能对应到 tool 结果」的调用
             if (isAssistant) {
                 NSArray *calls = entry[@"tool_calls"];
                 if ([calls isKindOfClass:[NSArray class]] && calls.count > 0) {
@@ -200,17 +196,11 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
                         BOOL closed = NO;
                         if ([cid isKindOfClass:[NSString class]] && cid.length > 0) {
                             NSNumber *resultIdx = resultIndexForCallID[cid];
-                            // 结果必须出现在该调用之后
                             closed = (resultIdx != nil && resultIdx.unsignedIntegerValue > i);
-                        } else {
-                            // 无 id 的调用无法配对，保守丢弃
-                            closed = NO;
                         }
                         if (closed) [keptCalls addObject:c];
                     }
                     if (keptCalls.count == 0) {
-                        // 全部悬空 → 整条 assistant 消息丢弃；
-                        // 若其 content 有实质内容，保留为普通 assistant 文本，避免丢失用户可见回复
                         NSString *content = entry[@"content"];
                         if ([content isKindOfClass:[NSString class]] && content.length > 0) {
                             [sanitized addObject:@{@"role": @"assistant", @"content": content}];
@@ -227,14 +217,16 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
             [sanitized addObject:entry];
         }
 
-        // 兜底：丢弃「既无内容又无 tool_calls」的空 assistant 消息，
-        // 以及 content 与 tool_call_id 均缺失的空 tool 结果（服务端会判为非法）。
+        // 兜底：丢弃空 assistant 消息与空 tool 结果。
+        // content 现在可能是内容数组（多模态），判断要同时兼容 NSString / NSArray。
         NSMutableArray *compacted = [NSMutableArray arrayWithCapacity:sanitized.count];
         for (NSDictionary *entry in sanitized) {
             if (![entry isKindOfClass:[NSDictionary class]]) continue;
             NSString *role = entry[@"role"];
-            NSString *content = entry[@"content"];
-            BOOL hasContent = [content isKindOfClass:[NSString class]] && content.length > 0;
+            id contentValue = entry[@"content"];
+            BOOL hasContent = NO;
+            if ([contentValue isKindOfClass:[NSString class]]) hasContent = ([(NSString *)contentValue length] > 0);
+            else if ([contentValue isKindOfClass:[NSArray class]]) hasContent = ([(NSArray *)contentValue count] > 0);
             BOOL hasToolCalls = [entry[@"tool_calls"] isKindOfClass:[NSArray class]] && [entry[@"tool_calls"] count] > 0;
             BOOL hasToolCallID = [entry[@"tool_call_id"] isKindOfClass:[NSString class]] && [(NSString *)entry[@"tool_call_id"] length] > 0;
             if ([role isEqualToString:@"assistant"] && !hasContent && !hasToolCalls) continue;
@@ -270,7 +262,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
         return;
     }
 
-    // 会话（后台专用队列解析，避免阻塞主线程）
     if (!self.session) {
         NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
         config.timeoutIntervalForRequest = 120;
@@ -303,7 +294,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     }
 
     AiMessage *ping = [AiMessage messageWithRole:@"user" content:@"ping"];
-    // 复用流式通道发起极其简短的对话请求，忽略增量，仅在结束时回传结果
     [self streamChatWithProvider:provider
                         messages:@[ping]
                            tools:nil
@@ -321,14 +311,12 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
 
 #pragma mark - 流式解析
 
-/// 从字节缓冲里取出以 \n 结尾的完整字节串解码并切行处理（保留不完整的多字节尾部）
 - (void)processBufferedStreamData {
     if (self.streamData.length == 0) return;
     static unsigned char lf = '\n';
     NSData *lfData = [NSData dataWithBytes:&lf length:1];
     NSRange lastLF = [self.streamData rangeOfData:lfData options:NSDataSearchBackwards
                                             range:NSMakeRange(0, self.streamData.length)];
-    // 尚无完整行：可能是多字节字符被切开尚未拼齐，保留字节等待下一块
     if (lastLF.location == NSNotFound) return;
     NSUInteger completeLen = lastLF.location + 1;
     NSData *completeData = [self.streamData subdataWithRange:NSMakeRange(0, completeLen)];
@@ -339,12 +327,10 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     [self.streamData replaceBytesInRange:NSMakeRange(0, completeLen) withBytes:NULL length:0];
 }
 
-/// 追加接收到的文本并切行处理
 - (void)processStreamText:(NSString *)text {
     if (text.length == 0 || self.streamDone) return;
     [self.streamBuffer appendString:text];
 
-    // 每次处理缓冲里完整的一行
     NSInteger consumed = 0;
     NSRange range;
     BOOL done = NO;
@@ -359,7 +345,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     }
     (void)consumed;
 
-    // 缓冲过大但一直没换行符（异常）时清空，避免无限累积
     if (self.streamBuffer.length > 1024 * 1024) {
         [self.streamBuffer setString:@""];
     }
@@ -369,7 +354,7 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     NSString *trimmed = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (trimmed.length == 0) return;
 
-    // 前缀兼容三种形态："data: "、"data:"（无空格）、以及整行无前缀（裸行直接把整行作为 payload）
+    // 前缀兼容："data: " / "data:" / 整行无前缀
     NSString *payload = nil;
     if ([trimmed hasPrefix:@"data: "]) {
         payload = [trimmed substringFromIndex:6];
@@ -381,7 +366,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
     NSString *payloadTrimmed = [payload stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
     if ([payloadTrimmed isEqualToString:@"[DONE]"]) {
         self.streamDone = YES;
-        // 标记，交 toComplete 处理剩余刷新
         return;
     }
 
@@ -405,7 +389,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
         [self.pendingDelta appendString:deltaText];
     }
 
-    // tool_calls（Phase 3 使用，本期仅透传）
     NSArray *toolCallArr = delta[@"tool_calls"];
     if ([toolCallArr isKindOfClass:[NSArray class]]) {
         NSDictionary *toolCallsInfo = @{@"tool_calls": toolCallArr};
@@ -416,7 +399,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
         }
     }
 
-    // 节流：距上次刷新 < 200ms 则暂存 pendingDelta，等待下次刷新/结束刷出
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
     if ((now - self.lastChunkFlushTime) >= kChunkThrottleInterval) {
         [self flushPendingDelta];
@@ -470,10 +452,7 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
     if (self.streamDone) return;
     if (data.length == 0) return;
-    // 关键修复（AI 说话说不全/好话说一半）：不能把每块 data 直接按 UTF8 解码成字符串，
-    // 否则中文/emoji 等多字节字符恰落在两块 data 切分边界时，前一块解码损坏，
-    // 导致该 SSE 行 JSON 解析失败被整行丢弃，输出表现为被截断/少字/空白。
-    // 改为字节级缓冲：只解码以 \n 结尾的完整字节串，跨块的多字节字符保留到后续拼齐。
+    // 字节级缓冲：只解码以 \n 结尾的完整字节串，避免多字节字符被块边界切断而丢字
     [self.streamData appendData:data];
     [self processBufferedStreamData];
 }
@@ -507,7 +486,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
         return;
     }
 
-    // 处理末尾没有换行的最后一块字节（避免丢失最后几个字/整块结尾内容）
     if (self.streamData.length > 0) {
         NSString *tail = [[NSString alloc] initWithData:self.streamData encoding:NSUTF8StringEncoding];
         if (tail.length > 0) {
@@ -515,8 +493,6 @@ static const NSTimeInterval kChunkThrottleInterval = 0.2;
         }
         [self.streamData setLength:0];
     }
-    // 兜底：streamBuffer 里若仍有未以 \n 结尾的残行（内容最后一行或 data: [DONE] 无尾换行），
-    // 复制后清空 buffer，作为最后一个完整行解析一次，确保末尾 delta 刷出
     if (self.streamBuffer.length > 0) {
         NSString *tailLine = [self.streamBuffer copy];
         [self.streamBuffer setString:@""];
