@@ -46,6 +46,7 @@
         _isToolCall = NO;
         _isToolResult = NO;
         _toolSucceeded = YES;
+        _imageDataURLs = nil;
     }
     return self;
 }
@@ -67,6 +68,8 @@
     if ([ts isKindOfClass:[NSNumber class]]) {
         _createdAt = [NSDate dateWithTimeIntervalSince1970:ts.doubleValue];
     }
+    // 图片列表不持久化：体积大，重新打开会话后丢弃（文本仍在）
+    _imageDataURLs = nil;
     return self;
 }
 
@@ -83,6 +86,7 @@
     if (self.isToolResult) dict[@"isToolResult"] = @YES;
     // 仅写出失败态，成功（默认值）不写，兼容旧版
     if (!self.toolSucceeded) dict[@"toolSucceeded"] = @NO;
+    // imageDataURLs 刻意不写：单张图 base64 可达数百 KB，写进会话 JSON 会让读写卡顿
     return [dict copy];
 }
 

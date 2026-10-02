@@ -36,6 +36,15 @@ NS_ASSUME_NONNULL_BEGIN
 /// 工具执行是否成功（结果卡片用于区分 ✅/❌，默认成功）
 @property (nonatomic, assign) BOOL toolSucceeded;
 
+// ===== 多模态图片扩展（真图）=====
+/// 随该消息一并送入的图片列表，每项为 data URL（形如 data:image/jpeg;base64,...）。
+/// 发送时 AiAPIClient 会把该消息的 content 写成 OpenAI 内容数组格式：
+///   [{type:text,text:...}, {type:image_url,image_url:{url:...}}, ...]
+///
+/// 注意：**仅运行时使用、不写入磁盘**。图片 base64 体积很大，持久化会让会话 JSON
+/// 膨胀到难以加载；重开后历史里的图片丢失、但文本仍在，不影响继续对话。
+@property (nonatomic, copy, nullable) NSArray<NSString *> *imageDataURLs;
+
 /// 便捷构造
 + (instancetype)messageWithRole:(NSString *)role content:(NSString *)content;
 

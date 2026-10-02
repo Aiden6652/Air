@@ -47,4 +47,24 @@ typedef NS_ENUM(NSInteger, AiSafetyMode) {
 
 @end
 
+/// 可选协议：工具除文本外还能返回一张图片（data URL）。
+/// 实现该协议的工具具备「真图」能力：图片会作为 OpenAI 多模态 image 部分进入下一轮请求，
+/// 模型可直接看到像素（例如对比两张截图、判断 UI 大小与黑边）。
+///
+/// 为什么需要单独一条通道：OpenAI 协议里 role=tool 的消息 content 只能是字符串，
+/// 不能携带图片。所以图片由 AiAgent 在「本轮全部工具结果按序落盘之后」
+/// 以一条额外的 user 消息（content 为内容数组）送入下一轮请求，
+/// 既不破坏 assistant(tool_calls) → tool 的配对顺序，也能让模型看到真实画面。
+@protocol AiToolImageResult <NSObject>
+
+/// 执行并返回「文本 + 图片」
+/// @param params 规范化后的参数字典
+/// @param completion 结果回调；imageDataURL 为 data:image/jpeg;base64,... 形式，无图片时传 nil
+- (void)executeReturningImage:(NSDictionary<NSString *, id> *)params
+                   completion:(void (^)(NSString * _Nullable text,
+                                        NSString * _Nullable imageDataURL,
+                                        NSError * _Nullable error))completion;
+
+@end
+
 NS_ASSUME_NONNULL_END

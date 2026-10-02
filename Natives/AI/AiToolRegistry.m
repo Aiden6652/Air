@@ -29,6 +29,9 @@
         // 从未被任何地方调用，工具列表始终为空，openAIToolSchemas 返回空数组，
         // 模型收不到任何工具定义，表现为 AI 完全不知道能调用工具。这里在单例 init 时自动注册。
         [AiToolBootstrapper registerBuiltinToolsIntoRegistry:self];
+        // 注：此前这里会调用 dumpToolRegistrationDiagnostics 做启动诊断，
+        // 每次冷启动都同步写 Documents/ai_tools_dump.txt 并 NSLog 一大段，
+        // 属于排查期的临时手段。已移除，避免启动时的磁盘 IO 与日志噪音。
     }
     return self;
 }
@@ -176,6 +179,48 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             if (completion) {
                 completion(result, error);
+            }
+        });
+    }];
+}
+
+- (void)executeToolNamedAndReturnImage:(NSString *)name
+                                params:(NSDictionary *)params
+                            completion:(void (^)(NSString * _Nullable result,
+                                                 NSString * _Nullable imageDataURL,
+                                                 NSError * _Nullable error))completion {
+    id<AiTool> tool = [self toolForName:name];
+    if (!tool) {
+        if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSError *err = [NSError errorWithDomain:@"AiTool" code:404
+                                               userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"未知工具 %@", name ?: @""]}];
+                completion(nil, nil, err);
+            });
+        }
+        return;
+    }
+
+    NSDictionary *normalized = [self normalizedParams:params];
+
+    // 支持「文本 + 图片」的工具走专用通道
+    if ([tool conformsToProtocol:@protocol(AiToolImageResult)]) {
+        id<AiToolImageResult> imageTool = (id<AiToolImageResult>)tool;
+        [imageTool executeReturningImage:normalized completion:^(NSString * _Nullable text, NSString * _Nullable imageDataURL, NSError * _Nullable error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (completion) {
+                    completion(text, imageDataURL, error);
+                }
+            });
+        }];
+        return;
+    }
+
+    // 其余工具回落普通文本通道
+    [tool execute:normalized completion:^(NSString * _Nullable result, NSError * _Nullable error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (completion) {
+                completion(result, nil, error);
             }
         });
     }];

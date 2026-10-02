@@ -35,6 +35,15 @@ NS_ASSUME_NONNULL_BEGIN
                   params:(NSDictionary *)params
               completion:(void (^)(NSString * _Nullable result, NSError * _Nullable error))completion;
 
+/// 按名称执行工具，并尝试获取图片结果：
+/// 若该工具实现了 AiToolImageResult，则走该方法并把图片一并回传；
+/// 否则回落到普通 execute:，imageDataURL 为 nil。
+- (void)executeToolNamedAndReturnImage:(NSString *)name
+                                params:(NSDictionary *)params
+                            completion:(void (^)(NSString * _Nullable result,
+                                                 NSString * _Nullable imageDataURL,
+                                                 NSError * _Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END
