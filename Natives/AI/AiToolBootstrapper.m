@@ -94,7 +94,11 @@
     // view_image 读图（ReadOnly，无副作用）：把截图转成文本缩略图（尺寸 + 明暗图 + 非黑内容边界），
     // 让 AI 在模型不支持视觉的情况下也能判断 UI 大小、黑边、内容有没有铺满屏幕。
     // 实现与 AiSleepTool 同文件（原因见 AiSleepTool.h 顶部注释）。
-    [registry registerTool:[[AiImageTool alloc] init]];
+    //
+    // ⚠️ 2026-10-05 临时停用：加了这个工具后 AI 聊天开始出现 HTTP 400（且看不到服务端报错）。
+    //    为定位「是不是它引起的」，先把注册摘掉做对照实验。
+    //    确认结论后：若是它 → 修好再放回；若不是 → 直接还原此行。
+    // [registry registerTool:[[AiImageTool alloc] init]];
 
     // 新建游戏目录实例（ControlledWrite）
     [registry registerTool:[[AiInstanceCreator alloc] init]];
